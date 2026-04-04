@@ -6,7 +6,7 @@ use crate::{
     ldpc::{bp::bp_decode, osd::{osd_decode, osd_decode_deep}},
     llr::{compute_llr, symbol_spectra, sync_quality},
     params::BP_MAX_ITER,
-    sync::{coarse_sync, refine_candidate},
+    sync::{coarse_sync, refine_candidate, refine_candidate_double},
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -180,6 +180,10 @@ pub fn decode_frame(
 
 /// Sniper-mode decode: search only within ±250 Hz of `target_freq`.
 ///
+/// Uses Double Sync (independent Array-1 / Array-3 peak search) for ghost
+/// suppression.  Candidates whose timing drifts more than 40 ms between the
+/// two outer Costas arrays are rejected as spurious correlations.
+///
 /// Lower `sync_min` is used because the 500 Hz filter removes strong
 /// adjacent signals and reduces the noise floor.
 pub fn decode_sniper(
@@ -190,9 +194,100 @@ pub fn decode_sniper(
 ) -> Vec<DecodeResult> {
     let freq_min = (target_freq - 250.0).max(100.0);
     let freq_max = (target_freq + 250.0).min(5900.0);
-    let sync_min = 0.8; // lower threshold: strong neighbours are gone
+    let sync_min = 0.8;
 
-    decode_frame(audio, freq_min, freq_max, sync_min, Some(target_freq), depth, max_cand)
+    let candidates = coarse_sync(audio, freq_min, freq_max, sync_min, Some(target_freq), max_cand);
+
+    let mut fft_cache: Option<Vec<_>> = None;
+    let mut results: Vec<DecodeResult> = Vec::new();
+
+    for cand in &candidates {
+        let (cd0, new_cache) = downsample(audio, cand.freq_hz, fft_cache.as_deref());
+        fft_cache = Some(new_cache);
+
+        // Double Sync: independently maximise Array 1 and Array 3.
+        let detail = refine_candidate_double(&cd0, cand, 10);
+
+        // Ghost filter: real signals have |drift| < 40 ms across 11.52 s.
+        if detail.drift_dt_sec.abs() > 0.040 {
+            continue;
+        }
+
+        let refined = detail.candidate;
+        let i_start = ((refined.dt_sec + 0.5) * 200.0).round() as usize;
+        let cs = symbol_spectra(&cd0, i_start);
+        let nsync = sync_quality(&cs);
+        if nsync <= 6 {
+            continue;
+        }
+
+        let llr_set = compute_llr(&cs);
+        let llr_variants: &[(&[f32; 174], u8)] = match depth {
+            DecodeDepth::Bp => &[(&llr_set.llra, 0)],
+            DecodeDepth::BpAll | DecodeDepth::BpAllOsd => &[
+                (&llr_set.llra, 0),
+                (&llr_set.llrb, 1),
+                (&llr_set.llrc, 2),
+                (&llr_set.llrd, 3),
+            ],
+        };
+
+        let mut decoded_this_cand = false;
+        for &(llr, pass_id) in llr_variants {
+            if let Some(bp) = bp_decode(llr, None, BP_MAX_ITER) {
+                let result = DecodeResult {
+                    message77: bp.message77,
+                    freq_hz: cand.freq_hz,
+                    dt_sec: refined.dt_sec,
+                    hard_errors: bp.hard_errors,
+                    sync_score: refined.score,
+                    pass: pass_id,
+                };
+                if !results.iter().any(|r| r.message77 == result.message77) {
+                    results.push(result);
+                }
+                decoded_this_cand = true;
+                break;
+            }
+        }
+
+        if !decoded_this_cand && depth == DecodeDepth::BpAllOsd
+            && nsync >= 12 && cand.score >= 2.5
+        {
+            let freq_dup = results
+                .iter()
+                .any(|r| (r.freq_hz - cand.freq_hz).abs() < 20.0);
+            if !freq_dup {
+                let osd_depth: u8 = if nsync >= 18 { 3 } else { 2 };
+                for llr_osd in [&llr_set.llra, &llr_set.llrb, &llr_set.llrc, &llr_set.llrd] {
+                    let osd_result = if osd_depth == 3 {
+                        osd_decode_deep(llr_osd, 3)
+                    } else {
+                        osd_decode(llr_osd)
+                    };
+                    if let Some(osd) = osd_result {
+                        if osd.hard_errors >= 56 {
+                            continue;
+                        }
+                        let result = DecodeResult {
+                            message77: osd.message77,
+                            freq_hz: cand.freq_hz,
+                            dt_sec: refined.dt_sec,
+                            hard_errors: osd.hard_errors,
+                            sync_score: refined.score,
+                            pass: 4,
+                        };
+                        if !results.iter().any(|r| r.message77 == result.message77) {
+                            results.push(result);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    results
 }
 
 #[cfg(test)]

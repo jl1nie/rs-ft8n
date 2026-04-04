@@ -275,23 +275,17 @@ pub fn coarse_sync(
 // ────────────────────────────────────────────────────────────────────────────
 // Fine sync (sync8d)
 
-/// Compute sync power for a downsampled complex FT8 signal.
-///
-/// `cd0` — complex samples at 200 Hz (output of `downsample`)
-/// `i0`  — sample index of the first symbol start (0-based) in `cd0`
-///
-/// Returns the sum of Costas correlation powers across all three arrays.
-/// Equivalent to WSJT-X sync8d.f90.
-pub fn fine_sync_power(cd0: &[Complex<f32>], i0: usize) -> f32 {
-    #[allow(dead_code)]
-    const SPB: usize = 32; // downsampled samples per symbol (DS_SPB)
+/// Downsampled samples per symbol (DS_SPB = 32)
+const SPB: usize = 32;
 
-    // Pre-compute Costas reference waveforms (one per tone in the pattern)
-    let csync: Vec<[Complex<f32>; 32]> = COSTAS
+/// Build the 7 Costas reference waveforms (one complex sinusoid per tone position).
+/// Allocates once; callers reuse the result across multiple scoring calls.
+fn make_costas_ref() -> Vec<[Complex<f32>; SPB]> {
+    COSTAS
         .iter()
         .map(|&tone| {
             let dphi = 2.0 * PI * tone as f32 / SPB as f32;
-            let mut waves = [Complex::new(0.0f32, 0.0); 32];
+            let mut waves = [Complex::new(0.0f32, 0.0); SPB];
             let mut phi = 0.0f32;
             for w in waves.iter_mut() {
                 *w = Complex::new(phi.cos(), phi.sin());
@@ -299,17 +293,24 @@ pub fn fine_sync_power(cd0: &[Complex<f32>], i0: usize) -> f32 {
             }
             waves
         })
-        .collect();
+        .collect()
+}
 
-    let mut sync = 0.0f32;
+/// Correlate a single Costas array starting at `array_start` in `cd0`.
+///
+/// `csync` must be the output of [`make_costas_ref`].
+/// Returns the sum of squared magnitudes over the 7-tone Costas pattern.
+fn score_costas_array(
+    cd0: &[Complex<f32>],
+    csync: &[[Complex<f32>; SPB]],
+    array_start: usize,
+) -> f32 {
     let np2 = cd0.len();
-
-    for (idx_cos, ref_tone) in csync.iter().enumerate() {
-        let i1 = i0 + idx_cos * SPB;
-        let i2 = i1 + 36 * SPB;
-        let i3 = i1 + 72 * SPB;
-
-        let correlate = |start: usize| -> f32 {
+    csync
+        .iter()
+        .enumerate()
+        .map(|(k, ref_tone)| {
+            let start = array_start + k * SPB;
             if start + SPB <= np2 {
                 cd0[start..start + SPB]
                     .iter()
@@ -320,12 +321,52 @@ pub fn fine_sync_power(cd0: &[Complex<f32>], i0: usize) -> f32 {
             } else {
                 0.0
             }
-        };
+        })
+        .sum()
+}
 
-        sync += correlate(i1) + correlate(i2) + correlate(i3);
-    }
+/// Compute sync power for a downsampled complex FT8 signal.
+///
+/// `cd0` — complex samples at 200 Hz (output of `downsample`)
+/// `i0`  — sample index of the first symbol start (0-based) in `cd0`
+///
+/// Returns the sum of Costas correlation powers across all three arrays.
+/// Equivalent to WSJT-X sync8d.f90.
+pub fn fine_sync_power(cd0: &[Complex<f32>], i0: usize) -> f32 {
+    let (sa, sb, sc) = fine_sync_power_split(cd0, i0);
+    sa + sb + sc
+}
 
-    sync
+/// Compute per-array sync power for a downsampled complex FT8 signal.
+///
+/// Returns `(score_a, score_b, score_c)` — the Costas correlation power of
+/// Array 1 (symbols 0–6), Array 2 (symbols 36–42), and Array 3 (symbols 72–78)
+/// independently.  The sum equals [`fine_sync_power`].
+pub fn fine_sync_power_split(cd0: &[Complex<f32>], i0: usize) -> (f32, f32, f32) {
+    let csync = make_costas_ref();
+    let sa = score_costas_array(cd0, &csync, i0);
+    let sb = score_costas_array(cd0, &csync, i0 + 36 * SPB);
+    let sc = score_costas_array(cd0, &csync, i0 + 72 * SPB);
+    (sa, sb, sc)
+}
+
+/// Diagnostic result from [`refine_candidate_double`].
+#[derive(Debug, Clone)]
+pub struct FineSyncDetail {
+    /// Refined sync candidate (freq, dt averaged over arrays A and C, combined score).
+    pub candidate: SyncCandidate,
+    /// Costas Array 1 (symbols 0–6) correlation power.
+    pub score_a: f32,
+    /// Costas Array 2 (symbols 36–42) correlation power.
+    pub score_b: f32,
+    /// Costas Array 3 (symbols 72–78) correlation power.
+    pub score_c: f32,
+    /// Time drift: `dt_c − dt_a` (seconds) across the 11.52 s array separation.
+    ///
+    /// For a real FT8 signal this is near zero (< 10 ms).  Ghost signals — where
+    /// noise happens to correlate with one array but not the other — show
+    /// |drift_dt_sec| >> 0, typically > 40 ms.
+    pub drift_dt_sec: f32,
 }
 
 /// Parabolic interpolation refinement on three adjacent values.
@@ -369,6 +410,88 @@ pub fn refine_candidate(
     }
 }
 
+/// Refine a candidate using independent Array-1 / Array-3 peak search (Double Sync).
+///
+/// Unlike [`refine_candidate`] which maximises the combined three-array power,
+/// this function maximises Array 1 and Array 3 **independently** and reports
+/// the per-array timing estimates.  The difference `dt_c − dt_a` is the
+/// [`FineSyncDetail::drift_dt_sec`] — near zero for real signals, large for ghosts.
+///
+/// The returned `candidate.dt_sec` is the average of the two array estimates;
+/// the parabolic sub-sample refinement is applied to each array separately.
+pub fn refine_candidate_double(
+    cd0: &[Complex<f32>],
+    candidate: &SyncCandidate,
+    search_steps: i32,
+) -> FineSyncDetail {
+    let csync = make_costas_ref();
+    let nominal_i0 = ((candidate.dt_sec + 0.5) * 200.0).round() as i32;
+
+    // ── Array 1 peak search ─────────────────────────────────────────────────
+    let (best_i0_a, _) = (-search_steps..=search_steps)
+        .map(|delta| {
+            let i0 = (nominal_i0 + delta).max(0) as usize;
+            (i0, score_costas_array(cd0, &csync, i0))
+        })
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap_or((nominal_i0.max(0) as usize, 0.0));
+
+    // Parabolic sub-sample for Array 1
+    let frac_a = if best_i0_a > 0 {
+        let (f, _) = parabolic_peak(
+            score_costas_array(cd0, &csync, best_i0_a - 1),
+            score_costas_array(cd0, &csync, best_i0_a),
+            score_costas_array(cd0, &csync, best_i0_a + 1),
+        );
+        f
+    } else {
+        0.0
+    };
+
+    // ── Array 3 peak search ─────────────────────────────────────────────────
+    let (best_i0_c, _) = (-search_steps..=search_steps)
+        .map(|delta| {
+            let i0 = (nominal_i0 + delta).max(0) as usize;
+            let arr3_start = i0 + 72 * SPB;
+            (i0, score_costas_array(cd0, &csync, arr3_start))
+        })
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .unwrap_or((nominal_i0.max(0) as usize, 0.0));
+
+    // Parabolic sub-sample for Array 3
+    let frac_c = if best_i0_c > 0 {
+        let (f, _) = parabolic_peak(
+            score_costas_array(cd0, &csync, (best_i0_c - 1) + 72 * SPB),
+            score_costas_array(cd0, &csync, best_i0_c + 72 * SPB),
+            score_costas_array(cd0, &csync, (best_i0_c + 1) + 72 * SPB),
+        );
+        f
+    } else {
+        0.0
+    };
+
+    // Convert to time offsets from nominal 0.5 s frame start
+    let dt_a = best_i0_a as f32 / 200.0 + frac_a / 200.0 - 0.5;
+    let dt_c = best_i0_c as f32 / 200.0 + frac_c / 200.0 - 0.5;
+    let drift_dt_sec = dt_c - dt_a;
+
+    // Combined scores at the averaged i0
+    let avg_i0 = ((best_i0_a + best_i0_c) as f32 * 0.5).round() as usize;
+    let (score_a, score_b, score_c) = fine_sync_power_split(cd0, avg_i0);
+
+    FineSyncDetail {
+        candidate: SyncCandidate {
+            freq_hz: candidate.freq_hz,
+            dt_sec: (dt_a + dt_c) * 0.5,
+            score: score_a + score_b + score_c,
+        },
+        score_a,
+        score_b,
+        score_c,
+        drift_dt_sec,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -401,5 +524,39 @@ mod tests {
         // Silence may return 0 candidates or candidates with low score
         // Just check it doesn't panic and returns a bounded list
         assert!(cands.len() <= 100);
+    }
+
+    #[test]
+    fn fine_sync_split_silence_is_zero() {
+        let cd0 = vec![Complex::new(0.0f32, 0.0); 3200];
+        let (sa, sb, sc) = fine_sync_power_split(&cd0, 0);
+        assert_eq!(sa, 0.0);
+        assert_eq!(sb, 0.0);
+        assert_eq!(sc, 0.0);
+    }
+
+    #[test]
+    fn fine_sync_split_sum_equals_total() {
+        // fine_sync_power must equal the sum of per-array scores.
+        use num_complex::Complex;
+        let mut cd0 = vec![Complex::new(0.0f32, 0.0); 3200];
+        // Inject some non-zero signal so scores aren't all zero
+        for (i, c) in cd0.iter_mut().enumerate() {
+            let t = i as f32 / 200.0;
+            c.re = (2.0 * std::f32::consts::PI * 50.0 * t).cos() * 100.0;
+        }
+        let total = fine_sync_power(&cd0, 100);
+        let (sa, sb, sc) = fine_sync_power_split(&cd0, 100);
+        let diff = (total - (sa + sb + sc)).abs();
+        assert!(diff < 1e-3, "split sum {:.4} != total {:.4}", sa + sb + sc, total);
+    }
+
+    #[test]
+    fn refine_candidate_double_silence_no_panic() {
+        let cd0 = vec![Complex::new(0.0f32, 0.0); 3200];
+        let cand = SyncCandidate { freq_hz: 1000.0, dt_sec: 0.0, score: 1.0 };
+        let detail = refine_candidate_double(&cd0, &cand, 5);
+        // Should not panic; drift is meaningless on silence but must be finite
+        assert!(detail.drift_dt_sec.is_finite());
     }
 }
