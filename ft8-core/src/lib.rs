@@ -7,3 +7,4 @@ pub mod wave_gen;
 pub mod subtract;
 pub mod equalizer;
 pub mod decode;
+pub mod message;

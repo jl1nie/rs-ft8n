@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult};
+use ft8_core::message::unpack77;
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -20,14 +21,11 @@ pub struct RealDataReport {
 }
 
 fn format_result(i: usize, r: &DecodeResult) -> String {
-    let mut packed = [0u8; 10];
-    for (j, &bit) in r.message77.iter().enumerate() {
-        packed[j / 8] |= (bit & 1) << (7 - j % 8);
-    }
-    let bits_hex: String = packed.iter().map(|b| format!("{b:02x}")).collect();
+    let text = unpack77(&r.message77)
+        .unwrap_or_else(|| "<undecodable>".to_string());
     format!(
-        "  [{i:2}] freq={:7.1} Hz  dt={:+.2} s  errors={:2}  pass={}  msg={bits_hex}",
-        r.freq_hz, r.dt_sec, r.hard_errors, r.pass
+        "  [{i:2}] freq={:7.1} Hz  dt={:+.2} s  errors={:2}  pass={}  \"{}\"",
+        r.freq_hz, r.dt_sec, r.hard_errors, r.pass, text
     )
 }
 

@@ -23,13 +23,21 @@ Verified against real recordings from [jl1nie/RustFT8](https://github.com/jl1nie
 |--------|-----|--------|---------|--------|
 | CQ R7IW LN35 | −8 dB | ✓ | ✓ | BP |
 | CQ TA6CQ KN70 | −8 dB | ✓ | ✓ | BP |
+| CQ DX R6WA LN32 | — | ✗ | ✓ | BP |
 | OH3NIV ZS6S RR73 | **−14 dB** | ✓ | ✓ | **OSD ord-3** |
 | CQ LZ1JZ KN22 | **−15 dB** | ✓ | ✓ | **OSD ord-2** |
-| (extra signal @ 2096.9 Hz) | — | ✗ | ✓ | BP |
 
-**`191111_110130.wav`** — subtract multi-pass:
+**`191111_110130.wav`** — single-pass + subtract multi-pass:
 
-強信号 4 局を除去した残余音声に対し OSD 閾値 2.0 で再スキャン。スコア 2.32 の低スコア候補（2478.1 Hz）を回収したが、メッセージ内容の独立検証が未完了のため参考値扱い。
+| Signal | freq | single | subtract | Method |
+|--------|------|--------|----------|--------|
+| CQ DX R6WA LN32 | 2096.9 Hz | ✓ | — | BP |
+| CQ R7IW LN35 | 1290.6 Hz | ✓ | — | BP |
+| CQ TA6CQ KN70 | 681.2 Hz | ✓ | — | BP |
+| OH3NIV ZS6S -3 | 990.6 Hz | ✓ | — | BP |
+| TK4LS YC1MRF 73 | 2478.1 Hz | ✗ | ✓ | **OSD pass-3** (score 2.32, errors 29) |
+
+強信号 4 局を除去した残余音声に対し OSD 閾値 2.0 で再スキャン。`TK4LS YC1MRF 73` (Corsica↔Indonesia) を回収。errors=29 は高いが CRC-14 通過。
 
 ## アーキテクチャ / Architecture
 
