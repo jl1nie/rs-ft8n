@@ -133,6 +133,55 @@ pub fn generate_frame(config: &SimConfig) -> Vec<i16> {
         .collect()
 }
 
+/// Generate the 15-second frame as raw `f32` samples (before i16 quantisation).
+///
+/// Useful when the caller wants to apply custom ADC gain / clipping.
+/// The noise σ = 1.0 and signal amplitudes follow the same WSJT-X SNR
+/// convention as [`generate_frame`].
+pub fn generate_frame_f32(config: &SimConfig) -> Vec<f32> {
+    const FS: f32 = 12_000.0;
+    const NMAX: usize = 180_000;
+    const REF_BW: f32 = 2_500.0;
+
+    let mut mix = vec![0.0f32; NMAX];
+    for sig in &config.signals {
+        let snr_linear = 10.0_f32.powf(sig.snr_db / 10.0);
+        let amplitude = (2.0 * snr_linear * REF_BW / FS).sqrt();
+        let itone = message_to_tones(&sig.message77);
+        let pcm = tones_to_f32(&itone, sig.freq_hz, amplitude);
+        let start = ((0.5 + sig.dt_sec) * FS).round() as usize;
+        let copy_len = pcm.len().min(NMAX.saturating_sub(start));
+        for i in 0..copy_len { mix[start + i] += pcm[i]; }
+    }
+    let mut rng = LcgRng::new(config.noise_seed.unwrap_or(12345));
+    for s in mix.iter_mut() { *s += rng.gaussian(); }
+    mix
+}
+
+/// Quantise a float mix to i16 with gain set by the expected crowd level.
+///
+/// Simulates a receiver whose AGC is locked to strong crowd stations.
+/// `crowd_snr_db`  — SNR of each crowd station (sets the AGC reference).
+/// `n_crowd`       — number of crowd stations (adds coherently for peak estimate).
+///
+/// Samples exceeding ±32 767 are hard-clipped (ADC saturation), which
+/// buries weak signals in clipping distortion.  Contrast with
+/// [`generate_frame`] which rescales to fit any mix into 16-bit range.
+pub fn quantise_crowd_agc(mix: &[f32], crowd_snr_db: f32, n_crowd: usize) -> Vec<i16> {
+    const FS: f32 = 12_000.0;
+    const REF_BW: f32 = 2_500.0;
+    // Per-station amplitude at crowd SNR
+    let per_amp = (2.0_f32 * 10f32.powf(crowd_snr_db / 10.0) * REF_BW / FS).sqrt();
+    // Worst-case coherent peak: all stations add in phase (conservative)
+    // Use sqrt(N) for typical random-phase worst case × safety margin 3.5
+    let crowd_peak = per_amp * (n_crowd as f32).sqrt() * 3.5;
+    // Scale so crowd peak = 75% of ADC range
+    let scale = 0.75 * 32_767.0 / crowd_peak;
+    mix.iter()
+        .map(|&s| (s * scale).clamp(-32_768.0, 32_767.0) as i16)
+        .collect()
+}
+
 /// Write a 12 000 Hz mono 16-bit WAV file.
 pub fn write_wav(path: &Path, samples: &[i16]) -> Result<(), hound::Error> {
     let spec = hound::WavSpec {
@@ -288,6 +337,33 @@ mod tests {
         let samples = generate_frame(&config);
         let max_abs = samples.iter().map(|&s| s.abs()).max().unwrap_or(0);
         assert!(max_abs < 32_000, "peak {max_abs} too close to clipping");
+    }
+
+    /// Sweep SNR from −5 to −22 dB to find practical decoder threshold.
+    /// Each SNR level uses 10 seeds; prints success rate per level.
+    #[test]
+    fn snr_sweep() {
+        use ft8_core::decode::{decode_sniper, DecodeDepth};
+        let msg = [1u8; MSG_BITS]; // non-trivial message
+        let n_seeds = 10u64;
+        for snr_db in [-5, -8, -10, -12, -14, -16, -18, -20, -22] {
+            let mut ok = 0usize;
+            for seed in 0..n_seeds {
+                let config = SimConfig {
+                    signals: vec![SimSignal {
+                        message77: msg,
+                        freq_hz: 1000.0,
+                        snr_db: snr_db as f32,
+                        dt_sec: 0.0,
+                    }],
+                    noise_seed: Some(seed),
+                };
+                let audio = generate_frame(&config);
+                let r = decode_sniper(&audio, 1000.0, DecodeDepth::BpAllOsd, 20);
+                if r.iter().any(|x| x.message77 == msg) { ok += 1; }
+            }
+            println!("SNR {:+3} dB: {ok}/{n_seeds} ({:.0}%)", snr_db, 100.0 * ok as f32 / n_seeds as f32);
+        }
     }
 
     #[test]
