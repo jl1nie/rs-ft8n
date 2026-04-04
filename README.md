@@ -125,6 +125,59 @@ use ft8_core::decode::{decode_sniper, DecodeDepth};
 let messages = decode_sniper(&samples, 1850.0, DecodeDepth::BpAllOsd, 50);
 ```
 
+## WSJT-X との相違点 / Differences from WSJT-X
+
+rs-ft8n は WSJT-X のアルゴリズムを Rust へ移植した実装だが、以下の点で意図的に挙動が異なる。
+
+### 同期 (Sync)
+
+| 項目 | WSJT-X | rs-ft8n |
+|------|--------|---------|
+| 粗同期スキャン | 4 パス（syncmin 段階的増加） | 1 パス（double-peak検出付き） |
+| 候補重複除去 | 周波数 ±4 Hz 以内 | 周波数 ±4 Hz かつ時間 ±40 ms |
+| 精密同期 | sync8d.f90（±10サンプルスキャン��� | ±10 ダウンサンプルサンプル + 放物線補完 |
+| 精密同期スコア単位 | 複素相関パワー（単位不定） | 同（正規化なし） |
+| 探索帯域 | nfa〜nfb（デフォルト 200〜2800 Hz） | decode_frame: 指定範囲 / decode_sniper: center±250 Hz |
+
+**放物線補完（rs-ft8n 独自）:** 精密同期でダウンサンプル軸のピーク前後 1 サンプルから放物線フィットし、サブサンプル精度の時間オフセットを推定する。WSJT-X は整数サンプルのみ。
+
+### LLR 計算
+
+| 項目 | WSJT-X | rs-ft8n |
+|------|--------|---------|
+| 変換名 | `ft8b.f90` | `llr.rs::compute_llr` |
+| 出力バリアント | llra/llrb/llrc/llrd | 同（4 バリアント） |
+| nsym=2 のグルーピング | 2 シンボルずつ step=2 | 同 |
+| 正規化 | normalizebmet（std dev） | 同 |
+| スケール係数 | 2.83 | 2.83（同一） |
+| AP (A Priori) パス | あり（pass 1-4） | なし（将来実装予定） |
+
+### OSD フォールバック
+
+| 項目 | WSJT-X | rs-ft8n |
+|------|--------|---------|
+| 適用条件 | ndeep≥1 かつ sync_q≥12 | score≥2.5 かつ sync_q≥12 |
+| デプス選択 | コマンドライン引数 | sync_q≥18 → order-3、それ未満 → order-2 |
+| 偽陽性フィルタ | hard_errors閾値なし | hard_errors≥56 を棄却 |
+| 周波数重複チェック | なし | ±20 Hz 以内の既存デコードをスキップ |
+
+**score≥2.5 フィルタ（rs-ft8n 独自）:** 実信号のコアース同期スコアは ≥3.0。スコアが 1.6〜2.3 程度の候補に order-3 OSD を適用すると CRC 衝突（偽陽性）が多発するため、このフィルタで排除する。
+
+### ダウンサンプリング
+
+| 項目 | WSJT-X | rs-ft8n |
+|------|--------|---------|
+| 変換 | `ft8_downsample.f90` | `downsample.rs` |
+| FFT サイズ | 192000 pt（ゼロパディング） | 192000 pt（同一） |
+| 周波数抽出帯域 | f0±(1.5〜8.5) baud | 同 |
+| エッジテーパ | Hann窓 101 bin | 同 |
+| 出力 | 3200 複素サンプル @ 200 Hz | 同 |
+| キャッシュ | なし（毎回再計算） | 候補間で FFT 結果を再利用 |
+
+**FFT キャッシュ（rs-ft8n 独自）:** 同一フレームの複数候補をデコードする際、192000 pt 前向き FFT 結果を再利用してダウンサンプリングの計算量を削減する。
+
+---
+
 ## 技術詳細 / Technical Notes
 
 ### Belief Propagation (BP)
@@ -159,4 +212,7 @@ SNR −15 dB の信号を order-2 で、−14 dB を order-3 で回収。
 
 ## ライセンス / License
 
-MIT
+GNU General Public License v3.0 (GPLv3)
+
+WSJT-X (the reference implementation) is distributed under GPLv3, and this
+project incorporates ported algorithms from WSJT-X.  See [LICENSE](LICENSE).
