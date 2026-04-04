@@ -5,7 +5,7 @@
 ///   data/191111_110200.wav
 use std::path::Path;
 
-use ft8_core::decode::{decode_frame, DecodeDepth, DecodeResult};
+use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult};
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -13,7 +13,22 @@ pub struct RealDataReport {
     pub wav_path: String,
     pub sample_rate: u32,
     pub num_samples: usize,
+    /// Single-pass decode results
     pub messages: Vec<DecodeResult>,
+    /// Multi-pass subtract decode results
+    pub messages_subtract: Vec<DecodeResult>,
+}
+
+fn format_result(i: usize, r: &DecodeResult) -> String {
+    let mut packed = [0u8; 10];
+    for (j, &bit) in r.message77.iter().enumerate() {
+        packed[j / 8] |= (bit & 1) << (7 - j % 8);
+    }
+    let bits_hex: String = packed.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "  [{i:2}] freq={:7.1} Hz  dt={:+.2} s  errors={:2}  pass={}  msg={bits_hex}",
+        r.freq_hz, r.dt_sec, r.hard_errors, r.pass
+    )
 }
 
 impl RealDataReport {
@@ -25,18 +40,26 @@ impl RealDataReport {
             self.num_samples,
             self.num_samples as f64 / self.sample_rate as f64
         );
-        println!("  Decoded: {} message(s)", self.messages.len());
+
+        // Single-pass
+        println!("  [single-pass] Decoded: {} message(s)", self.messages.len());
         for (i, r) in self.messages.iter().enumerate() {
-            // Pack 77 individual bits into 10 bytes (MSB first), print as hex.
-            let mut packed = [0u8; 10];
-            for (j, &bit) in r.message77.iter().enumerate() {
-                packed[j / 8] |= (bit & 1) << (7 - j % 8);
+            println!("{}", format_result(i, r));
+        }
+
+        // Subtract: show only messages gained in later passes
+        let extra: Vec<&DecodeResult> = self.messages_subtract
+            .iter()
+            .filter(|r| !self.messages.iter().any(|m| m.message77 == r.message77))
+            .collect();
+
+        if extra.is_empty() {
+            println!("  [subtract   ] no additional messages");
+        } else {
+            println!("  [subtract   ] +{} additional message(s):", extra.len());
+            for (i, r) in extra.iter().enumerate() {
+                println!("{}", format_result(i, r));
             }
-            let bits_hex: String = packed.iter().map(|b| format!("{b:02x}")).collect();
-            println!(
-                "  [{i:2}] freq={:7.1} Hz  dt={:+.2} s  errors={:2}  pass={}  msg={bits_hex}",
-                r.freq_hz, r.dt_sec, r.hard_errors, r.pass
-            );
         }
         println!();
     }
@@ -89,12 +112,22 @@ pub fn evaluate_real_data(wav_path: &Path) -> Result<RealDataReport, String> {
 
     let messages = decode_frame(
         &samples,
-        200.0,   // freq_min
-        2800.0,  // freq_max
-        1.5,     // sync_min — standard WSJT-X threshold
-        None,    // no frequency hint
+        200.0,
+        2800.0,
+        1.5,
+        None,
         DecodeDepth::BpAllOsd,
-        200,     // max_cand — generous for full-band scan
+        200,
+    );
+
+    let messages_subtract = decode_frame_subtract(
+        &samples,
+        200.0,
+        2800.0,
+        1.5,
+        None,
+        DecodeDepth::BpAllOsd,
+        200,
     );
 
     Ok(RealDataReport {
@@ -102,5 +135,6 @@ pub fn evaluate_real_data(wav_path: &Path) -> Result<RealDataReport, String> {
         sample_rate: spec.sample_rate,
         num_samples,
         messages,
+        messages_subtract,
     })
 }

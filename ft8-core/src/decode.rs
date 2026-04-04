@@ -6,6 +6,7 @@ use crate::{
     ldpc::{bp::bp_decode, osd::{osd_decode, osd_decode_deep}},
     llr::{compute_llr, symbol_spectra, sync_quality},
     params::BP_MAX_ITER,
+    subtract::subtract_signal,
     sync::{coarse_sync, refine_candidate, refine_candidate_double},
 };
 
@@ -64,37 +65,43 @@ pub fn decode_frame(
     depth: DecodeDepth,
     max_cand: usize,
 ) -> Vec<DecodeResult> {
-    // ── Coarse sync ─────────────────────────────────────────────────────────
+    decode_frame_inner(audio, freq_min, freq_max, sync_min, freq_hint, depth, max_cand, 2.5, &[])
+}
+
+/// Inner decode loop shared by [`decode_frame`] and [`decode_frame_subtract`].
+///
+/// `osd_score_min` — minimum coarse-sync score required for OSD fallback.
+/// `known`         — messages already decoded in earlier passes (skipped).
+fn decode_frame_inner(
+    audio: &[i16],
+    freq_min: f32,
+    freq_max: f32,
+    sync_min: f32,
+    freq_hint: Option<f32>,
+    depth: DecodeDepth,
+    max_cand: usize,
+    osd_score_min: f32,
+    known: &[DecodeResult],
+) -> Vec<DecodeResult> {
     let candidates = coarse_sync(audio, freq_min, freq_max, sync_min, freq_hint, max_cand);
 
-    // Cache the large forward FFT (computed once per frame, reused per candidate)
     let mut fft_cache: Option<Vec<_>> = None;
-
     let mut results: Vec<DecodeResult> = Vec::new();
 
     for cand in &candidates {
-        // ── Downsample to 200 Hz centred on candidate frequency ─────────────
         let (cd0, new_cache) = downsample(audio, cand.freq_hz, fft_cache.as_deref());
         fft_cache = Some(new_cache);
 
-        // ── Fine sync (refine time offset at downsampled rate) ───────────────
         let refined = refine_candidate(&cd0, cand, 10);
-
         let i_start = ((refined.dt_sec + 0.5) * 200.0).round() as usize;
-
-        // ── Symbol spectra (79 × 8 complex bins) ────────────────────────────
         let cs = symbol_spectra(&cd0, i_start);
-
-        // Bail out on poor sync quality
         let nsync = sync_quality(&cs);
         if nsync <= 6 {
             continue;
         }
 
-        // ── LLR computation ──────────────────────────────────────────────────
         let llr_set = compute_llr(&cs);
 
-        // ── BP decode — try multiple LLR variants ───────────────────────────
         let llr_variants: &[(&[f32; 174], u8)] = match depth {
             DecodeDepth::Bp => &[(&llr_set.llra, 0)],
             DecodeDepth::BpAll | DecodeDepth::BpAllOsd => &[
@@ -105,43 +112,37 @@ pub fn decode_frame(
             ],
         };
 
+        let is_known = |msg: &[u8; 77]| {
+            known.iter().any(|r| &r.message77 == msg)
+        };
+
         let mut decoded_this_cand = false;
         for &(llr, pass_id) in llr_variants {
             if let Some(bp) = bp_decode(llr, None, BP_MAX_ITER) {
-                let result = DecodeResult {
-                    message77: bp.message77,
-                    freq_hz: cand.freq_hz,
-                    dt_sec: refined.dt_sec,
-                    hard_errors: bp.hard_errors,
-                    sync_score: refined.score,
-                    pass: pass_id,
-                };
-                // Deduplicate by message77
-                if !results.iter().any(|r| r.message77 == result.message77) {
-                    results.push(result);
+                if !is_known(&bp.message77)
+                    && !results.iter().any(|r| r.message77 == bp.message77)
+                {
+                    results.push(DecodeResult {
+                        message77: bp.message77,
+                        freq_hz: cand.freq_hz,
+                        dt_sec: refined.dt_sec,
+                        hard_errors: bp.hard_errors,
+                        sync_score: refined.score,
+                        pass: pass_id,
+                    });
                 }
                 decoded_this_cand = true;
-                break; // first successful pass wins for this candidate
+                break;
             }
         }
 
-        // ── OSD fallback when all BP variants failed ─────────────────────
-        // Use higher ndeep for very reliable sync; require minimum sync quality
-        // to suppress false positives from OSD's large candidate set.
-        //   nsync >= 12 → order-2 (~4,187 candidates)
-        //   nsync >= 18 → order-3 (~121,667 candidates, slow but catches -14 dB)
-        // Coarse sync score threshold: real signals have score ≥ 2.5; low-score
-        // candidates produce too many CRC collisions at OSD order ≥ 2.
         if !decoded_this_cand && depth == DecodeDepth::BpAllOsd
-            && nsync >= 12 && cand.score >= 2.5
+            && nsync >= 12 && cand.score >= osd_score_min
         {
-            // Skip if an existing decode already covers this frequency (±20 Hz).
-            let freq_dup = results
-                .iter()
+            let freq_dup = known.iter().chain(results.iter())
                 .any(|r| (r.freq_hz - cand.freq_hz).abs() < 20.0);
             if !freq_dup {
                 let osd_depth: u8 = if nsync >= 18 { 3 } else { 2 };
-                // Try all four LLR variants with OSD.
                 for llr_osd in [&llr_set.llra, &llr_set.llrb, &llr_set.llrc, &llr_set.llrd] {
                     let osd_result = if osd_depth == 3 {
                         osd_decode_deep(llr_osd, 3)
@@ -149,23 +150,22 @@ pub fn decode_frame(
                         osd_decode(llr_osd)
                     };
                     if let Some(osd) = osd_result {
-                        // Reject extremely high-error results (likely false positives).
-                        // At −15 dB SNR, ~48 hard errors is expected for a genuine signal.
                         if osd.hard_errors >= 56 {
                             continue;
                         }
-                        let result = DecodeResult {
-                            message77: osd.message77,
-                            freq_hz: cand.freq_hz,
-                            dt_sec: refined.dt_sec,
-                            hard_errors: osd.hard_errors,
-                            sync_score: refined.score,
-                            pass: 4, // OSD
-                        };
-                        if !results.iter().any(|r| r.message77 == result.message77) {
-                            results.push(result);
+                        if !is_known(&osd.message77)
+                            && !results.iter().any(|r| r.message77 == osd.message77)
+                        {
+                            results.push(DecodeResult {
+                                message77: osd.message77,
+                                freq_hz: cand.freq_hz,
+                                dt_sec: refined.dt_sec,
+                                hard_errors: osd.hard_errors,
+                                sync_score: refined.score,
+                                pass: 4,
+                            });
                         }
-                        break; // first successful OSD variant wins
+                        break;
                     }
                 }
             }
@@ -173,6 +173,59 @@ pub fn decode_frame(
     }
 
     results
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Multi-pass decode with signal subtraction
+
+/// Decode a 15-second FT8 frame using successive signal subtraction.
+///
+/// Runs three decode passes with decreasing sync thresholds.  After each
+/// pass every newly decoded signal is subtracted from the residual audio,
+/// revealing weaker signals that were previously hidden.
+///
+/// | Pass | sync_min factor | OSD score min | Purpose |
+/// |------|----------------|---------------|---------|
+/// | 1    | 1.0×           | 2.5           | Strong signals (BP + OSD) |
+/// | 2    | 0.75×          | 2.5           | Medium signals on residual |
+/// | 3    | 0.5×           | 2.0           | Weak / spurious signals |
+///
+/// Pass 3 uses a lower OSD score threshold (`2.0` vs the normal `2.5`) to
+/// also subtract signals that are marginal but have valid CRC — even if they
+/// were questionable in the original audio, subtracting their reconstructed
+/// waveform from the already-cleaned residual does more good than harm.
+pub fn decode_frame_subtract(
+    audio: &[i16],
+    freq_min: f32,
+    freq_max: f32,
+    sync_min: f32,
+    freq_hint: Option<f32>,
+    depth: DecodeDepth,
+    max_cand: usize,
+) -> Vec<DecodeResult> {
+    let mut residual = audio.to_vec();
+    let mut all_results: Vec<DecodeResult> = Vec::new();
+
+    // (sync_min_factor, osd_score_min)
+    let passes: &[(f32, f32)] = &[(1.0, 2.5), (0.75, 2.5), (0.5, 2.0)];
+
+    for &(factor, osd_score_min) in passes {
+        let new = decode_frame_inner(
+            &residual,
+            freq_min, freq_max,
+            sync_min * factor,
+            freq_hint, depth, max_cand,
+            osd_score_min,
+            &all_results,
+        );
+
+        for r in &new {
+            subtract_signal(&mut residual, r);
+        }
+        all_results.extend(new);
+    }
+
+    all_results
 }
 
 // ────────────────────────────────────────────────────────────────────────────
