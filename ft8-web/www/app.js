@@ -281,11 +281,6 @@ function isTargetMessage(msg) {
   return msg.toUpperCase().includes(apCall);
 }
 
-function isOutOfBand(freqHz) {
-  if (!snipeMode) return false;
-  return freqHz < snipeFreq - 250 || freqHz > snipeFreq + 250;
-}
-
 function decodeModeName() {
   const parts = [];
   if (snipeMode) parts.push(`snipe ${snipeFreq}Hz (${snipeFreq-250}-${snipeFreq+250})`);
@@ -351,7 +346,6 @@ const periodMgr = new FT8PeriodManager({
         const tr = document.createElement('tr');
         if (isTargetMessage(r.message)) tr.classList.add('target');
         if (r.pass >= 4 && r.hard_errors >= 35) tr.classList.add('suspect');
-        if (isOutOfBand(r.freq_hz)) tr.classList.add('out-of-band');
         tr.innerHTML = `
           <td class="num">${utc}</td>
           <td class="num">${r.freq_hz.toFixed(1)}</td>
@@ -491,7 +485,6 @@ async function handleFile(file) {
         const tr = document.createElement('tr');
         if (isTargetMessage(r.message)) tr.classList.add('target');
         if (r.pass >= 4 && r.hard_errors >= 35) tr.classList.add('suspect');
-        if (isOutOfBand(r.freq_hz)) tr.classList.add('out-of-band');
         tr.innerHTML = `
           <td class="num">${i + 1}</td>
           <td class="num">${r.freq_hz.toFixed(1)}</td>
