@@ -87,7 +87,11 @@ export class FT8PeriodManager {
 
       // Fire period END (await decode to complete before TX check)
       if (this.callbacks.onPeriodEnd) {
-        await this.callbacks.onPeriodEnd(endedPeriod, endedIsEven);
+        try {
+          await this.callbacks.onPeriodEnd(endedPeriod, endedIsEven);
+        } catch (e) {
+          console.error('Decode error:', e);
+        }
       }
 
       // Fire period START

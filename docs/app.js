@@ -84,6 +84,11 @@ function setStatus(text) {
   btnHalt.style.display = (periodMgr.hasTxQueued() || isTx) ? '' : 'none';
 }
 
+const DOM_MAX = 200; // max child elements per list
+function pruneList(el) {
+  while (el.children.length > DOM_MAX) el.firstChild.remove();
+}
+
 function showToast(text) {
   const t = document.createElement('div');
   t.className = 'toast';
@@ -336,6 +341,7 @@ function addChatMsg(type, time, text, snr, actionCb, freq, dt) {
   }
 
   chatList.appendChild(div);
+  pruneList(chatList);
   chatList.scrollTop = chatList.scrollHeight;
 }
 
@@ -722,7 +728,7 @@ const periodMgr = new FT8PeriodManager({
           });
           snipeRxList.appendChild(div);
         }
-        snipeRxList.scrollTop = snipeRxList.scrollHeight;
+        pruneList(snipeRxList);\n        snipeRxList.scrollTop = snipeRxList.scrollHeight;
 
         // Show callers list
         if (apCall && callers.length > 0) {
