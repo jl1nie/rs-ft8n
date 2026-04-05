@@ -166,8 +166,8 @@ function setSnipePhase(phase) {
     // Auto-start calling if we have a target
     if (apCall && qso.state === QSO_STATE.IDLE) {
       qso.setMyInfo(myCallInput.value, myGridInput.value);
-      qso.callStation(apCall);
-      setStatus(`Calling ${apCall}`);
+      const tx = qso.callStation(apCall);
+      if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
     }
   }
   updateSnipeOverlay();
@@ -326,13 +326,11 @@ function updateTxActions() {
       altBtn.textContent = `Call ${snipeAltCall}`;
       altBtn.addEventListener('click', () => {
         qso.setMyInfo(myCallInput.value, myGridInput.value);
-        qso.callStation(snipeAltCall);
-        apCall = snipeAltCall;
+        const tx = qso.callStation(snipeAltCall);
         apCall = snipeAltCall;
         snipeDxCall.textContent = snipeAltCall;
         snipeAltCall = '';
-        updateTxActions();
-        setStatus(`Calling ${apCall}`);
+        if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
       });
       txActionsEl.appendChild(altBtn);
     }
@@ -346,7 +344,7 @@ function updateTxActions() {
       const btn = document.createElement('button');
       btn.className = 'tx-next';
       btn.textContent = qso.formatTx(tx);
-      btn.addEventListener('click', () => transmit(tx.call1, tx.call2, tx.report));
+      btn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
       txActionsEl.appendChild(btn);
     }
     return;
@@ -376,7 +374,7 @@ function updateTxActions() {
     const btn = document.createElement('button');
     btn.className = 'tx-msg';
     btn.textContent = o.label;
-    btn.addEventListener('click', () => transmit(o.c1, o.c2, o.rpt));
+    btn.addEventListener('click', () => queueTxMsg(o.c1, o.c2, o.rpt));
     txActionsEl.appendChild(btn);
   }
 }
@@ -441,7 +439,15 @@ function runDecode(samples) {
   return results;
 }
 
-// ── Transmit ────────────────────────────────────────────────────────────────
+// ── TX queue helper (all manual TX goes through period manager) ─────────────
+function queueTxMsg(call1, call2, report) {
+  const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+  const period = periodMgr.getCurrentPeriod();
+  periodMgr.queueTx({ call1, call2, report, freq }, !period.isEven);
+  setStatus(`TX queued: ${call1} ${call2} ${report}`);
+}
+
+// ── Transmit (called by period manager at period boundary) ─────────────────
 async function transmit(call1, call2, report, freq) {
   if (!wasmReady) return;
   freq = freq || (currentMode === 'snipe' ? snipeFreq : scoutDf);
@@ -539,8 +545,7 @@ const periodMgr = new FT8PeriodManager({
           qso.setMyInfo(myCallInput.value, myGridInput.value);
           const tx = qso.callStation(clickCall);
           apCall = clickCall;
-          apCall = clickCall;
-          setStatus(`Calling ${clickCall}`);
+          if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
         } : null, freq, dt);
       }
 
@@ -633,13 +638,11 @@ const periodMgr = new FT8PeriodManager({
             const sender = isCq ? (calls[0] || '') : (calls[1] || '');
             if (target) {
               qso.setMyInfo(myCallInput.value, myGridInput.value);
-              qso.callStation(target);
-              apCall = target;
+              const tx = qso.callStation(target);
               apCall = target;
               snipeDxCall.textContent = target;
-              // Store alt call (sender) if different from target
               snipeAltCall = (sender && sender !== target) ? sender : '';
-              updateTxActions();
+              if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
             }
           });
           snipeRxList.appendChild(div);
