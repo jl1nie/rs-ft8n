@@ -359,10 +359,12 @@ fn process_candidate(
                         // Adaptive hard_errors threshold: more locked bits → stricter
                         let locked_bits = ap_mask.iter().filter(|&&m| m).count();
                         let max_errors: u32 = if locked_bits >= 55 {
-                            24  // 61+ bit lock: fewer free bits = tighter filter
+                            24  // 61+ bit lock: fewer free bits = tighter
                         } else {
                             30  // 33-bit lock: more free bits = relaxed
                         };
+                        // AP sync quality gate
+                        if nsync < 8 { continue; }
 
                         for &(base_llr, _) in llr_variants {
                             let mut llr_ap = *base_llr;
@@ -373,10 +375,18 @@ fn process_candidate(
                             }
 
                             // Helper: validate AP decode result
-                            let mut check_result = |msg77: [u8; 77], hard_errors: u32| -> Option<DecodeResult> {
+                            let check_result = |msg77: [u8; 77], hard_errors: u32| -> Option<DecodeResult> {
                                 if hard_errors >= max_errors { return None; }
                                 let text = crate::message::unpack77(&msg77)?;
                                 if !crate::message::is_plausible_message(&text) { return None; }
+                                // Verify AP-locked callsigns appear in decoded message
+                                let upper = text.to_uppercase();
+                                if let Some(ref c1) = ap_cfg.call1 {
+                                    if !upper.contains(&c1.to_uppercase()) { return None; }
+                                }
+                                if let Some(ref c2) = ap_cfg.call2 {
+                                    if !upper.contains(&c2.to_uppercase()) { return None; }
+                                }
                                 let itone = message_to_tones(&msg77);
                                 let snr_db = compute_snr_db(cs, &itone);
                                 Some(DecodeResult {
