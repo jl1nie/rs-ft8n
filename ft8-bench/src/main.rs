@@ -1094,5 +1094,30 @@ fn run_extreme_sweep() {
         let found = r.iter().any(|r| r.message77 == target_msg);
         println!("  WAV: sim_extreme_edge.wav (BPF edge, target -22)  rs-ft8n: {}  decoded: {}", if found {"3Y0Z FOUND"} else {"3Y0Z missed"}, r.len());
     }
+
+    // BPF edge at -24 dB (beyond our limit — test if WSJT-X can still decode)
+    {
+        let cfg = simulator::SimConfig {
+            signals: vec![simulator::SimSignal {
+                message77: target_msg,
+                freq_hz: TARGET_FREQ,
+                snr_db: -24.0,
+                dt_sec: 0.0,
+            }],
+            noise_seed: Some(0),
+        };
+        let mix = simulator::generate_frame_f32(&cfg);
+        let mut bpf_f = bpf::ButterworthBpf::design(N_POLES, BPF_LO, BPF_HI, FS);
+        let filt = bpf_f.filter(&mix);
+        let pk = filt.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+        let sc = if pk > 1e-6 { 29_000.0 / pk } else { 1.0 };
+        let audio: Vec<i16> = filt.iter().map(|&s| (s * sc).clamp(-32_768.0, 32_767.0) as i16).collect();
+        let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata").join("sim_extreme_edge_24.wav");
+        let _ = simulator::write_wav(&out, &audio);
+        let r = decode_sniper_ap(&audio, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap));
+        let found = r.iter().any(|r| r.message77 == target_msg);
+        println!("  WAV: sim_extreme_edge_24.wav (BPF edge, target -24)  rs-ft8n: {}  decoded: {}", if found {"3Y0Z FOUND"} else {"3Y0Z missed"}, r.len());
+    }
     println!();
 }
