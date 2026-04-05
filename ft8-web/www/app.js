@@ -889,8 +889,10 @@ async function toggleAudio() {
       periodMgr.start();
       liveMode = true;
       updateLiveUI();
-      setStatus(`Listening (${capture.getSampleRate()} Hz)`);
+      setStatus('');
       waterfall.clear();
+      const es = document.getElementById('empty-state');
+      if (es) es.remove();
       closeSettings();
     } catch (e) {
       setStatus(`Audio error: ${e.message || e}`);
