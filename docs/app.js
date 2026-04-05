@@ -114,14 +114,20 @@ function setMode(mode) {
 }
 
 // ── Settings panel ──────────────────────────────────────────────────────────
-btnSettings.addEventListener('click', () => {
-  settingsPanel.classList.toggle('open');
-  settingsOverlay.classList.toggle('open');
-});
-settingsOverlay.addEventListener('click', () => {
+function openSettings() {
+  settingsPanel.classList.add('open');
+  settingsOverlay.classList.add('open');
+}
+function closeSettings() {
   settingsPanel.classList.remove('open');
   settingsOverlay.classList.remove('open');
-});
+}
+btnSettings.addEventListener('click', openSettings);
+settingsOverlay.addEventListener('click', closeSettings);
+document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
+
+// Open settings on first launch (no callsign set)
+if (!myCallInput.value) setTimeout(openSettings, 500);
 
 // ── Snipe overlay on waterfall ──────────────────────────────────────────────
 function updateSnipeOverlay() {
@@ -187,14 +193,21 @@ function addChatMsg(type, time, text, snr, actionCb) {
 }
 
 // ── QSO display update ─────────────────────────────────────────────────────
+const txSelectEl = document.getElementById('tx-select');
+const snipeRxList = document.getElementById('snipe-rx-list');
+
 function updateQsoDisplay() {
   const state = qso.state;
   const tx = qso.getNextTx();
 
+  // TX button state
+  btnTx.disabled = !tx;
+  btnTx.classList.toggle('tx-ready', !!tx);
+
   // Snipe view
   qsoLabel.textContent = state;
   snipeDxCall.textContent = qso.dxCall || 'No target';
-  snipeTxLine.textContent = tx ? `Next TX: ${qso.formatTx(tx)}` : '';
+  snipeTxLine.textContent = tx ? `Next: ${qso.formatTx(tx)}` : '';
 
   // Progress dots
   const dots = [
@@ -210,9 +223,56 @@ function updateQsoDisplay() {
     if (i === stateIdx) d.classList.add('current');
   });
   if (state === QSO_STATE.IDLE && qso.dxCall) {
-    dots.forEach(d => d.classList.add('done')); // all done
+    dots.forEach(d => d.classList.add('done'));
+  }
+
+  // TX message selector (manual mode — when Auto is off and QSO is active)
+  updateTxSelector();
+}
+
+function updateTxSelector() {
+  if (autoCheck.checked || qso.state === QSO_STATE.IDLE || !qso.dxCall) {
+    txSelectEl.classList.remove('show');
+    return;
+  }
+  txSelectEl.classList.add('show');
+  txSelectEl.innerHTML = '';
+
+  const myCall = myCallInput.value.toUpperCase();
+  const myGrid = myGridInput.value.toUpperCase();
+  const dx = qso.dxCall;
+
+  // Build TX message options based on current state
+  const options = [];
+  if (qso.state === QSO_STATE.CALLING) {
+    options.push({ label: `${dx} ${myCall} ${myGrid}`, c1: dx, c2: myCall, rpt: myGrid });
+  }
+  if (qso.state === QSO_STATE.REPORT) {
+    const rpt = qso._autoReport();
+    options.push({ label: `${dx} ${myCall} ${rpt}`, c1: dx, c2: myCall, rpt });
+    options.push({ label: `${dx} ${myCall} R${rpt}`, c1: dx, c2: myCall, rpt: `R${rpt}` });
+  }
+  if (qso.state === QSO_STATE.FINAL) {
+    options.push({ label: `${dx} ${myCall} RR73`, c1: dx, c2: myCall, rpt: 'RR73' });
+    options.push({ label: `${dx} ${myCall} 73`, c1: dx, c2: myCall, rpt: '73' });
+  }
+  // Always offer these
+  options.push({ label: `${dx} ${myCall} ${myGrid}`, c1: dx, c2: myCall, rpt: myGrid });
+  options.push({ label: `CQ ${myCall} ${myGrid}`, c1: 'CQ', c2: myCall, rpt: myGrid });
+
+  // Deduplicate
+  const seen = new Set();
+  for (const o of options) {
+    if (seen.has(o.label)) continue;
+    seen.add(o.label);
+    const btn = document.createElement('button');
+    btn.textContent = o.label;
+    btn.addEventListener('click', () => transmit(o.c1, o.c2, o.rpt));
+    txSelectEl.appendChild(btn);
   }
 }
+
+autoCheck.addEventListener('change', updateTxSelector);
 
 // ── Decode ──────────────────────────────────────────────────────────────────
 function runDecode(samples) {
@@ -347,10 +407,34 @@ const periodMgr = new FT8PeriodManager({
       }
     }
 
-    // Snipe band summary
+    // Snipe: show all RX in scrolling list below target
     if (currentMode === 'snipe') {
-      snipeBand.innerHTML = msgs.filter(m => !m.message.toUpperCase().includes(apCall || '____'))
-        .slice(0, 8).map(m => `<span>${m.message.split(' ')[0]} ${Math.round(m.freq_hz)}</span>`).join('');
+      for (const m of msgs) {
+        const div = document.createElement('div');
+        div.className = 'chat-msg rx';
+        const isTarget = apCall && m.message.toUpperCase().includes(apCall);
+        if (isTarget) div.classList.add('qso-active');
+        div.innerHTML = `<span class="snr" style="min-width:2em">${Math.round(m.freq_hz)}</span>
+          <span class="text">${m.message}</span>`;
+        div.style.cursor = 'pointer';
+        div.addEventListener('click', () => {
+          const words = m.message.split(/\s+/);
+          let call = '';
+          for (const w of words) {
+            if (['CQ','DE','QRZ','DX'].includes(w)) continue;
+            if (w.length >= 3 && /[0-9]/.test(w)) { call = w; break; }
+          }
+          if (call) {
+            qso.setMyInfo(myCallInput.value, myGridInput.value);
+            qso.callStation(call);
+            snipeCallInput.value = call;
+            apCall = call;
+            snipeDxCall.textContent = call;
+          }
+        });
+        snipeRxList.appendChild(div);
+      }
+      snipeRxList.scrollTop = snipeRxList.scrollHeight;
     }
 
     waterfall.drawLabels(msgs);

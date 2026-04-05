@@ -21,8 +21,9 @@
   .mode-tabs button:last-child { border-radius: 0 4px 4px 0; }
   .mode-tabs button.active { background: #0d47a1; color: #4fc3f7; border-color: #4fc3f7; }
   .timer { font-size: .8rem; color: #81c784; font-variant-numeric: tabular-nums; margin-left: auto; }
-  .header .gear { font-size: 1rem; color: #666; cursor: pointer; padding: 0 .3rem; }
-  .header .gear:hover { color: #4fc3f7; }
+  .header .gear { font-size: 1.3rem; color: #aaa; cursor: pointer; padding: .1rem .4rem;
+    border: 1px solid #444; border-radius: 4px; line-height: 1; }
+  .header .gear:hover { color: #4fc3f7; border-color: #4fc3f7; }
 
   /* ── Waterfall ──────────────────────────────────────────────────────── */
   #waterfall-wrap { position: relative; flex-shrink: 0; cursor: crosshair; }
@@ -76,13 +77,23 @@
   /* ── Bottom bar ─────────────────────────────────────────────────────── */
   .bottom-bar { display: flex; align-items: center; gap: .4rem; padding: .4rem .5rem;
     background: #111; border-top: 1px solid #222; flex-shrink: 0; flex-wrap: wrap; }
-  .bottom-bar button { font-size: .8rem; padding: .3rem .7rem; border-radius: 4px;
-    border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .bottom-bar button { font-size: .95rem; padding: .5rem 1rem; border-radius: 6px;
+    border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer;
+    min-width: 3.5rem; font-weight: bold; }
   .bottom-bar button.cq { background: #0d47a1; border-color: #4fc3f7; color: #fff; }
-  .bottom-bar button.tx-active { background: #b71c1c; border-color: #f44336; color: #fff; }
+  .bottom-bar button.tx-active { background: #b71c1c; border-color: #f44336; color: #fff; animation: pulse .5s infinite alternate; }
+  .bottom-bar button.tx-ready { background: #1b5e20; border-color: #76ff03; color: #76ff03; }
   .bottom-bar button.halt { border-color: #f44336; color: #f44336; }
-  .bottom-bar .status { font-size: .75rem; color: #888; flex: 1; }
-  .bottom-bar label { font-size: .75rem; display: flex; align-items: center; gap: .2rem; }
+  .bottom-bar button:disabled { opacity: 0.3; cursor: default; }
+  .bottom-bar .status { font-size: .75rem; color: #888; flex: 1; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .bottom-bar label { font-size: .8rem; display: flex; align-items: center; gap: .3rem; }
+  @keyframes pulse { to { opacity: 0.6; } }
+  .tx-select { font-size: .75rem; margin: .2rem .5rem; padding: .2rem; display: none;
+    background: #111; border: 1px solid #333; border-radius: 4px; }
+  .tx-select.show { display: flex; gap: .3rem; flex-wrap: wrap; }
+  .tx-select button { font-size: .75rem; padding: .2rem .5rem; border: 1px solid #444;
+    background: #1a1a2e; color: #ffeb3b; border-radius: 4px; cursor: pointer; }
 
   /* ── Settings panel (slide-out) ─────────────────────────────────────── */
   #settings-panel { display: none; position: fixed; top: 0; right: 0; bottom: 0;
@@ -149,12 +160,16 @@
   </div>
   <div id="snipe-tx-line" style="font-size:.8rem;color:#ffeb3b;margin:.3rem 0"></div>
   <div class="snipe-band" id="snipe-band"></div>
+  <div class="chat-list" id="snipe-rx-list" style="flex:1;overflow-y:auto;margin-top:.3rem"></div>
 </div>
+
+<!-- TX message selector (shown when Auto is off and QSO active) -->
+<div class="tx-select" id="tx-select"></div>
 
 <!-- Bottom bar -->
 <div class="bottom-bar">
   <button id="btn-cq" class="cq">CQ</button>
-  <button id="btn-tx">TX</button>
+  <button id="btn-tx" disabled>TX</button>
   <button id="btn-halt" class="halt">Halt</button>
   <label><input type="checkbox" id="auto-qso"> Auto</label>
   <span class="status" id="status">Ready</span>
@@ -168,7 +183,10 @@
 <!-- Settings slide-out -->
 <div class="settings-overlay" id="settings-overlay"></div>
 <div id="settings-panel">
-  <h2>Settings</h2>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+    <h2 style="margin:0">Settings</h2>
+    <button id="btn-close-settings" style="font-size:1rem;background:none;border:none;color:#888;cursor:pointer">&times;</button>
+  </div>
   <div class="field">
     <label>My Callsign</label>
     <input type="text" id="my-call" placeholder="JA1ABC" style="text-transform:uppercase">
