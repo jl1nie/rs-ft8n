@@ -2,34 +2,50 @@
 
 **[日本語版](README.md)**
 
-Pure Rust FT8 decoder with **adaptive equalizer** and **500 Hz hardware BPF** integration.
+Pure Rust FT8 decoder with **adaptive equalizer**, **A Priori decoding**, and **500 Hz hardware BPF** integration.
 Decodes signals that WSJT-X cannot — verified on synthetic worst-case scenarios.
 
-## Why This Exists
+## Project Aim
 
-FT8 operates on a 3 kHz-wide audio band shared by dozens of stations.
-When a +40 dB adjacent signal is present, a standard 16-bit ADC devotes
-nearly all its dynamic range to the strong station, burying the weak
-target in quantization noise. WSJT-X, which processes the full 3 kHz
-band equally, cannot recover it.
+### The 16-bit Quantization Wall
 
-**rs-ft8n** takes a different approach:
+FT8 operates on a 3 kHz audio band shared by dozens of stations. When a +40 dB adjacent signal is present, a 16-bit ADC devotes nearly all its dynamic range to the strong station, burying the weak target in quantization noise. WSJT-X processes the full 3 kHz band equally and cannot recover the target.
+
+### 500 Hz Hardware Filter + Software Breakthrough
+
+rs-ft8n leverages the **500 Hz CW/SSB narrow filter** built into the transceiver.
 
 ```
-[Antenna] → [500 Hz BPF] → [ADC 16 bit] → rs-ft8n (sniper + EQ) → decoded message
-              ↑ removes strong QRM before digitization
+[Antenna] → [500 Hz BPF (in transceiver)] → [ADC 16 bit] → rs-ft8n → decoded message
+               ↑ removes strong QRM before digitization
 ```
 
-By placing a narrow hardware bandpass filter *before* the ADC, the strong
-interferers are physically removed and the ADC's full dynamic range is
-devoted to the target signal. The software equalizer then corrects the
-amplitude roll-off and phase distortion introduced by the filter edges.
-When the target callsign is known, A Priori (AP) decoding locks 32 of
-the 77 message bits, further lowering the decode threshold by several dB.
+1. **Hardware filter blocks interference** — passes only ±250 Hz around the target, removing strong out-of-band signals before the ADC. The full dynamic range is devoted to the target.
+2. **Adaptive equalizer corrects distortion** — estimates H(f) from Costas array pilot tones and applies the inverse to correct the steep filter edge roll-off and phase distortion.
+3. **Successive interference cancellation** — decodes and subtracts in-band crowd stations via BP/OSD, revealing weaker signals underneath.
+4. **A Priori (AP) decoding** — when the target callsign is known, locks 32 of the 77 message bits at high confidence, lowering the BP decode threshold by several dB.
 
-## Key Results
+This "hardware shields, software polishes" approach exceeds the limits of WSJT-X.
 
-### WSJT-X comparison (real recordings)
+## Key Differences from WSJT-X
+
+| Feature | WSJT-X | rs-ft8n |
+|---------|--------|---------|
+| Band | Full 3 kHz equally | **500 Hz BPF sniper mode** |
+| Equalizer | None | **Costas Wiener adaptive EQ** (BPF edge correction) |
+| AP decoding | Multi-stage AP by QSO state | **Target callsign lock (32 bits)** |
+| Fine sync | Integer sample + fixed offset | **Parabolic interpolation in main sync** (sub-sample) |
+| Signal subtraction | 4-pass subtract-coupled | **3-pass + QSB gate** (Costas CV > 0.3 → half gain) |
+| OSD fallback | ndeep parameter | **sync_q adaptive** (≥18 → order-3, else order-2) |
+| OSD false positive | None | **hard_errors ≥ 56 reject + score ≥ 2.5 gate** |
+| FFT cache | `save` variable (serial reuse) | **Explicit cache + Rayon parallel sharing** |
+| Parallelism | Serial candidate loop | **Rayon par_iter** parallel candidate decode |
+| SNR estimation | Built-in | **WSJT-X compatible** (`10log10(xsig/xnoi-1) - 27 dB`) |
+| Message codec | Unpack only | **Bidirectional pack/unpack** (for simulator) |
+
+## Experimental Results
+
+### Real Recording WSJT-X Comparison
 
 Tested on WAV files from [jl1nie/RustFT8](https://github.com/jl1nie/RustFT8)
 (`191111_110200.wav`, single-pass):
@@ -42,21 +58,21 @@ Tested on WAV files from [jl1nie/RustFT8](https://github.com/jl1nie/RustFT8)
 | OH3NIV ZS6S RR73 | -17 dB | ✓ | ✓ | OSD-3 |
 | CQ LZ1JZ KN22 | -17 dB | ✓ | ✓ | OSD-2 |
 
-With multi-pass signal subtraction (`191111_110130.wav`):
+Signal subtract (`191111_110130.wav`):
 
 | Signal | Method | Note |
 |--------|--------|------|
 | TK4LS YC1MRF 73 | OSD pass-3 | Recovered after subtracting 4 stronger signals |
 
-### Busy-band ADC saturation (synthetic, 15 crowd @ +40 dB, target @ -14 dB)
+### Busy-band ADC Saturation (synthetic, 15 crowd @ +40 dB, target @ -14 dB)
 
-| Decode mode | Target decoded? |
-|-------------|-----------------|
+| Decode mode | Target |
+|-------------|--------|
 | Full-band (WSJT-X equivalent) | **missed** — ADC clipped by crowd |
 | Sniper (software-only, no BPF) | missed — crowd distortion |
 | **500 Hz BPF + sniper** | **20/20 seeds (100%)** |
 
-### BPF edge + adaptive equalizer (target @ -18 dB, 4-pole Butterworth 500 Hz)
+### BPF Edge + Adaptive Equalizer (target @ -18 dB, 4-pole Butterworth 500 Hz)
 
 | Position | BPF atten | EQ OFF | EQ Adaptive |
 |----------|-----------|--------|-------------|
@@ -64,19 +80,18 @@ With multi-pass signal subtraction (`191111_110130.wav`):
 | Shoulder | -0.5 dB | 30% | 40% |
 | **Edge** | **-3.0 dB** | **10%** | **30%** |
 
-The equalizer triples the decode rate at the filter edge with zero
-degradation at center.
+Equalizer triples decode rate at the filter edge. Zero degradation at center.
 
-### WSJT-X stress test
+### WSJT-X Stress Test
 
-`sim_stress_bpf_edge_clean.wav` — target at -18 dB, BPF edge (-3 dB attenuation):
+`sim_stress_bpf_edge_clean.wav` — target -18 dB, BPF edge (-3 dB attenuation):
 
 | Decoder | Result |
 |---------|--------|
 | **WSJT-X** | **decode failure** |
 | **rs-ft8n sniper + EQ** | **CQ 3Y0Z JD34 decoded** |
 
-### BPF edge SNR sweep — cumulative effect of BPF + EQ + AP
+### BPF Edge SNR Sweep — Cumulative Effect of BPF + EQ + AP
 
 BPF edge (-3 dB), target callsign (3Y0Z) known, 20 seeds:
 
@@ -89,7 +104,7 @@ BPF edge (-3 dB), target callsign (3Y0Z) known, 20 seeds:
 
 At -18 dB: WSJT-X 0%, rs-ft8n EQ+AP 60%. Each stage (BPF → EQ → AP) progressively lowers the threshold.
 
-### In-band crowd + signal subtraction
+### In-band Crowd + Signal Subtraction
 
 BPF passband with 4 crowd stations (@ +8 dB) masking target (@ -14 dB):
 
@@ -108,7 +123,7 @@ Environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.
 | decode_frame_subtract (3-pass) | 89 | 119 ms | 5.0% |
 | sniper + EQ (Adaptive) | 16 | 22 ms | 0.9% |
 
-## Features
+## Feature Details
 
 ### Decode Pipeline
 
@@ -129,19 +144,13 @@ PCM 16-bit 12 kHz
 
 Corrects BPF amplitude/phase distortion using Costas arrays as pilot tones.
 
-- **Pilot estimation:** 3 Costas arrays × 7 tones → average per tone;
-  tone 7 (unvisited by Costas) linearly extrapolated from tones 5-6.
-- **Wiener filter:** `W[t] = pilot[t]* / (|pilot[t]|² + σ²_noise)`.
-  Self-regulating: near-passthrough at low SNR, full correction at high SNR.
-- **Adaptive mode (`EqMode::Adaptive`):** Tries EQ first to recover edge
-  signals; falls back to raw decode for center signals. No degradation at
-  center, maximum benefit at edge.
+- **Pilot estimation:** 3 Costas arrays × 7 tones → average per tone; tone 7 (unvisited by Costas) linearly extrapolated from tones 5-6.
+- **Wiener filter:** `W[t] = pilot[t]* / (|pilot[t]|² + σ²_noise)`. Self-regulating: near-passthrough at low SNR, full correction at high SNR.
+- **Adaptive mode (`EqMode::Adaptive`):** Tries EQ first to recover edge signals; falls back to raw decode for center signals. Zero center degradation, maximum edge benefit.
 
 ### A Priori (AP) Decoding (`decode.rs`)
 
-When the target callsign is known, locks 32 of 77 message bits at high-confidence
-LLR values. Locked bits are frozen during BP iterations (same mechanism as WSJT-X),
-reducing the number of unknown bits and lowering the decode threshold.
+When the target callsign is known, locks 32 of 77 message bits at high-confidence LLR values. Locked bits are frozen during BP iterations (same mechanism as WSJT-X), reducing the number of unknown bits and lowering the decode threshold.
 
 - **AP magnitude:** `apmag = max(|llr|) × 1.01`
 - **Locked bits (call2 only):** bits 29–57 (28-bit call + 1-bit flag) + bits 74–76 (i3=1) = 32 bits
@@ -208,7 +217,7 @@ rs-ft8n/
         └── diag.rs         Per-signal pipeline trace
 ```
 
-47 unit tests, all passing.
+48 unit tests, all passing.
 
 ## Build
 
