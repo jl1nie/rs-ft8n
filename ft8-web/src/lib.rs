@@ -89,7 +89,7 @@ fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<Deco
 #[wasm_bindgen]
 pub fn decode_wav(samples: &[i16]) -> Vec<DecodedMessage> {
     decode_and_register(
-        decode_frame(samples, 200.0, 2800.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
+        decode_frame(samples, 100.0, 3000.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
     )
 }
 
@@ -131,6 +131,6 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
 #[wasm_bindgen]
 pub fn decode_wav_subtract(samples: &[i16]) -> Vec<DecodedMessage> {
     decode_and_register(
-        decode_frame_subtract(samples, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200)
+        decode_frame_subtract(samples, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200)
     )
 }

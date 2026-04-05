@@ -27,6 +27,7 @@ export class QsoLog {
       txReport: qso.txReport || '',
       rxReport: qso.rxReport || '',
       freq: qso.freq || 0,
+      bandMHz: qso.bandMHz || '',
       state: qso.state || 'IDLE',
     };
     this.entries.unshift(entry);
@@ -82,6 +83,10 @@ export class QsoLog {
       adif += `<CALL:${e.dxCall.length}>${e.dxCall}`;
       if (e.dxGrid) adif += ` <GRIDSQUARE:${e.dxGrid.length}>${e.dxGrid}`;
       adif += ` <MODE:3>FT8`;
+      if (e.bandMHz) {
+        const fstr = e.bandMHz;
+        adif += ` <FREQ:${fstr.length}>${fstr}`;
+      }
       adif += ` <QSO_DATE:8>${date}`;
       adif += ` <TIME_ON:4>${time}`;
       if (e.rxReport) adif += ` <RST_RCVD:${e.rxReport.length}>${e.rxReport}`;

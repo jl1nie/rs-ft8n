@@ -95,8 +95,8 @@ export class Waterfall {
     this.ctx = canvas.getContext('2d');
     this.sampleRate = opts.sampleRate || 12000;
     this.fftSize = opts.fftSize || 2048;
-    this.freqMin = opts.freqMin || 200;
-    this.freqMax = opts.freqMax || 2800;
+    this.freqMin = opts.freqMin || 100;
+    this.freqMax = opts.freqMax || 3000;
     this.dynRange = opts.dynRange || 50;
 
     this.window = hannWindow(this.fftSize);
@@ -299,7 +299,7 @@ export class Waterfall {
     ctx.font = '10px monospace';
     ctx.textBaseline = 'top';
 
-    const ticks = [200, 500, 1000, 1500, 2000, 2500];
+    const ticks = [200, 500, 1000, 1500, 2000, 2500, 3000];
     for (const f of ticks) {
       const x = ((f - this.freqMin) / freqRange) * w;
       ctx.fillStyle = '#666';

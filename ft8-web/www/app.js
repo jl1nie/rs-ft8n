@@ -43,6 +43,7 @@ const myCallInput = document.getElementById('my-call');
 const myGridInput = document.getElementById('my-grid');
 const deviceSelect = document.getElementById('audio-device');
 const outputDeviceSelect = document.getElementById('audio-output-device');
+const bandSelect = document.getElementById('band-freq');
 const subtractCheck = document.getElementById('subtract-mode');
 const apCheck = document.getElementById('ap-mode');
 const btnCat = document.getElementById('btn-cat');
@@ -64,7 +65,7 @@ let lastDecodeMs = 0; // last decode duration for timer display
 let lastPeriodIndex = -1; // track period changes for separator
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
 let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
-const FREQ_MIN = 200, FREQ_MAX = 2800;
+const FREQ_MIN = 100, FREQ_MAX = 3000;
 
 // ── Status display ─────────────────────────────────────────────────────────
 function setStatus(text) {
@@ -112,6 +113,9 @@ myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
 myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
 myCallInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mycall', myCallInput.value));
 myGridInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mygrid', myGridInput.value));
+const savedBand = localStorage.getItem('rs-ft8n-band');
+if (savedBand) bandSelect.value = savedBand;
+bandSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-band', bandSelect.value));
 deviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-in', deviceSelect.value));
 outputDeviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-out', outputDeviceSelect.value));
 
@@ -125,6 +129,7 @@ const qso = new QsoManager({
         dxCall: qso.dxCall, dxGrid: qso.dxGrid,
         txReport: qso.txReport, rxReport: qso.rxReport,
         freq: currentMode === 'snipe' ? snipeDf : scoutDf,
+        bandMHz: bandSelect.value,
         state: 'IDLE', // completed
       });
       addChatMsg('sys', '', `QSO complete: ${qso.dxCall}`, 0);
@@ -600,6 +605,7 @@ const periodMgr = new FT8PeriodManager({
           dxCall: prevDx, dxGrid: qso.dxGrid,
           txReport: qso.txReport, rxReport: qso.rxReport,
           freq: currentMode === 'snipe' ? snipeDf : scoutDf,
+        bandMHz: bandSelect.value,
           state: prevState, // incomplete
         });
         addChatMsg('sys', '', `QSO timeout: ${prevDx}`, 0);
