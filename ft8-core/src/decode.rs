@@ -82,12 +82,16 @@ pub struct ApHint {
     /// Known second callsign (e.g. "3Y0Z").
     /// Locks message bits 29–57 (28-bit call + 1-bit flag).
     pub call2: Option<String>,
+    /// Known grid locator (e.g. "JD34").
+    /// Locks message bits 58 (ir=0) + 59–73 (15-bit grid).
+    pub grid: Option<String>,
 }
 
 impl ApHint {
     pub fn new() -> Self { Self::default() }
     pub fn with_call1(mut self, call: &str) -> Self { self.call1 = Some(call.to_string()); self }
     pub fn with_call2(mut self, call: &str) -> Self { self.call2 = Some(call.to_string()); self }
+    pub fn with_grid(mut self, grid: &str) -> Self { self.grid = Some(grid.to_string()); self }
 
     /// Returns true if any a-priori information is available.
     pub fn has_info(&self) -> bool { self.call1.is_some() || self.call2.is_some() }
@@ -315,6 +319,7 @@ fn process_candidate(
                                     llr_ap[i] = ap_llr_override[i];
                                 }
                             }
+                            // AP + BP
                             if let Some(bp) = bp_decode(&llr_ap, Some(&ap_mask), BP_MAX_ITER) {
                                 let itone = message_to_tones(&bp.message77);
                                 let snr_db = compute_snr_db(cs, &itone);
@@ -328,6 +333,26 @@ fn process_candidate(
                                     sync_cv,
                                     snr_db,
                                 });
+                            }
+                            // AP + OSD fallback (matches WSJT-X decode174_91 behavior)
+                            if depth == DecodeDepth::BpAllOsd {
+                                let osd_result = osd_decode_deep(&llr_ap, 2);
+                                if let Some(osd) = osd_result {
+                                    if osd.hard_errors < 40 {
+                                        let itone = message_to_tones(&osd.message77);
+                                        let snr_db = compute_snr_db(cs, &itone);
+                                        return Some(DecodeResult {
+                                            message77: osd.message77,
+                                            freq_hz: cand.freq_hz,
+                                            dt_sec: refined.dt_sec,
+                                            hard_errors: osd.hard_errors,
+                                            sync_score: refined.score,
+                                            pass: *pass_id,
+                                            sync_cv,
+                                            snr_db,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
