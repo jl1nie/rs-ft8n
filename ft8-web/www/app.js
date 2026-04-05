@@ -54,6 +54,7 @@ let snipePhase = 'watch'; // 'watch' | 'call'
 let snipeAltCall = ''; // call2 (sender) from last tapped Snipe message
 let lastDecodeMs = 0; // last decode duration for timer display
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
+let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
 const FREQ_MIN = 200, FREQ_MAX = 2800;
 
 // ── Waterfall ───────────────────────────────────────────────────────────────
@@ -359,17 +360,17 @@ function updateTxActions() {
 autoCheck.addEventListener('change', updateTxActions);
 
 // ── Decode ──────────────────────────────────────────────────────────────────
-const AP_BUDGET_MS = 2400;
+// Scout adaptive budget: shed subtract first, then AP.
+// Snipe always runs both (narrow band = fast).
+const BUDGET_MS = 2400;
 
 function runDecode(samples) {
   const t0 = performance.now();
-  const results = subtractCheck.checked ? decode_wav_subtract(samples) : decode_wav(samples);
-  const baseMs = performance.now() - t0;
 
-  // Re-enable AP when base decode is well within budget
-  if (apDisabledAuto && baseMs < AP_BUDGET_MS * 0.7) {
-    apDisabledAuto = false;
-  }
+  // Subtract: use if enabled and not auto-disabled
+  const useSub = subtractCheck.checked && !subDisabledAuto;
+  const results = useSub ? decode_wav_subtract(samples) : decode_wav(samples);
+  const baseMs = performance.now() - t0;
 
   // AP supplement: Scout uses qso.dxCall, Snipe uses apCall
   const useAp = apCheck.checked && !apDisabledAuto;
@@ -395,9 +396,22 @@ function runDecode(samples) {
   const totalMs = performance.now() - t0;
   lastDecodeMs = Math.round(totalMs);
 
-  // Scout: auto-disable AP if decode exceeded budget
-  if (currentMode === 'scout' && apTarget && totalMs > AP_BUDGET_MS) {
-    apDisabledAuto = true;
+  // Scout adaptive shedding: subtract first, then AP
+  if (currentMode === 'scout' && totalMs > BUDGET_MS) {
+    if (useSub && !subDisabledAuto) {
+      subDisabledAuto = true; // shed subtract first
+    } else if (apTarget && !apDisabledAuto) {
+      apDisabledAuto = true;  // then shed AP
+    }
+  }
+
+  // Recovery: re-enable in reverse order (AP first, then subtract)
+  if (currentMode === 'scout' && totalMs < BUDGET_MS * 0.6) {
+    if (apDisabledAuto) {
+      apDisabledAuto = false;
+    } else if (subDisabledAuto) {
+      subDisabledAuto = false;
+    }
   }
 
   return results;
@@ -453,7 +467,9 @@ const periodMgr = new FT8PeriodManager({
     const n = results.length;
     const utc = new Date(periodIndex * 15000).toISOString().substr(11, 5);
 
-    statusEl.textContent = `${n} decoded (${lastDecodeMs} ms)${apDisabledAuto ? ' [AP paused]' : ''}`;
+    const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
+    const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
+    statusEl.textContent = `${n} decoded (${lastDecodeMs} ms)${shedTag}`;
 
     // Update AP from snipe call input
     apCall = snipeCallInput.value.trim().toUpperCase();
