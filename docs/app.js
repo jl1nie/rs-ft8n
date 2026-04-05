@@ -91,6 +91,7 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 const waterfall = new Waterfall(wfCanvas);
+waterfall.dfLine = scoutDf; // show DF line on startup
 
 // ── Core modules ────────────────────────────────────────────────────────────
 const audioOut = new AudioOutput();
