@@ -1,6 +1,6 @@
 # rs-ft8n — FT8 Sniper-Mode Decoder
 
-**[日本語版](README.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)**
+**[日本語版](README.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)** | **[PWA Manual](docs/manual.en.md)**
 
 Pure Rust FT8 decoder with **adaptive equalizer**, **A Priori decoding**, and **500 Hz hardware BPF** integration. Includes a browser-based WASM PWA with real-time waterfall and live audio decoding.
 

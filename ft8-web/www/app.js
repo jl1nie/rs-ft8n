@@ -37,6 +37,7 @@ const fileLink = document.getElementById('file-link');
 const myCallInput = document.getElementById('my-call');
 const myGridInput = document.getElementById('my-grid');
 const deviceSelect = document.getElementById('audio-device');
+const outputDeviceSelect = document.getElementById('audio-output-device');
 const snipeCallInput = document.getElementById('snipe-call');
 const subtractCheck = document.getElementById('subtract-mode');
 const btnCat = document.getElementById('btn-cat');
@@ -348,7 +349,7 @@ async function transmit(call1, call2, report, freq) {
 
     const samples = encode_ft8(call1, call2, report, freq);
     if (cat.connected) await cat.ptt(true);
-    await audioOut.play(samples);
+    await audioOut.play(samples, outputDeviceSelect.value || undefined);
     if (cat.connected) await cat.ptt(false);
 
     btnTx.classList.remove('tx-active');
@@ -741,6 +742,16 @@ init().then(async () => {
       const opt = document.createElement('option');
       opt.value = d.id; opt.textContent = d.label;
       deviceSelect.appendChild(opt);
+    }
+    // Enumerate audio output devices
+    const allDevices = await navigator.mediaDevices.enumerateDevices();
+    outputDeviceSelect.innerHTML = '<option value="">-- default --</option>';
+    for (const d of allDevices) {
+      if (d.kind !== 'audiooutput') continue;
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Output ${d.deviceId.slice(0, 8)}`;
+      outputDeviceSelect.appendChild(opt);
     }
   } catch (e) { console.warn('Audio devices:', e); }
 }).catch(e => { statusEl.textContent = `Load failed: ${e}`; });

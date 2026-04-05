@@ -1,6 +1,6 @@
 # rs-ft8n — FT8 スナイパーモード・デコーダ
 
-**[English version](README.en.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)**
+**[English version](README.en.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)** | **[PWA マニュアル](docs/manual.md)**
 
 500 Hz ハードウェア・ナローフィルタと適応型イコライザを統合した Pure Rust FT8 デコーダ。
 ブラウザ上でリアルタイムにウォーターフォール表示・デコードが可能な WASM PWA 版を同梱。
