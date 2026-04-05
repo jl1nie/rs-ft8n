@@ -53,6 +53,7 @@ let apCall = '';
 let snipePhase = 'watch'; // 'watch' | 'call'
 let snipeAltCall = ''; // call2 (sender) from last tapped Snipe message
 let lastDecodeMs = 0; // last decode duration for timer display
+let lastPeriodEven = true; // track even/odd for period background alternation
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
 let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
 const FREQ_MIN = 200, FREQ_MAX = 2800;
@@ -200,9 +201,10 @@ wfWrap.addEventListener('click', (e) => {
 });
 
 // ── Chat message helper (Scout mode) ────────────────────────────────────────
-function addChatMsg(type, time, text, snr, actionCb, freq, dt) {
+function addChatMsg(type, time, text, snr, actionCb, freq, dt, isEven) {
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
+  if (isEven === false) div.classList.add('period-odd');
 
   const myCall = myCallInput.value.toUpperCase();
   const dxCall = qso.dxCall;
@@ -466,6 +468,14 @@ const periodMgr = new FT8PeriodManager({
     const results = runDecode(samples);
     const n = results.length;
     const utc = new Date(periodIndex * 15000).toISOString().substr(11, 5);
+    lastPeriodEven = isEven;
+
+    // Period label in both lists
+    const label = document.createElement('div');
+    label.className = 'period-label';
+    label.textContent = `${utc} ${isEven ? 'E' : 'O'}`;
+    chatList.appendChild(label);
+    snipeRxList.appendChild(label.cloneNode(true));
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
@@ -512,7 +522,7 @@ const periodMgr = new FT8PeriodManager({
           snipeCallInput.value = clickCall;
           apCall = clickCall;
           statusEl.textContent = `Calling ${clickCall}`;
-        } : null, freq, dt);
+        } : null, freq, dt, isEven);
       }
 
       // Snipe view: update target info
@@ -582,6 +592,7 @@ const periodMgr = new FT8PeriodManager({
 
           const div = document.createElement('div');
           div.className = 'chat-msg rx';
+          if (!isEven) div.classList.add('period-odd');
           const isTarget = apCall && upper.includes(apCall);
           if (isTarget) div.classList.add('qso-active');
           const snrV = Math.round(m.snr_db);
@@ -633,6 +644,7 @@ const periodMgr = new FT8PeriodManager({
 
           const div = document.createElement('div');
           div.className = 'chat-msg rx';
+          if (!isEven) div.classList.add('period-odd');
           if (involvesTarget) div.classList.add('qso-active');
           const snrV = Math.round(m.snr_db);
           div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
