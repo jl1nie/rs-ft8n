@@ -85,7 +85,34 @@ All WAVs generated with GFSK (BT=2.0, WSJT-X compatible modulation). Each WAV co
 | `sim_busy_band_hard_mixed.wav` | crowd +40 dB / target -14 dB | 8 (3Y0Z: AP) | **15 (no 3Y0Z)** |
 | `sim_stress_bpf_edge_clean.wav` | target -18 dB / BPF edge | 1 (AP) | **1 (sniper+EQ+AP)** |
 
-> rs-ft8n decodes 2x more stations than WSJT-X in subtract mode without AP. WSJT-X recovers 3Y0Z via AP+Deep; rs-ft8n also recovers it in sniper+AP mode.
+> rs-ft8n decodes 2x more crowd stations than WSJT-X in subtract mode. AP performance is equivalent.
+
+### QSO Scenario AP Decode Rate (BPF edge, 20 seeds)
+
+AP lock depth increases as QSO progresses, improving weak signal recovery.
+
+| SNR | CQ (61-bit AP) | Report (61-bit) | RR73 (77-bit) |
+|-----|---------------|-----------------|---------------|
+| -18 dB | 13/20 (65%) | 17/20 (85%) | **20/20 (100%)** |
+| -20 dB | 7/20 (35%) | 11/20 (55%) | **19/20 (95%)** |
+| -22 dB | 1/20 (5%) | 2/20 (10%) | **13/20 (65%)** |
+| -24 dB | 0/20 | 0/20 | **3/20 (15%)** |
+| -26 dB | 0/20 | 0/20 | **1/20 (5%)** |
+
+> In QSO FINAL state (awaiting RR73/73), all 77 message bits are locked, making BP+OSD essentially a correlation detector. Equivalent to WSJT-X a4/a5/a6.
+
+### Footprint
+
+| Item | Size |
+|------|------|
+| WASM binary | **371 KB** |
+| Full PWA (HTML+JS+WASM) | **572 KB** |
+| ft8-core Rust code | 4,602 lines |
+| PWA frontend (JS+HTML) | 2,864 lines |
+| Dependencies | rustfft, num-complex, rayon (optional) |
+| Native binary (bench) | 2.2 MB |
+
+> For comparison: WSJT-X FT8 Fortran code = 4,497 lines. rs-ft8n matches this code volume while including WASM + PWA QSO frontend.
 
 ## Experimental Results (Detail)
 
