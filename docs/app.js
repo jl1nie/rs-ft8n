@@ -53,8 +53,9 @@ const btnReset = document.getElementById('btn-qso-reset');
 let wasmReady = false;
 let liveMode = false;
 let currentMode = 'scout'; // 'scout' | 'snipe'
-let snipeFreq = 1000;
-let scoutDf = 1500; // Scout mode TX frequency (Hz)
+let snipeBpf = 1000;  // Snipe BPF window center (receive)
+let snipeDf = 1000;   // Snipe TX frequency
+let scoutDf = 1500;   // Scout TX frequency
 let apCall = '';
 let snipePhase = 'watch'; // 'watch' | 'call'
 let snipeAltCall = ''; // call2 (sender) from last tapped Snipe message
@@ -115,7 +116,7 @@ const qso = new QsoManager({
       qsoLog.add({
         dxCall: qso.dxCall, dxGrid: qso.dxGrid,
         txReport: qso.txReport, rxReport: qso.rxReport,
-        freq: currentMode === 'snipe' ? snipeFreq : scoutDf,
+        freq: currentMode === 'snipe' ? snipeDf : scoutDf,
         state: 'IDLE', // completed
       });
       addChatMsg('sys', '', `QSO complete: ${qso.dxCall}`, 0);
@@ -143,7 +144,7 @@ function setMode(mode) {
   tabSnipe.classList.toggle('active', mode === 'snipe');
   resizeCanvas();
   waterfall.clear();
-  waterfall.dfLine = mode === 'scout' ? scoutDf : snipeFreq;
+  waterfall.dfLine = mode === 'scout' ? scoutDf : snipeDf;
   updateSnipeOverlay();
 }
 
@@ -163,9 +164,9 @@ function setSnipePhase(phase) {
   const snipeView = document.getElementById('snipe-view');
   snipeView.classList.toggle('snipe-call-phase', phase === 'call');
   if (phase === 'watch') {
-    snipePhaseHint.textContent = 'full-band — tap WF to set DF';
+    snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
   } else {
-    snipePhaseHint.textContent = `narrow ${snipeFreq} Hz`;
+    snipePhaseHint.textContent = `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
   }
   updateSnipeOverlay();
 }
@@ -204,24 +205,31 @@ function updateSnipeOverlay() {
   }
   const w = wfCanvas.clientWidth;
   const range = FREQ_MAX - FREQ_MIN;
-  const left = ((snipeFreq - 250 - FREQ_MIN) / range) * w;
-  const right = ((snipeFreq + 250 - FREQ_MIN) / range) * w;
+  const left = ((snipeBpf - 250 - FREQ_MIN) / range) * w;
+  const right = ((snipeBpf + 250 - FREQ_MIN) / range) * w;
   snipeOverlay.style.display = 'block';
   snipeOverlay.style.left = Math.max(0, left) + 'px';
   snipeOverlay.style.width = (right - left) + 'px';
   snipeFreqLabel.style.display = 'block';
   snipeFreqLabel.style.left = (left + 4) + 'px';
-  snipeFreqLabel.textContent = `${snipeFreq} Hz`;
+  snipeFreqLabel.textContent = `${snipeBpf} Hz`;
 }
 
 wfWrap.addEventListener('click', (e) => {
   const rect = wfCanvas.getBoundingClientRect();
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   if (currentMode === 'snipe') {
-    snipeFreq = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
-    waterfall.dfLine = snipeFreq;
+    if (snipePhase === 'watch') {
+      // Watch: set TX frequency (DF) — full-band receive
+      snipeDf = Math.max(FREQ_MIN, Math.min(FREQ_MAX, freq));
+      waterfall.dfLine = snipeDf;
+      setStatus(`DF: ${snipeDf} Hz`);
+    } else {
+      // Call: set BPF window center — narrow receive
+      snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
+      setStatus(`BPF: ${snipeBpf} Hz`);
+    }
     updateSnipeOverlay();
-    setStatus(`DF: ${snipeFreq} Hz`);
   } else {
     scoutDf = Math.max(FREQ_MIN, Math.min(FREQ_MAX, freq));
     waterfall.dfLine = scoutDf;
@@ -318,7 +326,7 @@ function updateTxActions() {
     btn.addEventListener('click', () => {
       qso.setMyInfo(myCallInput.value, myGridInput.value);
       const tx = qso.callCq();
-      const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const period = periodMgr.getCurrentPeriod();
       periodMgr.queueTx({ ...tx, freq }, !period.isEven);
       setStatus(`CQ queued (${freq} Hz)`);
@@ -409,7 +417,7 @@ function runDecode(samples) {
   if (apTarget) {
     const found = results.some(r => r.message.toUpperCase().includes(apTarget));
     if (!found) {
-      const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const ap = decode_sniper(samples, freq, apTarget);
       for (const r of ap) {
         if (!results.some(x => Math.abs(x.freq_hz - r.freq_hz) < 10)) {
@@ -447,7 +455,7 @@ function runDecode(samples) {
 
 // ── TX queue helper (all manual TX goes through period manager) ─────────────
 function queueTxMsg(call1, call2, report) {
-  const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+  const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
   const period = periodMgr.getCurrentPeriod();
   periodMgr.queueTx({ call1, call2, report, freq }, !period.isEven);
   setStatus(`TX queued: ${call1} ${call2} ${report}`);
@@ -456,7 +464,7 @@ function queueTxMsg(call1, call2, report) {
 // ── Transmit (called by period manager at period boundary) ─────────────────
 async function transmit(call1, call2, report, freq) {
   if (!wasmReady) return;
-  freq = freq || (currentMode === 'snipe' ? snipeFreq : scoutDf);
+  freq = freq || (currentMode === 'snipe' ? snipeDf : scoutDf);
   try {
     setStatus(`TX: ${call1} ${call2} ${report}`);
     // Mark active button
@@ -575,7 +583,7 @@ const periodMgr = new FT8PeriodManager({
     // Auto TX / retry
     const period = periodMgr.getCurrentPeriod();
     if (txMsg && autoCheck.checked) {
-      const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       periodMgr.queueTx({ ...txMsg, freq }, !period.isEven);
       setStatus(`TX queued: ${qso.formatTx(txMsg)}`);
     } else if (!txMsg && qso.state !== QSO_STATE.IDLE && autoCheck.checked) {
@@ -584,7 +592,7 @@ const periodMgr = new FT8PeriodManager({
       const prevDx = qso.dxCall;
       const retryTx = qso.retry();
       if (retryTx) {
-        const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
+        const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
         periodMgr.queueTx({ ...retryTx, freq }, !period.isEven);
         setStatus(`Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`);
       } else if (prevDx) {
@@ -592,7 +600,7 @@ const periodMgr = new FT8PeriodManager({
         qsoLog.add({
           dxCall: prevDx, dxGrid: qso.dxGrid,
           txReport: qso.txReport, rxReport: qso.rxReport,
-          freq: currentMode === 'snipe' ? snipeFreq : scoutDf,
+          freq: currentMode === 'snipe' ? snipeDf : scoutDf,
           state: prevState, // incomplete
         });
         addChatMsg('sys', '', `QSO timeout: ${prevDx}`, 0);
@@ -719,7 +727,7 @@ btnReset.addEventListener('click', () => {
     qsoLog.add({
       dxCall: qso.dxCall, dxGrid: qso.dxGrid,
       txReport: qso.txReport, rxReport: qso.rxReport,
-      freq: currentMode === 'snipe' ? snipeFreq : scoutDf,
+      freq: currentMode === 'snipe' ? snipeDf : scoutDf,
       state: qso.state, // incomplete
     });
   }
