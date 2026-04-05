@@ -254,7 +254,11 @@ fn process_candidate(
                         osd_decode(llr_osd)
                     };
                     if let Some(osd) = osd_result {
-                        if osd.hard_errors >= 56 { continue; }
+                        // Order-dependent false-positive filter:
+                        // order-2 (~4k candidates): < 40 errors
+                        // order-3 (~122k candidates): < 30 errors
+                        let max_errors = if osd_depth == 3 { 30 } else { 40 };
+                        if osd.hard_errors >= max_errors { continue; }
                         let itone = message_to_tones(&osd.message77);
                         let snr_db = compute_snr_db(cs, &itone);
                         return Some(DecodeResult {
@@ -263,7 +267,7 @@ fn process_candidate(
                             dt_sec: refined.dt_sec,
                             hard_errors: osd.hard_errors,
                             sync_score: refined.score,
-                            pass: 4,
+                            pass: if osd_depth == 3 { 5 } else { 4 },
                             sync_cv,
                             snr_db,
                         });
@@ -298,7 +302,7 @@ fn process_candidate(
                                 dt_sec: refined.dt_sec,
                                 hard_errors: bp.hard_errors,
                                 sync_score: refined.score,
-                                pass: 5, // AP pass indicator
+                                pass: 6, // AP pass indicator
                                 sync_cv,
                                 snr_db,
                             });
