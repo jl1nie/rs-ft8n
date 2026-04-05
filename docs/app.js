@@ -50,7 +50,6 @@ const apCheck = document.getElementById('ap-mode');
 const btnCat = document.getElementById('btn-cat');
 const catStatusEl = document.getElementById('cat-status');
 const btnStart = document.getElementById('btn-start');
-const btnReset = document.getElementById('btn-qso-reset');
 
 // ── State ───────────────────────────────────────────────────────────────────
 let wasmReady = false;
@@ -816,35 +815,47 @@ periodMgr.callbacks.onTxFire = async (tx) => {
   await transmit(tx.call1, tx.call2, tx.report, tx.freq);
 };
 
-// ── Buttons ─────────────────────────────────────────────────────────────────
+// ── Halt / Reset (progressive: 1st tap = halt TX, 2nd tap = reset QSO) ─────
+let halted = false;
+
 btnHalt.addEventListener('click', () => {
-  periodMgr.cancelTx();
-  audioOut.stop();
-  if (cat.connected) cat.ptt(false).catch(() => {});
-  txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
-  setStatus('Halted');
+  if (!halted) {
+    // First tap: cancel TX, stop audio output, but keep QSO state
+    periodMgr.cancelTx();
+    audioOut.stop();
+    if (cat.connected) cat.ptt(false).catch(() => {});
+    txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
+    timerEl.classList.remove('tx-on');
+    halted = true;
+    btnHalt.textContent = 'Reset';
+    setStatus('Halted — tap Reset to abandon QSO');
+  } else {
+    // Second tap: reset QSO to IDLE
+    if (qso.state !== QSO_STATE.IDLE && qso.dxCall) {
+      qsoLog.add({
+        dxCall: qso.dxCall, dxGrid: qso.dxGrid,
+        txReport: qso.txReport, rxReport: qso.rxReport,
+        freq: currentMode === 'snipe' ? snipeDf : scoutDf,
+        bandMHz: bandSelect.value,
+        state: qso.state,
+      });
+    }
+    qso.reset();
+    rxSlotEven = null;
+    halted = false;
+    btnHalt.textContent = 'Halt';
+    updateQsoDisplay();
+    setStatus('QSO reset');
+  }
 });
 
-btnReset.addEventListener('click', () => {
-  periodMgr.cancelTx();
-  audioOut.stop();
-  if (cat.connected) cat.ptt(false).catch(() => {});
-  txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
-  // Save incomplete QSO before reset
-  if (qso.state !== QSO_STATE.IDLE && qso.dxCall) {
-    qsoLog.add({
-      dxCall: qso.dxCall, dxGrid: qso.dxGrid,
-      txReport: qso.txReport, rxReport: qso.rxReport,
-      freq: currentMode === 'snipe' ? snipeDf : scoutDf,
-      state: qso.state, // incomplete
-    });
-  }
-  qso.reset();
-  rxSlotEven = null;
-  chatList.innerHTML = '';
-  updateQsoDisplay();
-  setStatus('Reset');
-});
+// Clear halted state when a new TX is queued (user resumed)
+const origQueueTx = periodMgr.queueTx.bind(periodMgr);
+periodMgr.queueTx = function(tx, txEven) {
+  halted = false;
+  btnHalt.textContent = 'Halt';
+  return origQueueTx(tx, txEven);
+};
 
 // ── Audio start/stop ────────────────────────────────────────────────────────
 const logoEl = document.querySelector('.header h1');
