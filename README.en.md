@@ -1,6 +1,6 @@
 # rs-ft8n — FT8 Sniper-Mode Decoder
 
-**[日本語版](README.md)**
+**[日本語版](README.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)**
 
 Pure Rust FT8 decoder with **adaptive equalizer**, **A Priori decoding**, and **500 Hz hardware BPF** integration.
 Decodes signals that WSJT-X cannot — verified on synthetic worst-case scenarios.

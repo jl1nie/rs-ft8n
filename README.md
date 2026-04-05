@@ -1,6 +1,6 @@
 # rs-ft8n — FT8 スナイパーモード・デコーダ
 
-**[English version](README.en.md)**
+**[English version](README.en.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)**
 
 500 Hz ハードウェア・ナローフィルタと適応型等化器を統合した Pure Rust FT8 デコーダ。
 WSJT-X がデコードできない信号の復調に成功 — 合成ワーストケースで実証済み。
