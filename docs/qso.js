@@ -36,6 +36,8 @@ export class QsoManager {
     this.txReport = '';
     this.rxReport = '';
     this.rxSnr = -10;
+    this.retryCount = 0;
+    this.maxRetries = 15;
   }
 
   setMyInfo(call, grid) {
@@ -117,6 +119,26 @@ export class QsoManager {
     return `${tx.call1} ${tx.call2} ${tx.report}`.trim();
   }
 
+  /**
+   * Called when a period ends with no relevant response from the DX station.
+   * Returns the same TX message for retry, or null if max retries exceeded.
+   */
+  retry() {
+    if (this.state === QSO_STATE.IDLE) return null;
+    if (this.retryCount >= this.maxRetries) {
+      this.reset();
+      return null;
+    }
+    this.retryCount++;
+    return this.getNextTx();
+  }
+
+  /** Get retry count info string. */
+  retryInfo() {
+    if (this.state === QSO_STATE.IDLE || this.retryCount === 0) return '';
+    return `retry ${this.retryCount}/${this.maxRetries}`;
+  }
+
   // ── Internal ──────────────────────────────────────────────────────────
 
   _autoReport() {
@@ -125,6 +147,7 @@ export class QsoManager {
   }
 
   _tx(call1, call2, report) {
+    this.retryCount = 0; // reset on successful state transition
     const tx = { call1, call2, report };
     this.onTxReady(tx);
     return tx;

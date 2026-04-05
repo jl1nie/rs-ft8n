@@ -94,9 +94,24 @@ btnCq.addEventListener('click', () => {
   qsoTxMsgEl.textContent = qso.formatTx(tx);
 });
 
+const btnHalt = document.getElementById('btn-halt');
+
+btnHalt.addEventListener('click', () => {
+  periodMgr.cancelTx();
+  audioOut.stop();
+  if (cat.connected) { cat.ptt(false).catch(() => {}); }
+  btnTx.classList.remove('tx-active');
+  statusEl.textContent = 'TX halted';
+});
+
 btnQsoReset.addEventListener('click', () => {
+  periodMgr.cancelTx();
+  audioOut.stop();
+  if (cat.connected) { cat.ptt(false).catch(() => {}); }
+  btnTx.classList.remove('tx-active');
   qso.reset();
   qsoTxMsgEl.textContent = '';
+  statusEl.textContent = 'QSO reset';
 });
 
 btnTx.addEventListener('click', async () => {
@@ -416,6 +431,19 @@ const periodMgr = new FT8PeriodManager({
           statusEl.textContent = `TX queued (${txSlot ? 'even' : 'odd'}): ${qso.formatTx(txMsg)}`;
         }
         break;
+      }
+    }
+
+    // No response from DX → retry same message (auto mode)
+    if (!txMsg && qso.state !== QSO_STATE.IDLE && autoQsoCheck.checked) {
+      const retryTx = qso.retry();
+      if (retryTx) {
+        const freq = snipeMode ? snipeFreq : 1500;
+        const txSlot = !period.isEven;
+        periodMgr.queueTx({ ...retryTx, freq }, txSlot);
+        statusEl.textContent = `TX retry (${qso.retryInfo()}): ${qso.formatTx(retryTx)}`;
+      } else {
+        statusEl.textContent = 'QSO timeout — max retries exceeded';
       }
     }
 
