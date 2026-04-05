@@ -102,6 +102,8 @@ myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
 myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
 myCallInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mycall', myCallInput.value));
 myGridInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mygrid', myGridInput.value));
+deviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-in', deviceSelect.value));
+outputDeviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-out', outputDeviceSelect.value));
 
 const qso = new QsoManager({
   myCall: myCallInput.value,
@@ -722,7 +724,15 @@ btnReset.addEventListener('click', () => {
 });
 
 // ── Audio start/stop ────────────────────────────────────────────────────────
-btnStart.addEventListener('click', async () => {
+const logoEl = document.querySelector('.header h1');
+
+function updateLiveUI() {
+  btnStart.textContent = liveMode ? 'Stop Audio' : 'Start Audio';
+  logoEl.classList.toggle('live', liveMode);
+  if (!liveMode) timerEl.textContent = '--';
+}
+
+async function toggleAudio() {
   if (!liveMode) {
     const deviceId = deviceSelect.value;
     if (!deviceId) { setStatus('Select audio device'); return; }
@@ -730,7 +740,7 @@ btnStart.addEventListener('click', async () => {
       await capture.start(deviceId);
       periodMgr.start();
       liveMode = true;
-      btnStart.textContent = 'Stop Audio';
+      updateLiveUI();
       setStatus(`Listening (${capture.getSampleRate()} Hz)`);
       waterfall.clear();
       settingsPanel.classList.remove('open');
@@ -742,11 +752,13 @@ btnStart.addEventListener('click', async () => {
     periodMgr.stop();
     capture.stop();
     liveMode = false;
-    btnStart.textContent = 'Start Audio';
-    timerEl.textContent = '--';
+    updateLiveUI();
     setStatus('Stopped');
   }
-});
+}
+
+btnStart.addEventListener('click', toggleAudio);
+logoEl.addEventListener('click', toggleAudio);
 
 // ── CAT ─────────────────────────────────────────────────────────────────────
 btnCat.addEventListener('click', async () => {
@@ -882,6 +894,16 @@ init().then(async () => {
       opt.value = d.deviceId;
       opt.textContent = d.label || `Output ${d.deviceId.slice(0, 8)}`;
       outputDeviceSelect.appendChild(opt);
+    }
+    // Restore saved device selections
+    const savedIn = localStorage.getItem('rs-ft8n-audio-in');
+    if (savedIn) deviceSelect.value = savedIn;
+    const savedOut = localStorage.getItem('rs-ft8n-audio-out');
+    if (savedOut) outputDeviceSelect.value = savedOut;
+
+    // Auto-start if callsign and audio device are configured
+    if (myCallInput.value && deviceSelect.value) {
+      await toggleAudio();
     }
   } catch (e) { console.warn('Audio devices:', e); }
   updateTxActions();
