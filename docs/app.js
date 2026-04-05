@@ -641,31 +641,48 @@ const periodMgr = new FT8PeriodManager({
         const myCall = myCallInput.value.toUpperCase();
         const w = msg.split(/\s+/);
         if (w[0] === myCall && w.length >= 2 && w[1] !== myCall) {
-          callers.push(w[1]);
+          callers.push({ call: w[1], snr, msg, freq });
         }
       }
 
-      // QSO state machine
-      if (!suspect) {
+      // QSO state machine (skip CQ responses — handled below after SNR sort)
+      const isCqWait = qso.state === QSO_STATE.CALLING && !qso.dxCall;
+      if (!suspect && !isCqWait) {
         qso.setRxSnr(snr);
         const result = qso.processMessage(msg);
         if (result && !txMsg) txMsg = result;
+      }
 
-        // Update target card (Scout & Snipe) when DX is heard
-        if (qso.dxCall && msg.toUpperCase().includes(qso.dxCall)) {
-          scoutTargetMsg.textContent = msg;
-          scoutTargetInfo.textContent = `${freq.toFixed(0)} Hz  ${snr >= 0 ? '+' : ''}${Math.round(snr)} dB`;
-        }
+      // Update target card when DX is heard
+      if (!suspect && qso.dxCall && msg.toUpperCase().includes(qso.dxCall)) {
+        scoutTargetMsg.textContent = msg;
+        scoutTargetInfo.textContent = `${freq.toFixed(0)} Hz  ${snr >= 0 ? '+' : ''}${Math.round(snr)} dB`;
       }
 
       r.free();
     }
 
-    // Pileup notification: multiple stations calling me
+    // CQ response handling: sort by SNR, feed strongest to SM
+    if (qso.state === QSO_STATE.CALLING && !qso.dxCall && callers.length > 0) {
+      const useSNR = !document.getElementById('cq-first-decoded')?.checked;
+      if (useSNR) callers.sort((a, b) => b.snr - a.snr);
+      // Feed strongest (or first) caller to SM
+      const best = callers[0];
+      qso.setRxSnr(best.snr);
+      const result = qso.processMessage(best.msg);
+      if (result && !txMsg) txMsg = result;
+      // Update target card
+      if (qso.dxCall) {
+        scoutTargetMsg.textContent = best.msg;
+        scoutTargetInfo.textContent = `${best.freq.toFixed(0)} Hz  ${best.snr >= 0 ? '+' : ''}${Math.round(best.snr)} dB`;
+      }
+    }
+
+    // Pileup notification
     if (callers.length > 1) {
-      const others = callers.filter(c => c !== qso.dxCall);
+      const others = callers.filter(c => c.call !== qso.dxCall).map(c => c.call);
       if (others.length > 0) {
-        scoutTargetInfo.textContent += `  +${others.length} calling: ${others.join(' ')}`;
+        scoutTargetInfo.textContent += `  +${others.length}: ${others.join(' ')}`;
       }
     }
 
