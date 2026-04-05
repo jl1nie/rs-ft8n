@@ -493,13 +493,12 @@ const periodMgr = new FT8PeriodManager({
     const results = runDecode(samples);
     const n = results.length;
     const utc = new Date(periodIndex * 15000).toISOString().substr(11, 5);
-    // Period separator (thin line between periods)
-    if (lastPeriodIndex >= 0 && periodIndex !== lastPeriodIndex) {
-      const sep = document.createElement('div');
-      sep.className = 'period-sep';
-      chatList.appendChild(sep);
-      snipeRxList.appendChild(sep.cloneNode(true));
-    }
+    // Period separator with UTC
+    const sep = document.createElement('div');
+    sep.className = 'period-sep';
+    sep.textContent = utc;
+    chatList.appendChild(sep);
+    snipeRxList.appendChild(sep.cloneNode(true));
     lastPeriodIndex = periodIndex;
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);

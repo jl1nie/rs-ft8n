@@ -60,7 +60,10 @@
   .chat-msg.tx.sending { border-left-color: #f44336; color: #f44336; }
   .chat-msg.qso-active { border-left-color: #4fc3f7; background: #0a1929; }
   .chat-msg.qso-done { border-left-color: #76ff03; }
-  .period-sep { height: 0; border-top: 1px solid #333; margin: .2rem 0; }
+  .period-sep { display: flex; align-items: center; gap: .4rem; margin: .15rem 0;
+    font-size: .6rem; color: #555; }
+  .period-sep::before, .period-sep::after { content: ''; flex: 1; border-top: 1px solid #333; }
+  .period-sep::before { max-width: .5rem; }
   .chat-msg .col-freq { color: #888; font-size: .7rem; min-width: 2.8em; text-align: right; }
   .chat-msg .col-dt { color: #666; font-size: .7rem; min-width: 2.5em; text-align: right; }
   .chat-msg .col-snr { color: #81c784; font-size: .7rem; min-width: 2em; text-align: right; }
