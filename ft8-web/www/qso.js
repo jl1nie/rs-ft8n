@@ -1,13 +1,11 @@
 // FT8 QSO state machine.
 //
-// Minimal states — even/odd timing is handled by the period manager,
-// not the state machine.
-//
 // IDLE → CALLING → REPORT → FINAL → IDLE
 //
-// CALLING: first message sent (CQ or response), waiting for reply
-// REPORT:  report exchange in progress
-// FINAL:   73/RR73 sent, waiting for confirmation or done
+// Each state has its own retry limit:
+//   CALLING: maxRetries (default 15) — waiting for any response
+//   REPORT:  maxRetries — waiting for report confirmation
+//   FINAL:   3 retries — 73 sent, just need confirmation (or give up)
 
 export const QSO_STATE = {
   IDLE: 'IDLE',
@@ -17,13 +15,6 @@ export const QSO_STATE = {
 };
 
 export class QsoManager {
-  /**
-   * @param {Object} opts
-   * @param {string} opts.myCall
-   * @param {string} opts.myGrid
-   * @param {function(string)} opts.onStateChange
-   * @param {function(Object)} opts.onTxReady — callback({ call1, call2, report })
-   */
   constructor(opts) {
     this.myCall = opts.myCall?.toUpperCase() || '';
     this.myGrid = opts.myGrid?.toUpperCase() || '';
@@ -38,6 +29,7 @@ export class QsoManager {
     this.rxSnr = -10;
     this.retryCount = 0;
     this.maxRetries = 15;
+    this.finalMaxRetries = 3; // FINAL state needs fewer retries
   }
 
   setMyInfo(call, grid) {
@@ -51,6 +43,7 @@ export class QsoManager {
     this.dxGrid = '';
     this.txReport = '';
     this.rxReport = '';
+    this.retryCount = 0;
     this.onStateChange(this.state);
   }
 
@@ -63,6 +56,7 @@ export class QsoManager {
     this.state = QSO_STATE.CALLING;
     this.dxCall = '';
     this.dxGrid = '';
+    this.retryCount = 0;
     this.onStateChange(this.state);
     return this._tx('CQ', this.myCall, this.myGrid);
   }
@@ -71,17 +65,16 @@ export class QsoManager {
   callStation(dxCall) {
     this.dxCall = dxCall.toUpperCase();
     this.state = QSO_STATE.CALLING;
+    this.retryCount = 0;
     this.onStateChange(this.state);
     return this._tx(this.dxCall, this.myCall, this.myGrid);
   }
 
   /**
    * Process a decoded message. Returns TX message if we should respond, null otherwise.
-   * @param {string} message — decoded text
-   * @returns {Object|null} { call1, call2, report } or null
    */
   processMessage(message) {
-    const words = message.trim().split(/\s+/);
+    const words = message.trim().split(/\s+/).filter(Boolean);
     if (words.length < 2 || !this.myCall) return null;
 
     switch (this.state) {
@@ -120,12 +113,20 @@ export class QsoManager {
   }
 
   /**
-   * Called when a period ends with no relevant response from the DX station.
-   * Returns the same TX message for retry, or null if max retries exceeded.
+   * Called when a period ends with no relevant response.
+   * Returns TX message for retry, or null if max retries exceeded.
+   * FINAL state uses a shorter retry limit (3).
    */
   retry() {
     if (this.state === QSO_STATE.IDLE) return null;
-    if (this.retryCount >= this.maxRetries) {
+    const limit = this.state === QSO_STATE.FINAL ? this.finalMaxRetries : this.maxRetries;
+    if (this.retryCount >= limit) {
+      // FINAL timeout: treat as completed (73 was sent, good enough)
+      if (this.state === QSO_STATE.FINAL) {
+        this.state = QSO_STATE.IDLE;
+        this.onStateChange(this.state); // triggers QSO log
+        return null;
+      }
       this.reset();
       return null;
     }
@@ -133,10 +134,10 @@ export class QsoManager {
     return this.getNextTx();
   }
 
-  /** Get retry count info string. */
   retryInfo() {
     if (this.state === QSO_STATE.IDLE || this.retryCount === 0) return '';
-    return `retry ${this.retryCount}/${this.maxRetries}`;
+    const limit = this.state === QSO_STATE.FINAL ? this.finalMaxRetries : this.maxRetries;
+    return `retry ${this.retryCount}/${limit}`;
   }
 
   // ── Internal ──────────────────────────────────────────────────────────
@@ -147,14 +148,14 @@ export class QsoManager {
   }
 
   _tx(call1, call2, report) {
-    this.retryCount = 0; // reset on successful state transition
+    this.retryCount = 0;
     const tx = { call1, call2, report };
     this.onTxReady(tx);
     return tx;
   }
 
   _onIdle(words) {
-    // "CQ [DX] CALL GRID" — someone calling CQ
+    // "CQ [DX] CALL GRID" — someone calling CQ (only if we have a target)
     if (words[0] === 'CQ' && this.dxCall) {
       const callPos = words[1] === 'DX' ? 2 : 1;
       if (words[callPos] === this.dxCall) {
@@ -163,7 +164,7 @@ export class QsoManager {
       }
     }
 
-    // "MYCALL DXCALL GRID" — someone responding to us or calling us
+    // "MYCALL DXCALL GRID" — someone calling us
     if (words[0] === this.myCall && words.length >= 3) {
       this.dxCall = words[1];
       this.dxGrid = words[2];
@@ -177,13 +178,11 @@ export class QsoManager {
   }
 
   _onCalling(words) {
-    // Waiting for: "MYCALL DXCALL REPORT/GRID"
     if (words[0] === this.myCall && words.length >= 3) {
       const responder = words[1];
       const field = words[2];
 
-      // If already locked to a specific station (directed call, not CQ),
-      // only accept that station
+      // Directed call: only accept the target station
       if (this.dxCall && this.dxCall !== responder) {
         return null;
       }
@@ -191,7 +190,6 @@ export class QsoManager {
       this.dxCall = responder;
       this.dxGrid = field;
 
-      // Is this a report? (e.g., "-12", "+05", "R-12")
       if (field.match(/^R?[+-]\d{2}$/)) {
         this.rxReport = field;
         const rpt = field.startsWith('R') ? field : `R${field}`;
@@ -201,7 +199,6 @@ export class QsoManager {
         return this._tx(this.dxCall, this.myCall, this.txReport);
       }
 
-      // Grid response — send our report
       this.txReport = this._autoReport();
       this.state = QSO_STATE.REPORT;
       this.onStateChange(this.state);
@@ -216,14 +213,12 @@ export class QsoManager {
 
     const field = words[2];
 
-    // RRR or RR73 — move to final
     if (field === 'RRR' || field === 'RR73') {
       this.state = QSO_STATE.FINAL;
       this.onStateChange(this.state);
       return this._tx(this.dxCall, this.myCall, '73');
     }
 
-    // R+report — they confirmed, send RR73
     if (field.match(/^R[+-]\d{2}$/)) {
       this.rxReport = field;
       this.state = QSO_STATE.FINAL;
@@ -231,7 +226,6 @@ export class QsoManager {
       return this._tx(this.dxCall, this.myCall, 'RR73');
     }
 
-    // Plain report — send R+report
     if (field.match(/^[+-]\d{2}$/)) {
       this.rxReport = field;
       this.txReport = `R${field}`;
@@ -245,14 +239,9 @@ export class QsoManager {
   _onFinal(words) {
     if (words[0] === this.myCall && words.length >= 3 && words[1] === this.dxCall) {
       if (words[2] === '73' || words[2] === 'RR73') {
-        // QSO complete
-        const result = {
-          dxCall: this.dxCall, dxGrid: this.dxGrid,
-          txReport: this.txReport, rxReport: this.rxReport,
-        };
         this.state = QSO_STATE.IDLE;
         this.onStateChange(this.state);
-        return null; // No more TX — return null but state changed
+        return null;
       }
     }
     return null;
