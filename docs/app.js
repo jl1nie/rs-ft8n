@@ -29,15 +29,23 @@ const qsoLabel = document.getElementById('qso-label');
 const txActionsEl = document.getElementById('tx-actions');
 const btnHalt = document.getElementById('btn-halt');
 const autoCheck = document.getElementById('auto-qso');
-const statusEl = document.getElementById('status');
 const fileInput = document.getElementById('file-input');
+// Scout status bar elements
+const scoutState = document.getElementById('scout-state');
+const scoutDx = document.getElementById('scout-dx');
+const scoutDecodeInfo = document.getElementById('scout-decode-info');
+const scoutDots = [
+  document.getElementById('scout-dot-1'),
+  document.getElementById('scout-dot-2'),
+  document.getElementById('scout-dot-3'),
+  document.getElementById('scout-dot-4'),
+];
 const myCallInput = document.getElementById('my-call');
 const myGridInput = document.getElementById('my-grid');
 const deviceSelect = document.getElementById('audio-device');
 const outputDeviceSelect = document.getElementById('audio-output-device');
 const snipeCallInput = document.getElementById('snipe-call');
 const subtractCheck = document.getElementById('subtract-mode');
-const apCheck = document.getElementById('ap-mode');
 const btnCat = document.getElementById('btn-cat');
 const catStatusEl = document.getElementById('cat-status');
 const btnStart = document.getElementById('btn-start');
@@ -57,6 +65,26 @@ let lastPeriodEven = true; // track even/odd for period background alternation
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
 let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
 const FREQ_MIN = 200, FREQ_MAX = 2800;
+
+// ── Status display ─────────────────────────────────────────────────────────
+function setStatus(\1);
+  snipeTxLine.textContent = text;
+}
+
+function updateScoutStatus() {
+  const state = qso.state;
+  const stateIdx = { IDLE: -1, CALLING: 0, REPORT: 1, FINAL: 2 }[state] ?? -1;
+  scoutDots.forEach((d, i) => {
+    d.className = 'dot';
+    if (i < stateIdx) d.classList.add('done');
+    if (i === stateIdx) d.classList.add('current');
+  });
+  if (state === 'IDLE' && qso.dxCall) {
+    scoutDots.forEach(d => d.classList.add('done'));
+  }
+  scoutState.textContent = state === 'IDLE' ? '' : state;
+  scoutDx.textContent = (state !== 'IDLE' && qso.dxCall) ? qso.dxCall : '';
+}
 
 // ── Waterfall ───────────────────────────────────────────────────────────────
 function resizeCanvas() {
@@ -144,7 +172,7 @@ function setSnipePhase(phase) {
     if (apCall && qso.state === QSO_STATE.IDLE) {
       qso.setMyInfo(myCallInput.value, myGridInput.value);
       qso.callStation(apCall);
-      statusEl.textContent = `Calling ${apCall}`;
+      setStatus(\1);
     }
   }
   updateSnipeOverlay();
@@ -192,11 +220,11 @@ wfWrap.addEventListener('click', (e) => {
     snipeFreq = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
     waterfall.dfLine = snipeFreq;
     updateSnipeOverlay();
-    statusEl.textContent = `DF: ${snipeFreq} Hz`;
+    setStatus(\1);
   } else {
     scoutDf = Math.max(FREQ_MIN, Math.min(FREQ_MAX, freq));
     waterfall.dfLine = scoutDf;
-    statusEl.textContent = `DF: ${scoutDf} Hz`;
+    setStatus(\1);
   }
 });
 
@@ -271,6 +299,9 @@ function updateQsoDisplay() {
     dots.forEach(d => d.classList.add('done'));
   }
 
+  // Scout status bar
+  updateScoutStatus();
+
   // Unified TX actions
   updateTxActions();
 }
@@ -293,7 +324,7 @@ function updateTxActions() {
       const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
       const period = periodMgr.getCurrentPeriod();
       periodMgr.queueTx({ ...tx, freq }, !period.isEven);
-      statusEl.textContent = `CQ queued (${freq} Hz)`;
+      setStatus(\1);
     });
     txActionsEl.appendChild(btn);
 
@@ -310,7 +341,7 @@ function updateTxActions() {
         snipeDxCall.textContent = snipeAltCall;
         snipeAltCall = '';
         updateTxActions();
-        statusEl.textContent = `Calling ${apCall}`;
+        setStatus(\1);
       });
       txActionsEl.appendChild(altBtn);
     }
@@ -375,7 +406,7 @@ function runDecode(samples) {
   const baseMs = performance.now() - t0;
 
   // AP supplement: Scout uses qso.dxCall, Snipe uses apCall
-  const useAp = apCheck.checked && !apDisabledAuto;
+  const useAp = !apDisabledAuto;
   const apTarget = useAp
     ? (apCall || (currentMode === 'scout' && qso.dxCall ? qso.dxCall : ''))
     : '';
@@ -424,7 +455,7 @@ async function transmit(call1, call2, report, freq) {
   if (!wasmReady) return;
   freq = freq || (currentMode === 'snipe' ? snipeFreq : scoutDf);
   try {
-    statusEl.textContent = `TX: ${call1} ${call2} ${report}`;
+    setStatus(\1);
     // Mark active button
     const activeBtn = txActionsEl.querySelector('button');
     if (activeBtn) activeBtn.classList.add('tx-active');
@@ -438,20 +469,17 @@ async function transmit(call1, call2, report, freq) {
     if (cat.connected) await cat.ptt(false);
 
     if (activeBtn) activeBtn.classList.remove('tx-active');
-    statusEl.textContent = 'TX complete';
+    setStatus(\1);
   } catch (e) {
     txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
-    statusEl.textContent = `TX error: ${e.message || e}`;
+    setStatus(\1);
     if (cat.connected) try { await cat.ptt(false); } catch (_) {}
   }
 }
 
 // ── Period manager ──────────────────────────────────────────────────────────
 const periodMgr = new FT8PeriodManager({
-  onTick: (rem) => {
-    const secs = Math.ceil(rem);
-    timerEl.textContent = lastDecodeMs > 0 ? `${secs}s (${lastDecodeMs}ms)` : `${secs}s`;
-  },
+  onTick: (rem) => { timerEl.textContent = `${Math.ceil(rem)}s`; },
   onPeriodEnd: async (periodIndex, isEven) => {
     if (!capture.running || !wasmReady) return;
 
@@ -479,7 +507,7 @@ const periodMgr = new FT8PeriodManager({
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
-    statusEl.textContent = `${n} decoded (${lastDecodeMs} ms)${shedTag}`;
+    setStatus(\1);
 
     // Update AP from snipe call input
     apCall = snipeCallInput.value.trim().toUpperCase();
@@ -521,7 +549,7 @@ const periodMgr = new FT8PeriodManager({
           const tx = qso.callStation(clickCall);
           snipeCallInput.value = clickCall;
           apCall = clickCall;
-          statusEl.textContent = `Calling ${clickCall}`;
+          setStatus(\1);
         } : null, freq, dt, isEven);
       }
 
@@ -546,7 +574,7 @@ const periodMgr = new FT8PeriodManager({
     if (txMsg && autoCheck.checked) {
       const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
       periodMgr.queueTx({ ...txMsg, freq }, !period.isEven);
-      statusEl.textContent = `TX queued: ${qso.formatTx(txMsg)}`;
+      setStatus(\1);
     } else if (!txMsg && qso.state !== QSO_STATE.IDLE && autoCheck.checked) {
       // Save state before retry (retry may reset on max retries)
       const prevState = qso.state;
@@ -555,7 +583,7 @@ const periodMgr = new FT8PeriodManager({
       if (retryTx) {
         const freq = currentMode === 'snipe' ? snipeFreq : scoutDf;
         periodMgr.queueTx({ ...retryTx, freq }, !period.isEven);
-        statusEl.textContent = `Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`;
+        setStatus(\1);
       } else if (prevDx) {
         // Max retries exceeded — log incomplete QSO
         qsoLog.add({
@@ -681,7 +709,7 @@ btnHalt.addEventListener('click', () => {
   audioOut.stop();
   if (cat.connected) cat.ptt(false).catch(() => {});
   txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
-  statusEl.textContent = 'Halted';
+  setStatus(\1);
 });
 
 btnReset.addEventListener('click', () => {
@@ -701,25 +729,25 @@ btnReset.addEventListener('click', () => {
   qso.reset();
   chatList.innerHTML = '';
   updateQsoDisplay();
-  statusEl.textContent = 'Reset';
+  setStatus(\1);
 });
 
 // ── Audio start/stop ────────────────────────────────────────────────────────
 btnStart.addEventListener('click', async () => {
   if (!liveMode) {
     const deviceId = deviceSelect.value;
-    if (!deviceId) { statusEl.textContent = 'Select audio device'; return; }
+    if (!deviceId) { setStatus(\1); return; }
     try {
       await capture.start(deviceId);
       periodMgr.start();
       liveMode = true;
       btnStart.textContent = 'Stop Audio';
-      statusEl.textContent = `Listening (${capture.getSampleRate()} Hz)`;
+      setStatus(\1);
       waterfall.clear();
       settingsPanel.classList.remove('open');
       settingsOverlay.classList.remove('open');
     } catch (e) {
-      statusEl.textContent = `Audio error: ${e.message || e}`;
+      setStatus(\1);
     }
   } else {
     periodMgr.stop();
@@ -727,7 +755,7 @@ btnStart.addEventListener('click', async () => {
     liveMode = false;
     btnStart.textContent = 'Start Audio';
     timerEl.textContent = '--';
-    statusEl.textContent = 'Stopped';
+    setStatus(\1);
   }
 });
 
@@ -822,14 +850,14 @@ async function handleFile(file) {
     waterfall.pushSamples(samples);
     waterfall.drawFreqAxis();
 
-    statusEl.textContent = 'Decoding...';
+    setStatus(\1);
     await new Promise(r => setTimeout(r, 0));
 
     const t0 = performance.now();
     const results = runDecode(samples);
     const elapsed = performance.now() - t0;
 
-    statusEl.textContent = `${results.length} decoded (${elapsed.toFixed(0)} ms) — ${file.name}`;
+    setStatus(\1);
     chatList.innerHTML = '';
 
     for (let i = 0; i < results.length; i++) {
@@ -839,15 +867,15 @@ async function handleFile(file) {
       r.free();
     }
   } catch (e) {
-    statusEl.textContent = `Error: ${e.message || e}`;
+    setStatus(\1);
   }
 }
 
 // ── WASM init ───────────────────────────────────────────────────────────────
-statusEl.textContent = 'Loading...';
+setStatus(\1);
 init().then(async () => {
   wasmReady = true;
-  statusEl.textContent = 'Ready';
+  setStatus(\1);
   try {
     const devices = await capture.enumerateDevices();
     deviceSelect.innerHTML = '<option value="">-- select --</option>';
@@ -868,4 +896,4 @@ init().then(async () => {
     }
   } catch (e) { console.warn('Audio devices:', e); }
   updateTxActions();
-}).catch(e => { statusEl.textContent = `Load failed: ${e}`; });
+}).catch(e => { setStatus(\1); });

@@ -28,13 +28,26 @@
   /* ── Waterfall ──────────────────────────────────────────────────────── */
   #waterfall-wrap { position: relative; flex-shrink: 0; cursor: crosshair; }
   #waterfall { width: 100%; display: block; background: #000; border-bottom: 1px solid #222; }
-  .scout-mode #waterfall { height: 120px; }
+  .scout-mode #waterfall { height: min(25vh, 220px); }
   .snipe-mode #waterfall { height: 280px; }
   #snipe-overlay { position: absolute; top: 0; bottom: 0; background: rgba(79,195,247,0.12);
     border-left: 1px solid rgba(79,195,247,0.5); border-right: 1px solid rgba(79,195,247,0.5);
     pointer-events: none; display: none; }
   #snipe-freq-label { position: absolute; top: 18px; color: #4fc3f7; font-size: .7rem;
     pointer-events: none; display: none; }
+
+  /* ── Scout status bar ────────────────────────────────────────────────── */
+  #scout-status { display: none; flex-shrink: 0; }
+  .scout-mode #scout-status { display: flex; align-items: center; gap: .4rem;
+    padding: .25rem .5rem; background: #111; border-bottom: 1px solid #222;
+    font-size: .75rem; }
+  #scout-status .dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #555;
+    display: inline-block; }
+  #scout-status .dot.done { background: #76ff03; border-color: #76ff03; }
+  #scout-status .dot.current { background: #4fc3f7; border-color: #4fc3f7; }
+  #scout-status .state { color: #4fc3f7; font-weight: bold; }
+  #scout-status .dx { color: #76ff03; font-weight: bold; }
+  #scout-status .decode-info { color: #666; margin-left: auto; font-size: .7rem; }
 
   /* ── Scout chat ─────────────────────────────────────────────────────── */
   #scout-view { flex: 1; overflow-y: auto; display: none; }
@@ -95,8 +108,6 @@
     font-weight: bold; }
   .bottom-bar button.halt { border-color: #f44336; color: #f44336; }
   .bottom-bar button:disabled { opacity: 0.3; cursor: default; }
-  .bottom-bar .status { font-size: .7rem; color: #888; flex: 1; min-width: 0; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap; }
   .bottom-bar label { font-size: .75rem; display: flex; align-items: center; gap: .3rem; }
   @keyframes pulse { to { opacity: 0.6; } }
   #tx-actions { display: flex; gap: .3rem; flex-wrap: wrap; }
@@ -151,6 +162,17 @@
   <div id="snipe-freq-label"></div>
 </div>
 
+<!-- Scout status bar -->
+<div id="scout-status">
+  <span class="dot" id="scout-dot-1"></span>
+  <span class="dot" id="scout-dot-2"></span>
+  <span class="dot" id="scout-dot-3"></span>
+  <span class="dot" id="scout-dot-4"></span>
+  <span class="state" id="scout-state"></span>
+  <span class="dx" id="scout-dx"></span>
+  <span class="decode-info" id="scout-decode-info"></span>
+</div>
+
 <!-- Scout view: chat-style message flow -->
 <div id="scout-view">
   <div class="chat-list" id="chat-list"></div>
@@ -188,7 +210,6 @@
   <div id="tx-actions"></div>
   <button id="btn-halt" class="halt">Halt</button>
   <label><input type="checkbox" id="auto-qso"> Auto</label>
-  <span class="status" id="status">Ready</span>
 </div>
 
 <!-- Hidden file input for WAV -->
@@ -235,7 +256,6 @@
   <button id="btn-open-wav">Open WAV File</button>
   <div style="margin-top:1rem">
     <label><input type="checkbox" id="subtract-mode" checked> Multi-pass subtract</label>
-    <label><input type="checkbox" id="ap-mode" checked> A Priori (AP) decode</label>
   </div>
   <div style="margin-top:1rem;border-top:1px solid #333;padding-top:.5rem">
     <h2 style="font-size:.85rem">Log</h2>
