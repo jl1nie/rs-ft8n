@@ -1,6 +1,6 @@
 use wasm_bindgen::prelude::*;
 use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth};
-use ft8_core::message::unpack77;
+use ft8_core::message::{unpack77, is_plausible_message};
 
 /// Single decoded FT8 message (returned to JS).
 #[wasm_bindgen]
@@ -25,6 +25,7 @@ impl DecodedMessage {
 fn to_decoded(r: ft8_core::decode::DecodeResult) -> Option<DecodedMessage> {
     let text = unpack77(&r.message77)?;
     if text.is_empty() { return None; }
+    if !is_plausible_message(&text) { return None; }
     Some(DecodedMessage {
         freq_hz: r.freq_hz,
         dt_sec: r.dt_sec,

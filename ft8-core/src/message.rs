@@ -312,6 +312,110 @@ pub fn unpack77(msg: &[u8; 77]) -> Option<String> {
     }
 }
 
+// ── Callsign validation ─────────────────────────────────────────────────────
+
+/// Check if a callsign matches the standard amateur radio format.
+///
+/// Based on WSJT-X `MainWindow::stdCall` regex:
+/// ```text
+/// (part1)(part2)(/R|/P)?
+/// part1: [A-Z]{0,2} | [A-Z][0-9] | [0-9][A-Z]
+/// part2: [0-9][A-Z]{0,3}
+/// ```
+///
+/// Examples: JA1ABC, 3Y0Z, W1AW, VK2RG/P
+pub fn is_standard_callsign(call: &str) -> bool {
+    let call = call.trim();
+    // Strip /R or /P suffix
+    let base = if call.ends_with("/R") || call.ends_with("/P") {
+        &call[..call.len() - 2]
+    } else {
+        call
+    };
+
+    let b = base.as_bytes();
+    if b.is_empty() || b.len() > 6 { return false; }
+
+    // Find the boundary: part2 starts with a digit followed by letters
+    // Scan from right to find the digit that starts part2
+    // part2 = [0-9][A-Z]{0,3}
+    let mut split = None;
+    for i in (0..b.len()).rev() {
+        if b[i].is_ascii_digit() {
+            // Check remaining chars after this digit are all A-Z
+            if b[i + 1..].iter().all(|&c| c.is_ascii_uppercase()) {
+                split = Some(i);
+                break;
+            }
+        }
+    }
+    let split = match split { Some(s) => s, None => return false };
+
+    let part1 = &b[..split];
+    let part2 = &b[split..]; // [0-9][A-Z]{0,3}
+
+    // Validate part2: digit + 0-3 uppercase letters
+    if part2.is_empty() || !part2[0].is_ascii_digit() { return false; }
+    if part2.len() > 4 { return false; }
+    if !part2[1..].iter().all(|c| c.is_ascii_uppercase()) { return false; }
+
+    // Validate part1: [A-Z]{0,2} | [A-Z][0-9] | [0-9][A-Z]
+    match part1.len() {
+        0 => true, // empty part1 is allowed
+        1 => part1[0].is_ascii_uppercase() || part1[0].is_ascii_digit(),
+        2 => {
+            let (a, b) = (part1[0], part1[1]);
+            (a.is_ascii_uppercase() && b.is_ascii_uppercase()) // [A-Z][A-Z]
+            || (a.is_ascii_uppercase() && b.is_ascii_digit())  // [A-Z][0-9]
+            || (a.is_ascii_digit() && b.is_ascii_uppercase())  // [0-9][A-Z]
+        }
+        _ => false,
+    }
+}
+
+/// Check if a decoded FT8 message looks plausible (not a false positive).
+///
+/// Validates that callsign-like tokens in the message match standard format.
+/// Special tokens (CQ, DE, QRZ, `<...>`, grid, report) are accepted.
+pub fn is_plausible_message(text: &str) -> bool {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() { return false; }
+
+    // Special message formats that are always OK
+    if text.contains("[FD]") || text.contains("[RTTY]") || text.contains("RR73;") {
+        // Contest/DXpedition types — trust the unpack
+        return true;
+    }
+
+    // Check each token that looks like it should be a callsign
+    for &w in words.iter() {
+        // Skip known non-callsign tokens
+        if matches!(w, "CQ" | "DE" | "QRZ" | "RRR" | "RR73" | "73"
+            | "R" | "" | "DX") { continue; }
+        if w.starts_with("CQ") { continue; } // "CQ NNN" patterns
+        if w.starts_with('<') && w.ends_with('>') { continue; } // <...> hash
+        if w.starts_with("R+") || w.starts_with("R-") { continue; } // R-report
+        if w.starts_with('+') || w.starts_with('-') {
+            // Check if numeric report like "-12" or "+05"
+            if w[1..].parse::<i32>().is_ok() { continue; }
+        }
+        // 4-char grid locator (e.g., PM95)
+        if w.len() == 4 {
+            let b = w.as_bytes();
+            if b[0].is_ascii_uppercase() && b[1].is_ascii_uppercase()
+                && b[2].is_ascii_digit() && b[3].is_ascii_digit() {
+                continue;
+            }
+        }
+
+        // This token should be a callsign — validate it
+        if !is_standard_callsign(w) {
+            return false;
+        }
+    }
+    true
+}
+
 // ── Packing (encode) ────────────────────────────────────────────────────────
 
 /// Write `len` bits of `val` (MSB first) into `msg` starting at `start`.
@@ -476,5 +580,48 @@ mod tests {
         let msg2 = pack77_type1("CQ", "JQ1QSO", "PM95").expect("pack failed");
         let text2 = unpack77(&msg2).expect("unpack failed");
         assert_eq!(text2, "CQ JQ1QSO PM95");
+    }
+
+    #[test]
+    fn standard_callsign_valid() {
+        assert!(is_standard_callsign("JA1ABC"));
+        assert!(is_standard_callsign("3Y0Z"));
+        assert!(is_standard_callsign("W1AW"));
+        assert!(is_standard_callsign("VK2RG"));
+        assert!(is_standard_callsign("R7IW"));
+        assert!(is_standard_callsign("JQ1QSO"));
+        assert!(is_standard_callsign("TA6CQ"));
+        assert!(is_standard_callsign("JA1ABC/P"));
+        assert!(is_standard_callsign("JM1VWQ/R"));
+    }
+
+    #[test]
+    fn standard_callsign_invalid() {
+        assert!(!is_standard_callsign("NFW/0811"));  // slash + digits, not /R or /P
+        assert!(!is_standard_callsign("791JLI"));    // 79 is not a valid prefix
+        assert!(!is_standard_callsign(""));
+        assert!(!is_standard_callsign("ABCDEFG"));   // no digit, too long
+        assert!(!is_standard_callsign("123"));       // all digits
+    }
+
+    #[test]
+    fn standard_callsign_edge_cases() {
+        // These are syntactically valid even if not real
+        assert!(is_standard_callsign("SY2XHO"));    // SY prefix (Greece)
+        assert!(is_standard_callsign("8I9NIH"));    // 8I prefix + 9NIH — valid format
+    }
+
+    #[test]
+    fn plausible_message_check() {
+        assert!(is_plausible_message("CQ JA1ABC PM95"));
+        assert!(is_plausible_message("CQ DX R6WA LN32"));
+        assert!(is_plausible_message("JA1ABC 3Y0Z -12"));
+        assert!(is_plausible_message("JA1ABC 3Y0Z RRR"));
+        assert!(is_plausible_message("JA1ABC 3Y0Z 73"));
+        assert!(is_plausible_message("CQ 3Y0Z JD34"));
+        assert!(is_plausible_message("OH3NIV ZS6S R-12"));
+
+        // False positives from noise
+        assert!(!is_plausible_message("NFW/0811 73"));
     }
 }

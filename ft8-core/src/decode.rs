@@ -255,9 +255,10 @@ fn process_candidate(
                     };
                     if let Some(osd) = osd_result {
                         // Order-dependent false-positive filter:
-                        // order-2 (~4k candidates): < 35 errors
-                        // order-3 (~122k candidates): < 25 errors
-                        let max_errors = if osd_depth == 3 { 25 } else { 35 };
+                        // order-2 (~4k candidates): < 40 errors
+                        // order-3 (~122k candidates): < 30 errors
+                        // (callsign validation in message.rs catches remaining FPs)
+                        let max_errors = if osd_depth == 3 { 30 } else { 40 };
                         if osd.hard_errors >= max_errors { continue; }
                         let itone = message_to_tones(&osd.message77);
                         let snr_db = compute_snr_db(cs, &itone);
