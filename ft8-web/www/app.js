@@ -256,7 +256,16 @@ function runDecode(samples) {
     // Snipe ±250 Hz with EQ, optional AP
     return decode_sniper(samples, snipeFreq, apCall);
   }
-  // Full-band decode; AP is only used with snipe mode
+  // Full-band decode + optional AP (search entire band)
+  if (apCall) {
+    // Run full-band subtract first, then sniper+AP scan if target not found
+    const full = subtractCheck.checked ? decode_wav_subtract(samples) : decode_wav(samples);
+    const found = full.some(r => r.message.toUpperCase().includes(apCall));
+    if (found) return full;
+    // Target not in full-band results — try sniper+AP across wider band
+    const ap = decode_sniper(samples, snipeFreq || 1500, apCall);
+    return [...full, ...ap];
+  }
   return subtractCheck.checked ? decode_wav_subtract(samples) : decode_wav(samples);
 }
 
