@@ -70,7 +70,9 @@ Each WAV contains 15 strong crowd stations and a weak target station **CQ 3Y0Z J
 |-----|--------|------------------------|-----------|
 | `sim_busy_band.wav` | 7 stations | **16 stations (incl. 3Y0Z)** | OSD depth difference |
 | `sim_stress_fullband.wav` | 10 (no 3Y0Z) | **15 (no 3Y0Z)** | ADC saturation buries 3Y0Z (both) |
-| **`sim_stress_bpf_edge_clean.wav`** | **decode failure** | **CQ 3Y0Z JD34 (197 ms)** | **rs-ft8n wins** |
+| **`sim_stress_bpf_edge_clean.wav`** | **decode failure** | **CQ 3Y0Z JD34 (197 ms)** | **BPF + EQ + AP effect** ※ |
+
+> ※ The WASM demo's subtract mode uses EQ + AP (target callsign 3Y0Z pre-specified). WSJT-X cannot use AP on a standalone WAV file (no QSO context). Under equal conditions (EQ only, no AP), rs-ft8n still achieves 30% decode rate at -18 dB BPF edge ([detail](#bpf-edge-snr-sweep--cumulative-effect-of-bpf--eq--ap)).
 
 > **Multi-pass subtract** checkbox enables 3-pass successive interference cancellation: decode strong signals → subtract their waveforms → rescan the residual for weaker signals. Decodes more stations than single-pass at the cost of longer processing time.
 
