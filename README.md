@@ -113,15 +113,17 @@ BPF 通過帯域内に crowd 4 局 (@ +8 dB)、target (@ -14 dB):
 | Single-pass | 4（crowd のみ） | missed |
 | **Subtract** | **5** | **CQ 3Y0Z JD34 ★** |
 
-### パフォーマンス (100 局、release build)
+### デコーダ性能 (100 局、release build)
 
 測定環境: AMD Ryzen 9 9900X (12C/24T)、32 GB RAM、rustc 1.94.0、WSL2 Linux 5.15
 
-| モード | デコード数 | 平均時間 | FT8 バジェット (2.4 s) |
-|--------|-----------|---------|----------------------|
-| decode_frame (single) | 82 | 19 ms | 0.8% |
-| decode_frame_subtract (3-pass) | 89 | 119 ms | 5.0% |
-| sniper + EQ (Adaptive) | 16 | 22 ms | 0.9% |
+| モード | デコード数 | 1 thread | 12 threads | FT8 バジェット (2.4 s) |
+|--------|-----------|----------|------------|----------------------|
+| decode_frame (single) | 82 | 147 ms | 19 ms | 0.8% |
+| decode_frame_subtract (3-pass) | 89 | 440 ms | 119 ms | 5.0% |
+| sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
+
+**注:** WSJT-X のデコーダコア (Fortran) は数値計算として十分高速であり、「WSJT-X が重い」という評判はアプリ全体 (Qt GUI、ウォーターフォール等) に起因する。rs-ft8n のデコーダ速度の主な優位性は **Rayon による候補並列デコード** (最大 7.7 倍) にある。WSJT-X は候補をシリアルに処理するため、マルチコア CPU の恩恵を受けられない。シングルスレッドでの性能差は Rust と Fortran の言語差ではなく実装上の差異（FFT キャッシュ戦略等）による。
 
 ## 機能詳細
 

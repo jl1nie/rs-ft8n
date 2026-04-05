@@ -113,15 +113,17 @@ BPF passband with 4 crowd stations (@ +8 dB) masking target (@ -14 dB):
 | Single-pass | 4 (crowd only) | missed |
 | **Subtract** | **5** | **CQ 3Y0Z JD34 ★** |
 
-### Performance (100 stations, release build)
+### Decoder Performance (100 stations, release build)
 
 Environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.15
 
-| Mode | Decoded | Mean time | Budget (2.4 s) |
-|------|---------|-----------|----------------|
-| decode_frame (single) | 82 | 19 ms | 0.8% |
-| decode_frame_subtract (3-pass) | 89 | 119 ms | 5.0% |
-| sniper + EQ (Adaptive) | 16 | 22 ms | 0.9% |
+| Mode | Decoded | 1 thread | 12 threads | Budget (2.4 s) |
+|------|---------|----------|------------|----------------|
+| decode_frame (single) | 82 | 147 ms | 19 ms | 0.8% |
+| decode_frame_subtract (3-pass) | 89 | 440 ms | 119 ms | 5.0% |
+| sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
+
+**Note:** The WSJT-X decoder core (Fortran) is efficient for numerical computation; the reputation of "WSJT-X being heavy" stems from the full application (Qt GUI, waterfall, etc.), not the decoder. The primary speed advantage of rs-ft8n is **Rayon parallel candidate decoding** (up to 7.7×). WSJT-X processes candidates serially and does not exploit multi-core CPUs. The single-thread performance difference reflects implementation choices (FFT cache strategy, etc.), not a Rust-vs-Fortran language advantage.
 
 ## Feature Details
 
