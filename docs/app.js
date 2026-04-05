@@ -79,8 +79,8 @@ function setStatus(text) {
     if (!periodMgr.hasTxQueued()) scoutTxQueue.textContent = '';
   }
   snipeTxLine.textContent = text;
-  // Show Halt only when TX is queued or active
-  btnHalt.style.display = (periodMgr.hasTxQueued() || isTx) ? '' : 'none';
+  // Show Halt/Reset when TX is queued, active, or halted
+  btnHalt.style.display = (periodMgr.hasTxQueued() || isTx || halted) ? '' : 'none';
 }
 
 const DOM_MAX = 200; // max child elements per list
@@ -777,8 +777,7 @@ const periodMgr = new FT8PeriodManager({
           });
           snipeRxList.appendChild(div);
         }
-        pruneList(snipeRxList);
-        snipeRxList.scrollTop = snipeRxList.scrollHeight;
+        pruneList(snipeRxList);\n        snipeRxList.scrollTop = snipeRxList.scrollHeight;
 
         // Show callers list
         if (apCall && callers.length > 0) {
