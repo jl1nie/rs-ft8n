@@ -222,6 +222,7 @@ const periodMgr = new FT8PeriodManager({
         msgs.push({ freq_hz: r.freq_hz, message: r.message });
         const tr = document.createElement('tr');
         if (isTargetMessage(r.message)) tr.classList.add('target');
+        if (r.pass >= 4 && r.hard_errors >= 35) tr.classList.add('suspect');
         tr.innerHTML = `
           <td class="num">${utc}</td>
           <td class="num">${r.freq_hz.toFixed(1)}</td>
@@ -342,6 +343,7 @@ async function handleFile(file) {
         msgs.push({ freq_hz: r.freq_hz, message: r.message });
         const tr = document.createElement('tr');
         if (isTargetMessage(r.message)) tr.classList.add('target');
+        if (r.pass >= 4 && r.hard_errors >= 35) tr.classList.add('suspect');
         tr.innerHTML = `
           <td class="num">${i + 1}</td>
           <td class="num">${r.freq_hz.toFixed(1)}</td>
