@@ -2,7 +2,7 @@
 
 **[Japanese version](manual.md)** | **[Open App](https://jl1nie.github.io/rs-ft8n/)**
 
-rs-ft8n is a browser-based FT8 decoder PWA. No installation required — works on Chrome, Edge, and Safari (WebKit).
+rs-ft8n is a browser-based FT8 QSO application — decode, transmit, CAT control, and log management in a single PWA. No installation required — works on Chrome, Edge, and Safari (WebKit).
 
 ---
 

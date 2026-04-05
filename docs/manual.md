@@ -2,7 +2,7 @@
 
 **[English version](manual.en.md)** | **[アプリを開く](https://jl1nie.github.io/rs-ft8n/)**
 
-rs-ft8n はブラウザだけで動作する FT8 デコーダ PWA です。インストール不要で、Chrome / Edge / Safari (WebKit) で動作します。
+rs-ft8n はブラウザだけで FT8 の QSO が完結する PWA です。デコード、送信、CAT 制御、ログ管理まで搭載。インストール不要で、Chrome / Edge / Safari (WebKit) で動作します。
 
 ---
 

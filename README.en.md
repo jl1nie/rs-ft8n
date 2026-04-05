@@ -1,8 +1,8 @@
 # rs-ft8n — FT8 Sniper-Mode Decoder
 
-**[日本語版](README.md)** | **[WASM Demo](https://jl1nie.github.io/rs-ft8n/)** | **[PWA Manual](docs/manual.en.md)**
+**[Japanese version](README.md)** | **[Open PWA](https://jl1nie.github.io/rs-ft8n/)** | **[PWA Manual](docs/manual.en.md)**
 
-Pure Rust FT8 decoder with **adaptive equalizer**, **A Priori decoding**, and **500 Hz hardware BPF** integration. Includes a browser-based WASM PWA with real-time waterfall and live audio decoding.
+Pure Rust FT8 decoder with **adaptive equalizer**, **A Priori decoding**, and **500 Hz hardware BPF** integration. The browser-based WASM PWA is a complete QSO station — waterfall, live decode, transmit, CAT control, and log management.
 
 ## Project Aim
 
@@ -34,22 +34,29 @@ FT8 operates on a 3 kHz audio band shared by dozens of stations. When a +40 dB a
 | OSD false positive | None | **Order-dependent hard_errors + callsign validation** |
 | FFT cache | `save` variable (serial) | **Explicit cache + Rayon parallel sharing** |
 | Parallelism | Serial candidate loop | **Rayon par_iter** |
-| WASM | None | **Browser real-time decode** (306 KB) |
+| WASM | None | **Complete QSO in the browser** (306 KB) |
 
-## WASM Demo
+## PWA — Full FT8 QSO in the Browser
 
 **[https://jl1nie.github.io/rs-ft8n/](https://jl1nie.github.io/rs-ft8n/)**
 
-FT8 decoding in the browser. No installation required.
+No installation required. Works on Chrome, Edge, and Safari. See the **[PWA Manual](docs/manual.en.md)** for details.
 
-### Features
+### Two Operating Modes
 
-- **Waterfall display** — real-time spectrogram (200-2800 Hz) with decoded callsign overlay
-- **Live audio input** — connect to transceiver via USB audio, auto-decode every 15 seconds
-- **WAV file drop** — drag & drop 12 kHz / 16-bit mono WAV files
-- **Snipe mode** — click/drag 500 Hz window on waterfall, decode with EQ
-- **AP (A Priori)** — enter DX Call + confirm with AP button, target callsign highlighted green
-- **Snipe and AP are independent** — 4 combinations available
+**Scout mode** — chat-style UI for casual CQ operation. Tap received messages to call stations. Ideal for portable and mobile use.
+
+**Snipe mode** — dedicated DX hunting. Toggle between Watch phase (full-band receive, target search, competitor list) and Call phase (narrow, target-only display).
+
+### Key Features
+
+- **Waterfall** — real-time spectrogram (200-2800 Hz), decoded message overlay, tap to set TX frequency
+- **Live audio** — connect to transceiver via USB audio, auto-decode every 15 seconds
+- **QSO state machine** — IDLE → CALLING → REPORT → FINAL → complete. Fully automatic in Auto mode, or manually select TX messages
+- **CAT control** — Yaesu / Icom PTT via Web Serial API
+- **Log management** — QSOs (complete + incomplete) and all RX decodes stored in localStorage. ZIP export (ADIF + RX CSV)
+- **WAV analysis** — drag & drop WAV onto waterfall for offline analysis (auto-stops live audio)
+- **Snipe + AP** — 500 Hz BPF window + target callsign lock. 4 combinations:
 
 | Snipe | AP | Behavior |
 |-------|-----|----------|
@@ -60,12 +67,12 @@ FT8 decoding in the browser. No installation required.
 
 ### Quick Start
 
-1. Download test WAVs:
-   - [sim_stress_bpf_edge_clean.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_stress_bpf_edge_clean.wav) — **signal WSJT-X cannot decode**
+1. **[Open the PWA](https://jl1nie.github.io/rs-ft8n/)**
+2. Enter My Callsign and My Grid in the settings panel (gear icon)
+3. **Offline trial:** download a test WAV and drag & drop it onto the waterfall:
    - [sim_busy_band.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_busy_band.wav) — 15 stations + weak target
-2. Open [WASM demo](https://jl1nie.github.io/rs-ft8n/), drop WAV → waterfall + decode results
-3. Snipe button → click waterfall to place 500 Hz window
-4. DX Call: `3Y0Z` → AP button → target highlighted green
+   - [sim_stress_bpf_edge_clean.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_stress_bpf_edge_clean.wav) — **signal WSJT-X cannot decode**
+4. **Live operation:** select Audio Input / Output → Start Audio → CQ to begin QSO
 
 ### WSJT-X Comparison
 
@@ -109,7 +116,7 @@ Native: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.15
 | decode_frame_subtract (3-pass) | 89 | 440 ms | 119 ms | 5.0% |
 | sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
 
-**Parallelism:** WSJT-X processes candidates serially. rs-ft8n uses **Rayon parallel candidate decoding** (up to 7.7×). Even single-threaded, 100 stations decode in 440 ms (within budget).
+**Parallelism:** WSJT-X processes candidates serially. rs-ft8n uses **Rayon parallel candidate decoding** (up to 7.7x). Even single-threaded, 100 stations decode in 440 ms (within budget).
 
 #### WASM vs Native
 
@@ -128,12 +135,20 @@ rs-ft8n/
 ├── ft8-bench/         Benchmark & scenario harness
 │   └── src/           main, bpf, simulator, real_data, diag
 ├── ft8-web/           WASM PWA frontend
-│   ├── src/lib.rs     wasm-bindgen API
-│   └── www/           index.html, app.js, waterfall.js, audio-*.js, ft8-period.js
-└── docs/              GitHub Pages deployment
+│   ├── src/lib.rs     wasm-bindgen API (decode/sniper/subtract/encode)
+│   └── www/
+│       ├── index.html      Scout/Snipe dual-mode UI
+│       ├── app.js          Orchestrator (mode switch/decode/TX/log)
+│       ├── qso.js          QSO state machine (IDLE→CALLING→REPORT→FINAL)
+│       ├── waterfall.js    Canvas spectrogram (radix-2 FFT, DF line)
+│       ├── qso-log.js      QSO + RX log, ZIP export (ADIF + CSV)
+│       ├── cat.js          CAT control (Yaesu/Icom, Web Serial)
+│       ├── audio-*.js      Capture, output, AudioWorklet decimation
+│       └── ft8-period.js   FT8 15-second period manager + TX queue
+└── docs/              GitHub Pages deployment (auto-synced from ft8-web/www/)
 ```
 
-52 unit tests. WASM binary 306 KB.
+54 unit tests. WASM binary 306 KB.
 
 ## Build
 
