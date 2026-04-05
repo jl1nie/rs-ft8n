@@ -278,7 +278,16 @@ function runDecode(samples) {
 
 function isTargetMessage(msg) {
   if (!apCall) return false;
-  return msg.toUpperCase().includes(apCall);
+  const upper = msg.toUpperCase();
+  if (snipeMode) {
+    // Snipe: highlight only messages TO the target (call2 position)
+    const words = upper.split(/\s+/);
+    // Standard Type 1: CALL1 CALL2 GRID/REPORT — call2 is words[1]
+    // CQ: CQ CALL2 GRID — call2 is words[1]
+    return words.length >= 2 && words[1] === apCall;
+  }
+  // Full-band: highlight any message mentioning the target
+  return upper.includes(apCall);
 }
 
 function decodeModeName() {
