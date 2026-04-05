@@ -123,7 +123,7 @@ Environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.
 | decode_frame_subtract (3-pass) | 89 | 440 ms | 119 ms | 5.0% |
 | sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
 
-**Note:** The WSJT-X decoder core (Fortran) is efficient for numerical computation; the reputation of "WSJT-X being heavy" stems from the full application (Qt GUI, waterfall, etc.), not the decoder. The primary speed advantage of rs-ft8n is **Rayon parallel candidate decoding** (up to 7.7×). WSJT-X processes candidates serially and does not exploit multi-core CPUs. The single-thread performance difference reflects implementation choices (FFT cache strategy, etc.), not a Rust-vs-Fortran language advantage.
+**Performance comparison with WSJT-X:** WSJT-X runs its decoder as a separate process (jt9) and triggers 3 progressive early-decode passes during each receive period (at symbols 41/47/50). However, the **candidate loop within each decode call is serial** (no OpenMP), so multi-core CPUs are underutilized. rs-ft8n achieves up to 7.7× speedup via **Rayon parallel candidate decoding**. The Fortran decoder core itself is efficient for numerical computation; the single-thread performance gap reflects parallelization strategy, not a Rust-vs-Fortran language difference.
 
 ## Feature Details
 
