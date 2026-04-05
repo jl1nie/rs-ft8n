@@ -1,5 +1,7 @@
 import init, { decode_wav, decode_wav_subtract } from '../pkg/ft8_web.js';
+import { Waterfall } from './waterfall.js';
 
+// ── Elements ────────────────────────────────────────────────────────────────
 const dropZone = document.getElementById('drop-zone');
 const fileInput = document.getElementById('file-input');
 const statusEl = document.getElementById('status');
@@ -7,10 +9,20 @@ const timingEl = document.getElementById('timing');
 const resultsTable = document.getElementById('results');
 const tbody = resultsTable.querySelector('tbody');
 const subtractCheck = document.getElementById('subtract-mode');
+const wfCanvas = document.getElementById('waterfall');
 
+// ── Waterfall setup ─────────────────────────────────────────────────────────
+function resizeCanvas() {
+  wfCanvas.width = wfCanvas.clientWidth;
+  wfCanvas.height = wfCanvas.clientHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+const waterfall = new Waterfall(wfCanvas);
+
+// ── WASM init ───────────────────────────────────────────────────────────────
 let wasmReady = false;
-
-// ── Init WASM ───────────────────────────────────────────────────────────────
 statusEl.textContent = 'Loading WASM module...';
 init().then(() => {
   wasmReady = true;
@@ -35,7 +47,6 @@ fileInput.addEventListener('change', () => {
 // ── WAV parse ───────────────────────────────────────────────────────────────
 function parseWav(buf) {
   const view = new DataView(buf);
-  // Validate RIFF header
   const riff = String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3));
   if (riff !== 'RIFF') throw new Error('Not a WAV file');
 
@@ -55,16 +66,14 @@ function parseWav(buf) {
       view.getUint8(offset+2), view.getUint8(offset+3)
     );
     const size = view.getUint32(offset + 4, true);
-    if (id === 'data') {
-      return new Int16Array(buf, offset + 8, size / 2);
-    }
+    if (id === 'data') return new Int16Array(buf, offset + 8, size / 2);
     offset += 8 + size;
-    if (offset % 2 !== 0) offset++; // word-align
+    if (offset % 2 !== 0) offset++;
   }
   throw new Error('No "data" chunk found');
 }
 
-// ── Decode ──────────────────────────────────────────────────────────────────
+// ── Decode + Waterfall ──────────────────────────────────────────────────────
 async function handleFile(file) {
   if (!wasmReady) { statusEl.textContent = 'WASM not ready yet'; return; }
   statusEl.textContent = `Parsing ${file.name}...`;
@@ -78,9 +87,14 @@ async function handleFile(file) {
     const nSamples = samples.length;
     const duration = (nSamples / 12000).toFixed(1);
 
+    // Draw waterfall from WAV data
+    waterfall.clear();
+    waterfall.pushSamples(samples);
+    waterfall.drawFreqAxis();
+
     statusEl.textContent = `Decoding ${nSamples} samples (${duration} s)...`;
 
-    // Yield to UI before heavy computation
+    // Yield to UI
     await new Promise(r => setTimeout(r, 0));
 
     const useSubtract = subtractCheck.checked;
@@ -93,24 +107,30 @@ async function handleFile(file) {
     statusEl.textContent = `${file.name}: ${nSamples} samples (${duration} s)`;
     timingEl.textContent = `Decoded ${n} message(s) in ${elapsed.toFixed(1)} ms (${mode})`;
 
-    if (n === 0) return;
-    resultsTable.hidden = false;
+    // Draw labels on waterfall
+    const msgs = [];
+    if (n > 0) {
+      resultsTable.hidden = false;
+      for (let i = 0; i < n; i++) {
+        const r = results[i];
+        msgs.push({ freq_hz: r.freq_hz, message: r.message });
 
-    for (let i = 0; i < n; i++) {
-      const r = results[i];
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td class="num">${i + 1}</td>
-        <td class="num">${r.freq_hz.toFixed(1)}</td>
-        <td class="num">${r.dt_sec >= 0 ? '+' : ''}${r.dt_sec.toFixed(2)}</td>
-        <td class="num">${r.snr_db >= 0 ? '+' : ''}${r.snr_db.toFixed(0)}</td>
-        <td class="num">${r.hard_errors}</td>
-        <td>${r.pass}</td>
-        <td class="msg">${r.message}</td>
-      `;
-      tbody.appendChild(tr);
-      r.free(); // release WASM memory
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="num">${i + 1}</td>
+          <td class="num">${r.freq_hz.toFixed(1)}</td>
+          <td class="num">${r.dt_sec >= 0 ? '+' : ''}${r.dt_sec.toFixed(2)}</td>
+          <td class="num">${r.snr_db >= 0 ? '+' : ''}${r.snr_db.toFixed(0)}</td>
+          <td class="num">${r.hard_errors}</td>
+          <td>${r.pass}</td>
+          <td class="msg">${r.message}</td>
+        `;
+        tbody.appendChild(tr);
+        r.free();
+      }
     }
+    waterfall.drawLabels(msgs);
+
   } catch (e) {
     statusEl.textContent = `Error: ${e.message || e}`;
   }

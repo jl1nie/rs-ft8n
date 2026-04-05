@@ -7,56 +7,82 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-         background: #0a0a0a; color: #e0e0e0; padding: 1rem; max-width: 900px; margin: 0 auto; }
-  h1 { font-size: 1.3rem; margin-bottom: .5rem; color: #4fc3f7; }
-  .subtitle { font-size: .85rem; color: #888; margin-bottom: 1rem; }
+         background: #0a0a0a; color: #e0e0e0; padding: .5rem; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.2rem; color: #4fc3f7; display: inline; }
+  .header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; flex-wrap: wrap; }
+  .header .ver { font-size: .75rem; color: #666; }
 
-  #drop-zone {
-    border: 2px dashed #555; border-radius: 8px; padding: 2rem; text-align: center;
-    cursor: pointer; transition: border-color .2s; margin-bottom: 1rem;
-  }
-  #drop-zone.over { border-color: #4fc3f7; background: #112; }
-  #drop-zone input { display: none; }
+  /* Waterfall */
+  #waterfall-wrap { position: relative; margin-bottom: .5rem; }
+  #waterfall { width: 100%; height: 300px; background: #000; display: block; border: 1px solid #222; }
 
-  #status { font-size: .9rem; color: #aaa; margin-bottom: .5rem; min-height: 1.2em; }
-  #timing { font-size: .9rem; color: #81c784; margin-bottom: 1rem; min-height: 1.2em; }
+  /* Controls */
+  .controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+              margin-bottom: .5rem; font-size: .85rem; }
+  .controls select, .controls button { font-size: .8rem; padding: .25rem .5rem;
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
+  .controls button.active { background: #0d47a1; border-color: #4fc3f7; }
+  .controls .timer { font-variant-numeric: tabular-nums; color: #81c784; min-width: 3.5em; }
+  .controls label { display: flex; align-items: center; gap: .3rem; }
 
-  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-  th { background: #1a1a2e; color: #4fc3f7; padding: .4rem .5rem; text-align: left;
+  /* Status */
+  #status { font-size: .85rem; color: #aaa; margin-bottom: .3rem; min-height: 1.2em; }
+  #timing { font-size: .85rem; color: #81c784; margin-bottom: .5rem; min-height: 1.2em; }
+
+  /* Results table */
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  th { background: #1a1a2e; color: #4fc3f7; padding: .3rem .4rem; text-align: left;
        border-bottom: 1px solid #333; position: sticky; top: 0; }
-  td { padding: .3rem .5rem; border-bottom: 1px solid #222; }
+  td { padding: .25rem .4rem; border-bottom: 1px solid #1a1a1a; }
   tr:hover td { background: #1a1a2e; }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
   .msg { color: #ffeb3b; font-weight: bold; }
+  #results-wrap { max-height: 250px; overflow-y: auto; }
 
-  .controls { display: flex; gap: .5rem; margin-bottom: .5rem; }
-  .controls label { font-size: .85rem; display: flex; align-items: center; gap: .3rem; }
+  /* File drop */
+  #drop-zone {
+    border: 1px dashed #444; border-radius: 6px; padding: .8rem; text-align: center;
+    cursor: pointer; font-size: .8rem; color: #666; margin-top: .5rem;
+  }
+  #drop-zone.over { border-color: #4fc3f7; color: #4fc3f7; }
+  #drop-zone input { display: none; }
 </style>
 </head>
 <body>
 
-<h1>rs-ft8n WASM Decoder</h1>
-<p class="subtitle">Drop a 12 kHz / 16-bit / mono WAV file to decode FT8</p>
-
-<div id="drop-zone" tabindex="0">
-  <p>Drop WAV here or click to select</p>
-  <input type="file" id="file-input" accept=".wav">
+<div class="header">
+  <h1>rs-ft8n</h1>
+  <span class="ver">WASM FT8 Decoder</span>
 </div>
 
 <div class="controls">
-  <label><input type="checkbox" id="subtract-mode"> Multi-pass subtract</label>
+  <select id="audio-device" disabled><option>-- audio device --</option></select>
+  <button id="btn-start" disabled>Start</button>
+  <span class="timer" id="period-timer">--</span>
+  <label><input type="checkbox" id="subtract-mode" checked> Subtract</label>
+</div>
+
+<div id="waterfall-wrap">
+  <canvas id="waterfall"></canvas>
 </div>
 
 <div id="status"></div>
 <div id="timing"></div>
 
+<div id="results-wrap">
 <table id="results" hidden>
 <thead>
-  <tr><th>#</th><th class="num">Freq (Hz)</th><th class="num">dt (s)</th>
-      <th class="num">SNR (dB)</th><th class="num">Err</th><th>Pass</th><th>Message</th></tr>
+  <tr><th>#</th><th class="num">Freq</th><th class="num">dt</th>
+      <th class="num">SNR</th><th class="num">Err</th><th>P</th><th>Message</th></tr>
 </thead>
 <tbody></tbody>
 </table>
+</div>
+
+<div id="drop-zone" tabindex="0">
+  <p>Drop 12 kHz WAV or click to select</p>
+  <input type="file" id="file-input" accept=".wav">
+</div>
 
 <script type="module" src="app.js"></script>
 </body>
