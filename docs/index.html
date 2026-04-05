@@ -24,7 +24,9 @@
   .mode-tabs button:first-child { border-radius: 4px 0 0 4px; }
   .mode-tabs button:last-child { border-radius: 0 4px 4px 0; }
   .mode-tabs button.active { background: #0d47a1; color: #4fc3f7; border-color: #4fc3f7; }
-  .timer { font-size: .8rem; color: #81c784; font-variant-numeric: tabular-nums; margin-left: auto; }
+  .band-sel { font-size: .7rem; background: #1a1a2e; color: #81c784; border: 1px solid #333;
+    border-radius: 4px; padding: .1rem .2rem; margin-left: auto; }
+  .timer { font-size: .8rem; color: #81c784; font-variant-numeric: tabular-nums; }
   .header .gear { font-size: 1.3rem; color: #aaa; cursor: pointer; padding: .1rem .4rem;
     border: 1px solid #444; border-radius: 4px; line-height: 1; }
   .header .gear:hover { color: #4fc3f7; border-color: #4fc3f7; }
@@ -153,6 +155,7 @@
     /* Header */
     .header h1 { font-size: 1.1rem; }
     .mode-tabs button { font-size: .85rem; padding: .3rem .8rem; }
+    .band-sel { font-size: .8rem; }
     .timer { font-size: .9rem; }
     .header .gear { font-size: 1.5rem; padding: .2rem .5rem; }
     /* Scout status bar */
@@ -193,6 +196,7 @@
     <button id="tab-scout" class="active">Scout</button>
     <button id="tab-snipe">Snipe</button>
   </div>
+  <select id="band-header" class="band-sel"></select>
   <span class="timer" id="period-timer">--</span>
   <span class="gear" id="btn-settings">&#9881;</span>
 </div>

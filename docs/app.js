@@ -44,6 +44,7 @@ const myGridInput = document.getElementById('my-grid');
 const deviceSelect = document.getElementById('audio-device');
 const outputDeviceSelect = document.getElementById('audio-output-device');
 const bandSelect = document.getElementById('band-freq');
+const bandHeader = document.getElementById('band-header');
 const subtractCheck = document.getElementById('subtract-mode');
 const apCheck = document.getElementById('ap-mode');
 const btnCat = document.getElementById('btn-cat');
@@ -114,9 +115,22 @@ myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
 myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
 myCallInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mycall', myCallInput.value));
 myGridInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mygrid', myGridInput.value));
+// Sync header band selector from settings band selector
+for (const opt of bandSelect.options) {
+  const o = document.createElement('option');
+  o.value = opt.value;
+  o.textContent = opt.value; // short label in header
+  bandHeader.appendChild(o);
+}
 const savedBand = localStorage.getItem('rs-ft8n-band');
-if (savedBand) bandSelect.value = savedBand;
-bandSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-band', bandSelect.value));
+if (savedBand) { bandSelect.value = savedBand; bandHeader.value = savedBand; }
+function syncBand(src) {
+  bandSelect.value = src.value;
+  bandHeader.value = src.value;
+  localStorage.setItem('rs-ft8n-band', src.value);
+}
+bandSelect.addEventListener('change', () => syncBand(bandSelect));
+bandHeader.addEventListener('change', () => syncBand(bandHeader));
 deviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-in', deviceSelect.value));
 outputDeviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-out', outputDeviceSelect.value));
 
