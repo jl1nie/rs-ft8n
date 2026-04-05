@@ -15,7 +15,8 @@
   /* ── Header ─────────────────────────────────────────────────────────── */
   .header { display: flex; align-items: center; gap: .4rem; padding: .4rem .5rem;
             background: #111; border-bottom: 1px solid #222; flex-shrink: 0; }
-  .header h1 { font-size: 1rem; color: #555; cursor: pointer; transition: color .2s; }
+  .header h1 { font-size: 1rem; color: #555; cursor: pointer; transition: color .2s;
+    user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   .header h1.live { color: #4fc3f7; }
   .mode-tabs { display: flex; gap: 0; margin-left: .5rem; }
   .mode-tabs button { font-size: .75rem; padding: .2rem .6rem; border: 1px solid #333;
