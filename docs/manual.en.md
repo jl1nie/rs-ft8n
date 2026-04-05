@@ -33,7 +33,8 @@ rs-ft8n is a browser-based FT8 decoder PWA. No installation required — works o
 3. Enter the following:
    - **My Callsign** — your callsign (e.g., `W1AW`)
    - **My Grid** — your grid locator (e.g., `FN31`)
-   - **Audio Input** — select your USB audio interface
+   - **Audio Input** — select your USB audio interface (receive side)
+   - **Audio Output** — select TX audio output device (transmit side)
 4. Tap **Start Audio** to begin live decoding
 
 > For CAT control, select your CAT Protocol and tap **Connect CAT**. Requires a Web Serial API compatible browser (Chrome / Edge).
