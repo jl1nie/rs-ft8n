@@ -112,7 +112,7 @@ function setMode(mode) {
   tabSnipe.classList.toggle('active', mode === 'snipe');
   resizeCanvas();
   waterfall.clear();
-  waterfall.dfLine = mode === 'scout' ? scoutDf : null;
+  waterfall.dfLine = mode === 'scout' ? scoutDf : snipeFreq;
   updateSnipeOverlay();
 }
 
@@ -142,8 +142,6 @@ function setSnipePhase(phase) {
       statusEl.textContent = `Calling ${apCall}`;
     }
   }
-  // Clear RX list when switching phases
-  document.getElementById('snipe-rx-list').innerHTML = '';
   updateSnipeOverlay();
 }
 
@@ -187,7 +185,9 @@ wfWrap.addEventListener('click', (e) => {
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   if (currentMode === 'snipe') {
     snipeFreq = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
+    waterfall.dfLine = snipeFreq;
     updateSnipeOverlay();
+    statusEl.textContent = `DF: ${snipeFreq} Hz`;
   } else {
     scoutDf = Math.max(FREQ_MIN, Math.min(FREQ_MAX, freq));
     waterfall.dfLine = scoutDf;
@@ -196,7 +196,7 @@ wfWrap.addEventListener('click', (e) => {
 });
 
 // ── Chat message helper (Scout mode) ────────────────────────────────────────
-function addChatMsg(type, time, text, snr, actionCb) {
+function addChatMsg(type, time, text, snr, actionCb, freq, dt) {
   const div = document.createElement('div');
   div.className = `chat-msg ${type}`;
 
@@ -204,15 +204,20 @@ function addChatMsg(type, time, text, snr, actionCb) {
   const dxCall = qso.dxCall;
 
   // Highlight callsigns
-  let html = text.replace(/\b([A-Z0-9/]{3,})\b/g, (m) => {
+  let html = text.replace(/\b([A-Z0-9/<>]{3,})\b/g, (m) => {
     if (m === dxCall) return `<span class="target">${m}</span>`;
     if (m === myCall) return `<span class="call">${m}</span>`;
     return m;
   });
 
+  const freqStr = freq != null ? `${Math.round(freq)}` : '';
+  const dtStr = dt != null ? `${dt >= 0 ? '+' : ''}${dt.toFixed(1)}` : '';
+  const snrStr = snr != null && type === 'rx' ? `${snr >= 0 ? '+' : ''}${Math.round(snr)}` : '';
+
   div.innerHTML = `
-    <span class="time">${time}</span>
-    <span class="snr">${snr !== undefined && type === 'rx' ? (snr >= 0 ? '+' : '') + Math.round(snr) : ''}</span>
+    <span class="col-freq">${freqStr}</span>
+    <span class="col-dt">${dtStr}</span>
+    <span class="col-snr">${snrStr}</span>
     <span class="text">${html}</span>
   `;
 
@@ -432,8 +437,9 @@ const periodMgr = new FT8PeriodManager({
       const msg = r.message;
       const freq = r.freq_hz;
       const snr = r.snr_db;
+      const dt = r.dt_sec;
       const suspect = r.pass >= 4 && r.hard_errors >= 35;
-      msgs.push({ freq_hz: freq, message: msg });
+      msgs.push({ freq_hz: freq, dt_sec: dt, snr_db: snr, message: msg });
 
       // Log all non-suspect RX to persistent store
       if (!suspect) {
@@ -461,7 +467,7 @@ const periodMgr = new FT8PeriodManager({
           snipeCallInput.value = clickCall;
           apCall = clickCall;
           statusEl.textContent = `Calling ${clickCall}`;
-        } : null);
+        } : null, freq, dt);
       }
 
       // Snipe view: update target info
@@ -533,7 +539,10 @@ const periodMgr = new FT8PeriodManager({
           div.className = 'chat-msg rx';
           const isTarget = apCall && upper.includes(apCall);
           if (isTarget) div.classList.add('qso-active');
-          div.innerHTML = `<span class="snr" style="min-width:2em">${Math.round(m.freq_hz)}</span>
+          const snrV = Math.round(m.snr_db);
+          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
+            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
+            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
             <span class="text">${m.message}</span>`;
           div.style.cursor = 'pointer';
           div.addEventListener('click', () => {
@@ -580,7 +589,10 @@ const periodMgr = new FT8PeriodManager({
           const div = document.createElement('div');
           div.className = 'chat-msg rx';
           if (involvesTarget) div.classList.add('qso-active');
-          div.innerHTML = `<span class="snr" style="min-width:2em">${Math.round(m.freq_hz)}</span>
+          const snrV = Math.round(m.snr_db);
+          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
+            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
+            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
             <span class="text">${m.message}</span>`;
           snipeRxList.appendChild(div);
         }
@@ -766,7 +778,7 @@ async function handleFile(file) {
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.pass >= 4 && r.hard_errors >= 35) { r.free(); continue; }
-      addChatMsg('rx', `${i+1}`, r.message, r.snr_db);
+      addChatMsg('rx', `${i+1}`, r.message, r.snr_db, null, r.freq_hz, r.dt_sec);
       r.free();
     }
   } catch (e) {
