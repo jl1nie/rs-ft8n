@@ -2,160 +2,203 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>rs-ft8n WASM Decoder</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>rs-ft8n</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
-         background: #0a0a0a; color: #e0e0e0; padding: .5rem; max-width: 960px; margin: 0 auto; }
-  h1 { font-size: 1.2rem; color: #4fc3f7; display: inline; }
-  .header { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; flex-wrap: wrap; }
-  .header .ver { font-size: .75rem; color: #666; }
+         background: #0a0a0a; color: #e0e0e0; max-width: 960px; margin: 0 auto;
+         display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
 
-  /* Waterfall */
-  #waterfall-wrap { position: relative; margin-bottom: .5rem; cursor: crosshair; }
-  #waterfall { width: 100%; height: 300px; background: #000; display: block; border: 1px solid #222; }
+  /* ── Header ─────────────────────────────────────────────────────────── */
+  .header { display: flex; align-items: center; gap: .4rem; padding: .4rem .5rem;
+            background: #111; border-bottom: 1px solid #222; flex-shrink: 0; }
+  .header h1 { font-size: 1rem; color: #4fc3f7; }
+  .mode-tabs { display: flex; gap: 0; margin-left: .5rem; }
+  .mode-tabs button { font-size: .75rem; padding: .2rem .6rem; border: 1px solid #333;
+    background: #1a1a2e; color: #888; cursor: pointer; }
+  .mode-tabs button:first-child { border-radius: 4px 0 0 4px; }
+  .mode-tabs button:last-child { border-radius: 0 4px 4px 0; }
+  .mode-tabs button.active { background: #0d47a1; color: #4fc3f7; border-color: #4fc3f7; }
+  .timer { font-size: .8rem; color: #81c784; font-variant-numeric: tabular-nums; margin-left: auto; }
+  .header .gear { font-size: 1rem; color: #666; cursor: pointer; padding: 0 .3rem; }
+  .header .gear:hover { color: #4fc3f7; }
+
+  /* ── Waterfall ──────────────────────────────────────────────────────── */
+  #waterfall-wrap { position: relative; flex-shrink: 0; cursor: crosshair; }
+  #waterfall { width: 100%; display: block; background: #000; border-bottom: 1px solid #222; }
+  .scout-mode #waterfall { height: 120px; }
+  .snipe-mode #waterfall { height: 280px; }
   #snipe-overlay { position: absolute; top: 0; bottom: 0; background: rgba(79,195,247,0.12);
     border-left: 1px solid rgba(79,195,247,0.5); border-right: 1px solid rgba(79,195,247,0.5);
     pointer-events: none; display: none; }
   #snipe-freq-label { position: absolute; top: 18px; color: #4fc3f7; font-size: .7rem;
     pointer-events: none; display: none; }
 
-  /* Controls */
-  .controls { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
-              margin-bottom: .5rem; font-size: .85rem; }
-  .controls select, .controls button, .controls input[type=text] {
-    font-size: .8rem; padding: .25rem .5rem;
-    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; }
-  .controls button { cursor: pointer; }
-  .controls button.active { background: #0d47a1; border-color: #4fc3f7; }
-  .controls button.snipe-on { background: #b71c1c; border-color: #f44336; }
-  .controls button.ap-on { background: #1b5e20; border-color: #76ff03; color: #76ff03; }
-  .controls .timer { font-variant-numeric: tabular-nums; color: #81c784; min-width: 3.5em; }
-  .controls label { display: flex; align-items: center; gap: .3rem; }
-  #snipe-call { width: 7em; text-transform: uppercase; }
-  #snipe-call::placeholder { color: #555; text-transform: none; }
+  /* ── Scout chat ─────────────────────────────────────────────────────── */
+  #scout-view { flex: 1; overflow-y: auto; display: none; }
+  .scout-mode #scout-view { display: flex; flex-direction: column; }
+  .chat-list { flex: 1; overflow-y: auto; padding: .3rem .5rem; }
+  .chat-msg { padding: .3rem .5rem; margin-bottom: .15rem; border-radius: 6px; font-size: .8rem;
+    display: flex; align-items: baseline; gap: .4rem; }
+  .chat-msg.rx { background: #111; border-left: 3px solid #4fc3f7; }
+  .chat-msg.tx { background: #1a1a1a; border-left: 3px solid #666; color: #888; }
+  .chat-msg.tx.sending { border-left-color: #f44336; color: #f44336; }
+  .chat-msg.qso-active { border-left-color: #4fc3f7; background: #0a1929; }
+  .chat-msg.qso-done { border-left-color: #76ff03; }
+  .chat-msg .time { color: #555; font-size: .7rem; min-width: 3em; }
+  .chat-msg .snr { color: #81c784; font-size: .7rem; min-width: 2.5em; text-align: right; }
+  .chat-msg .text { flex: 1; }
+  .chat-msg .text .call { color: #ffeb3b; font-weight: bold; }
+  .chat-msg .text .target { color: #76ff03; font-weight: bold; }
+  .chat-actions { display: flex; gap: .3rem; padding: .2rem .5rem; }
+  .chat-actions button { font-size: .75rem; padding: .2rem .5rem; border-radius: 4px;
+    border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .chat-actions button.primary { background: #0d47a1; border-color: #4fc3f7; color: #4fc3f7; }
 
-  /* Status */
-  #status { font-size: .85rem; color: #aaa; margin-bottom: .3rem; min-height: 1.2em; }
-  #timing { font-size: .85rem; color: #81c784; margin-bottom: .5rem; min-height: 1.2em; }
+  /* ── Snipe view ─────────────────────────────────────────────────────── */
+  #snipe-view { flex: 1; overflow-y: auto; display: none; padding: .3rem .5rem; }
+  .snipe-mode #snipe-view { display: flex; flex-direction: column; }
+  .snipe-target { background: #111; border: 1px solid #333; border-radius: 6px;
+    padding: .5rem; margin-bottom: .4rem; }
+  .snipe-target .dx-call { font-size: 1.2rem; color: #76ff03; font-weight: bold; }
+  .snipe-target .dx-msg { font-size: .9rem; color: #ffeb3b; margin-top: .3rem; }
+  .snipe-target .dx-info { font-size: .75rem; color: #888; }
+  .qso-progress { display: flex; align-items: center; gap: .3rem; margin: .4rem 0;
+    font-size: .8rem; }
+  .qso-progress .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #555; }
+  .qso-progress .dot.done { background: #76ff03; border-color: #76ff03; }
+  .qso-progress .dot.current { background: #4fc3f7; border-color: #4fc3f7; }
+  .qso-progress .label { color: #4fc3f7; font-weight: bold; margin-left: .3rem; }
+  .snipe-band { font-size: .75rem; color: #666; margin-top: .3rem; }
+  .snipe-band span { margin-right: .8rem; }
 
-  /* Results table */
-  table { width: 100%; border-collapse: collapse; font-size: .8rem; }
-  th { background: #1a1a2e; color: #4fc3f7; padding: .3rem .4rem; text-align: left;
-       border-bottom: 1px solid #333; position: sticky; top: 0; }
-  td { padding: .25rem .4rem; border-bottom: 1px solid #1a1a1a; }
-  tr:hover td { background: #1a1a2e; cursor: pointer; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .msg { color: #ffeb3b; font-weight: bold; }
-  tr.target td { background: #1b2a1b; }
-  tr.target .msg { color: #76ff03; }
-  tr.suspect td { opacity: 0.4; }
-  tr.suspect:hover td { opacity: 0.7; }
-  #results-wrap { max-height: 250px; overflow-y: auto; }
+  /* ── Bottom bar ─────────────────────────────────────────────────────── */
+  .bottom-bar { display: flex; align-items: center; gap: .4rem; padding: .4rem .5rem;
+    background: #111; border-top: 1px solid #222; flex-shrink: 0; flex-wrap: wrap; }
+  .bottom-bar button { font-size: .8rem; padding: .3rem .7rem; border-radius: 4px;
+    border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer; }
+  .bottom-bar button.cq { background: #0d47a1; border-color: #4fc3f7; color: #fff; }
+  .bottom-bar button.tx-active { background: #b71c1c; border-color: #f44336; color: #fff; }
+  .bottom-bar button.halt { border-color: #f44336; color: #f44336; }
+  .bottom-bar .status { font-size: .75rem; color: #888; flex: 1; }
+  .bottom-bar label { font-size: .75rem; display: flex; align-items: center; gap: .2rem; }
 
-  /* File drop */
-  #drop-zone {
-    border: 1px dashed #444; border-radius: 6px; padding: .8rem; text-align: center;
-    cursor: pointer; font-size: .8rem; color: #666; margin-top: .5rem;
-  }
+  /* ── Settings panel (slide-out) ─────────────────────────────────────── */
+  #settings-panel { display: none; position: fixed; top: 0; right: 0; bottom: 0;
+    width: 280px; background: #111; border-left: 1px solid #333; padding: 1rem;
+    z-index: 100; overflow-y: auto; }
+  #settings-panel.open { display: block; }
+  #settings-panel h2 { font-size: .9rem; color: #4fc3f7; margin-bottom: .5rem; }
+  #settings-panel .field { margin-bottom: .5rem; }
+  #settings-panel label { font-size: .75rem; color: #888; display: block; margin-bottom: .2rem; }
+  #settings-panel input, #settings-panel select { font-size: .8rem; padding: .3rem .4rem;
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; width: 100%; }
+  #settings-panel button { font-size: .8rem; padding: .3rem .6rem; border-radius: 4px;
+    border: 1px solid #333; background: #1a1a2e; color: #e0e0e0; cursor: pointer; width: 100%;
+    margin-bottom: .3rem; }
+  .settings-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5); z-index: 99; }
+  .settings-overlay.open { display: block; }
+
+  /* ── File drop ──────────────────────────────────────────────────────── */
+  #drop-zone { border: 1px dashed #333; border-radius: 4px; padding: .4rem; text-align: center;
+    cursor: pointer; font-size: .7rem; color: #555; margin: .3rem .5rem; }
   #drop-zone.over { border-color: #4fc3f7; color: #4fc3f7; }
   #drop-zone input { display: none; }
-
-  /* QSO panel */
-  .qso-panel { background: #111; border: 1px solid #333; border-radius: 6px;
-    padding: .5rem; margin-bottom: .5rem; font-size: .8rem; }
-  .qso-panel .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .3rem; }
-  .qso-panel .row:last-child { margin-bottom: 0; }
-  .qso-panel input[type=text] { font-size: .8rem; padding: .2rem .4rem;
-    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; }
-  .qso-panel button { font-size: .8rem; padding: .2rem .5rem;
-    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
-  .qso-panel button.tx-active { background: #b71c1c; border-color: #f44336; color: #fff; }
-  .qso-state { color: #4fc3f7; font-weight: bold; min-width: 6em; }
-  .qso-tx-msg { color: #ffeb3b; font-family: monospace; }
-  #my-call, #my-grid { width: 6em; text-transform: uppercase; }
-  #my-call::placeholder, #my-grid::placeholder { text-transform: none; }
-  .qso-panel .sep { color: #333; }
-
-  /* CAT panel */
-  .cat-panel { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
-    font-size: .8rem; margin-bottom: .5rem; }
-  .cat-panel button { font-size: .75rem; padding: .2rem .4rem;
-    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
-  .cat-panel button.connected { background: #1b5e20; border-color: #76ff03; }
-  .cat-status { font-size: .75rem; color: #666; }
 </style>
 </head>
-<body>
+<body class="scout-mode">
 
+<!-- Header -->
 <div class="header">
   <h1>rs-ft8n</h1>
-  <span class="ver">WASM FT8 Decoder</span>
-</div>
-
-<div class="controls">
-  <select id="audio-device" disabled><option>-- audio device --</option></select>
-  <button id="btn-start" disabled>Start</button>
+  <div class="mode-tabs">
+    <button id="tab-scout" class="active">Scout</button>
+    <button id="tab-snipe">Snipe</button>
+  </div>
   <span class="timer" id="period-timer">--</span>
-  <label><input type="checkbox" id="subtract-mode" checked> Subtract</label>
-  <span style="color:#444">|</span>
-  <button id="btn-snipe">Snipe</button>
-  <input type="text" id="snipe-call" placeholder="DX Call">
-  <button id="btn-ap">AP</button>
-  <span id="snipe-status" style="font-size:.75rem;color:#666"></span>
+  <span class="gear" id="btn-settings">&#9881;</span>
 </div>
 
-<div class="qso-panel" id="qso-panel">
-  <div class="row">
-    <span style="color:#888">My:</span>
-    <input type="text" id="my-call" placeholder="My Call">
-    <input type="text" id="my-grid" placeholder="Grid" style="width:4em">
-    <span class="sep">|</span>
-    <span style="color:#888">QSO:</span>
-    <span class="qso-state" id="qso-state">IDLE</span>
-    <span class="qso-tx-msg" id="qso-tx-msg"></span>
-  </div>
-  <div class="row">
-    <button id="btn-cq">Call CQ</button>
-    <button id="btn-tx">TX</button>
-    <button id="btn-halt">Halt</button>
-    <label><input type="checkbox" id="auto-qso"> Auto</label>
-    <button id="btn-qso-reset" style="margin-left:auto">Reset</button>
-  </div>
-</div>
-
-<div class="cat-panel">
-  <select id="cat-protocol" style="font-size:.75rem;padding:.15rem .3rem;background:#1a1a2e;color:#e0e0e0;border:1px solid #333;border-radius:3px">
-    <option value="yaesu">Yaesu (FTDX10)</option>
-    <option value="civ">Icom (CI-V)</option>
-  </select>
-  <button id="btn-cat">CAT</button>
-  <span class="cat-status" id="cat-status">not connected</span>
-</div>
-
+<!-- Waterfall -->
 <div id="waterfall-wrap">
   <canvas id="waterfall"></canvas>
   <div id="snipe-overlay"></div>
   <div id="snipe-freq-label"></div>
 </div>
 
-<div id="status"></div>
-<div id="timing"></div>
-
-<div id="results-wrap">
-<table id="results" hidden>
-<thead>
-  <tr><th>#</th><th class="num">Freq</th><th class="num">dt</th>
-      <th class="num">SNR</th><th class="num">Err</th><th>P</th><th>Message</th></tr>
-</thead>
-<tbody></tbody>
-</table>
+<!-- Scout view: chat-style message flow -->
+<div id="scout-view">
+  <div class="chat-list" id="chat-list"></div>
 </div>
 
+<!-- Snipe view: target-focused -->
+<div id="snipe-view">
+  <div class="snipe-target" id="snipe-target">
+    <div class="dx-call" id="snipe-dx-call">No target</div>
+    <div class="dx-msg" id="snipe-dx-msg"></div>
+    <div class="dx-info" id="snipe-dx-info"></div>
+  </div>
+  <div class="qso-progress" id="qso-progress">
+    <span class="dot" id="dot-1"></span>
+    <span class="dot" id="dot-2"></span>
+    <span class="dot" id="dot-3"></span>
+    <span class="dot" id="dot-4"></span>
+    <span class="label" id="qso-label">IDLE</span>
+  </div>
+  <div id="snipe-tx-line" style="font-size:.8rem;color:#ffeb3b;margin:.3rem 0"></div>
+  <div class="snipe-band" id="snipe-band"></div>
+</div>
+
+<!-- Bottom bar -->
+<div class="bottom-bar">
+  <button id="btn-cq" class="cq">CQ</button>
+  <button id="btn-tx">TX</button>
+  <button id="btn-halt" class="halt">Halt</button>
+  <label><input type="checkbox" id="auto-qso"> Auto</label>
+  <span class="status" id="status">Ready</span>
+</div>
+
+<!-- File drop (compact) -->
 <div id="drop-zone" tabindex="0">
-  <p>Drop 12 kHz WAV or click to select</p>
-  <input type="file" id="file-input" accept=".wav">
+  Drop WAV | <input type="file" id="file-input" accept=".wav"><a href="#" id="file-link" style="color:#4fc3f7">select file</a>
+</div>
+
+<!-- Settings slide-out -->
+<div class="settings-overlay" id="settings-overlay"></div>
+<div id="settings-panel">
+  <h2>Settings</h2>
+  <div class="field">
+    <label>My Callsign</label>
+    <input type="text" id="my-call" placeholder="JA1ABC" style="text-transform:uppercase">
+  </div>
+  <div class="field">
+    <label>My Grid</label>
+    <input type="text" id="my-grid" placeholder="PM95" style="text-transform:uppercase;width:5em">
+  </div>
+  <div class="field">
+    <label>Audio Input</label>
+    <select id="audio-device"><option>-- select --</option></select>
+  </div>
+  <div class="field">
+    <label>DX Call (AP)</label>
+    <input type="text" id="snipe-call" placeholder="3Y0Z" style="text-transform:uppercase">
+  </div>
+  <div class="field">
+    <label>CAT Protocol</label>
+    <select id="cat-protocol">
+      <option value="yaesu">Yaesu (FTDX10)</option>
+      <option value="civ">Icom (CI-V)</option>
+    </select>
+  </div>
+  <button id="btn-cat">Connect CAT</button>
+  <span class="cat-status" id="cat-status" style="font-size:.75rem;color:#666;display:block;margin-bottom:.5rem">not connected</span>
+  <button id="btn-start">Start Audio</button>
+  <button id="btn-qso-reset">Reset QSO</button>
+  <div style="margin-top:1rem">
+    <label><input type="checkbox" id="subtract-mode" checked> Multi-pass subtract</label>
+  </div>
 </div>
 
 <script type="module" src="app.js"></script>
