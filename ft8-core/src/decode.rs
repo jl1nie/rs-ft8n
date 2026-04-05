@@ -356,6 +356,14 @@ fn process_candidate(
 
                     for (ap_cfg, pass_id) in &ap_passes {
                         let (ap_mask, ap_llr_override) = ap_cfg.build_ap(apmag);
+                        // Adaptive hard_errors threshold: more locked bits → stricter
+                        let locked_bits = ap_mask.iter().filter(|&&m| m).count();
+                        let max_errors: u32 = if locked_bits >= 55 {
+                            24  // 61+ bit lock: fewer free bits = tighter filter
+                        } else {
+                            30  // 33-bit lock: more free bits = relaxed
+                        };
+
                         for &(base_llr, _) in llr_variants {
                             let mut llr_ap = *base_llr;
                             for i in 0..LDPC_N {
@@ -363,49 +371,37 @@ fn process_candidate(
                                     llr_ap[i] = ap_llr_override[i];
                                 }
                             }
-                            // AP + BP (verify message plausibility to filter false positives)
+
+                            // Helper: validate AP decode result
+                            let mut check_result = |msg77: [u8; 77], hard_errors: u32| -> Option<DecodeResult> {
+                                if hard_errors >= max_errors { return None; }
+                                let text = crate::message::unpack77(&msg77)?;
+                                if !crate::message::is_plausible_message(&text) { return None; }
+                                let itone = message_to_tones(&msg77);
+                                let snr_db = compute_snr_db(cs, &itone);
+                                Some(DecodeResult {
+                                    message77: msg77,
+                                    freq_hz: cand.freq_hz,
+                                    dt_sec: refined.dt_sec,
+                                    hard_errors,
+                                    sync_score: refined.score,
+                                    pass: *pass_id,
+                                    sync_cv,
+                                    snr_db,
+                                })
+                            };
+
+                            // AP + BP
                             if let Some(bp) = bp_decode(&llr_ap, Some(&ap_mask), BP_MAX_ITER) {
-                                if bp.hard_errors < 30 {
-                                    if let Some(text) = crate::message::unpack77(&bp.message77) {
-                                        if crate::message::is_plausible_message(&text) {
-                                            let itone = message_to_tones(&bp.message77);
-                                            let snr_db = compute_snr_db(cs, &itone);
-                                            return Some(DecodeResult {
-                                                message77: bp.message77,
-                                                freq_hz: cand.freq_hz,
-                                                dt_sec: refined.dt_sec,
-                                                hard_errors: bp.hard_errors,
-                                                sync_score: refined.score,
-                                                pass: *pass_id,
-                                                sync_cv,
-                                                snr_db,
-                                            });
-                                        }
-                                    }
+                                if let Some(r) = check_result(bp.message77, bp.hard_errors) {
+                                    return Some(r);
                                 }
                             }
-                            // AP + OSD fallback (stricter threshold to reduce false positives)
+                            // AP + OSD fallback
                             if depth == DecodeDepth::BpAllOsd {
-                                let osd_result = osd_decode_deep(&llr_ap, 2);
-                                if let Some(osd) = osd_result {
-                                    // AP OSD: same threshold as AP BP
-                                    if osd.hard_errors < 30 {
-                                        if let Some(text) = crate::message::unpack77(&osd.message77) {
-                                            if crate::message::is_plausible_message(&text) {
-                                                let itone = message_to_tones(&osd.message77);
-                                                let snr_db = compute_snr_db(cs, &itone);
-                                                return Some(DecodeResult {
-                                                    message77: osd.message77,
-                                                    freq_hz: cand.freq_hz,
-                                                    dt_sec: refined.dt_sec,
-                                                    hard_errors: osd.hard_errors,
-                                                    sync_score: refined.score,
-                                                    pass: *pass_id,
-                                                    sync_cv,
-                                                    snr_db,
-                                                });
-                                            }
-                                        }
+                                if let Some(osd) = osd_decode_deep(&llr_ap, 2) {
+                                    if let Some(r) = check_result(osd.message77, osd.hard_errors) {
+                                        return Some(r);
                                     }
                                 }
                             }
