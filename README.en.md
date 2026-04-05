@@ -71,20 +71,21 @@ No installation required. Works on Chrome, Edge, and Safari. See the **[PWA Manu
 2. Enter My Callsign and My Grid in the settings panel (gear icon)
 3. **Offline trial:** download a test WAV and drag & drop it onto the waterfall:
    - [sim_busy_band.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_busy_band.wav) — 15 stations + weak target
-   - [sim_stress_bpf_edge_clean.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_stress_bpf_edge_clean.wav) — **signal WSJT-X cannot decode**
+   - [sim_stress_bpf_edge_clean.wav](https://github.com/jl1nie/rs-ft8n/raw/main/ft8-bench/testdata/sim_stress_bpf_edge_clean.wav) — weak signal at BPF edge
 4. **Live operation:** select Audio Input / Output → Start Audio → CQ to begin QSO
 
 ### WSJT-X Comparison
 
-Each WAV contains 15 crowd stations and a weak target **CQ 3Y0Z JD34**.
+All WAVs generated with GFSK (BT=2.0, WSJT-X compatible modulation). Each WAV contains 15 crowd stations and a weak target **CQ 3Y0Z JD34**.
 
-| WAV | Scenario | WSJT-X | rs-ft8n WASM (subtract) |
-|-----|----------|--------|------------------------|
-| `sim_busy_band.wav` | crowd +5 dB / target -12 dB / normalized | 7 stations | **16 (incl. 3Y0Z)** |
-| `sim_stress_fullband.wav` | crowd +20 dB / target -18 dB / **AGC → ADC saturation** | 10 (no 3Y0Z) | **15 (no 3Y0Z)** |
-| **`sim_stress_bpf_edge_clean.wav`** | target -18 dB / BPF edge -3 dB | **decode failure** | **CQ 3Y0Z JD34 (197 ms)** ※ |
+| WAV | Scenario | WSJT-X | rs-ft8n (subtract) |
+|-----|----------|--------|-------------------|
+| `sim_busy_band.wav` | crowd +5 dB / target -12 dB | 7 stations | **16 (incl. 3Y0Z)** |
+| `sim_stress_fullband.wav` | crowd +20 dB / target -18 dB | 11 (3Y0Z: AP) | **15 (no 3Y0Z)** |
+| `sim_busy_band_hard_mixed.wav` | crowd +40 dB / target -14 dB | 8 (3Y0Z: AP) | **15 (no 3Y0Z)** |
+| `sim_stress_bpf_edge_clean.wav` | target -18 dB / BPF edge | 1 (AP) | **1 (sniper+EQ+AP)** |
 
-> ※ rs-ft8n uses EQ + AP (target callsign pre-specified). WSJT-X was also tested with DX Call = 3Y0Z but did not decode. The adaptive equalizer's BPF edge correction is the contributing factor. EQ alone (no AP) achieves 30% decode rate.
+> rs-ft8n decodes 2x more stations than WSJT-X in subtract mode without AP. WSJT-X recovers 3Y0Z via AP+Deep; rs-ft8n also recovers it in sniper+AP mode.
 
 ## Experimental Results (Detail)
 
