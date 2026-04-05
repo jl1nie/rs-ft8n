@@ -61,6 +61,30 @@
   }
   #drop-zone.over { border-color: #4fc3f7; color: #4fc3f7; }
   #drop-zone input { display: none; }
+
+  /* QSO panel */
+  .qso-panel { background: #111; border: 1px solid #333; border-radius: 6px;
+    padding: .5rem; margin-bottom: .5rem; font-size: .8rem; }
+  .qso-panel .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .3rem; }
+  .qso-panel .row:last-child { margin-bottom: 0; }
+  .qso-panel input[type=text] { font-size: .8rem; padding: .2rem .4rem;
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; }
+  .qso-panel button { font-size: .8rem; padding: .2rem .5rem;
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
+  .qso-panel button.tx-active { background: #b71c1c; border-color: #f44336; color: #fff; }
+  .qso-state { color: #4fc3f7; font-weight: bold; min-width: 6em; }
+  .qso-tx-msg { color: #ffeb3b; font-family: monospace; }
+  #my-call, #my-grid { width: 6em; text-transform: uppercase; }
+  #my-call::placeholder, #my-grid::placeholder { text-transform: none; }
+  .qso-panel .sep { color: #333; }
+
+  /* CAT panel */
+  .cat-panel { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap;
+    font-size: .8rem; margin-bottom: .5rem; }
+  .cat-panel button { font-size: .75rem; padding: .2rem .4rem;
+    background: #1a1a2e; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; cursor: pointer; }
+  .cat-panel button.connected { background: #1b5e20; border-color: #76ff03; }
+  .cat-status { font-size: .75rem; color: #666; }
 </style>
 </head>
 <body>
@@ -80,6 +104,29 @@
   <input type="text" id="snipe-call" placeholder="DX Call">
   <button id="btn-ap">AP</button>
   <span id="snipe-status" style="font-size:.75rem;color:#666"></span>
+</div>
+
+<div class="qso-panel" id="qso-panel">
+  <div class="row">
+    <span style="color:#888">My:</span>
+    <input type="text" id="my-call" placeholder="My Call">
+    <input type="text" id="my-grid" placeholder="Grid" style="width:4em">
+    <span class="sep">|</span>
+    <span style="color:#888">QSO:</span>
+    <span class="qso-state" id="qso-state">IDLE</span>
+    <span class="qso-tx-msg" id="qso-tx-msg"></span>
+  </div>
+  <div class="row">
+    <button id="btn-cq">Call CQ</button>
+    <button id="btn-tx">TX</button>
+    <label><input type="checkbox" id="auto-qso"> Auto</label>
+    <button id="btn-qso-reset" style="margin-left:auto">Reset QSO</button>
+  </div>
+</div>
+
+<div class="cat-panel">
+  <button id="btn-cat">CAT</button>
+  <span class="cat-status" id="cat-status">not connected</span>
 </div>
 
 <div id="waterfall-wrap">

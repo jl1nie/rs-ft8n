@@ -1,7 +1,10 @@
-import init, { decode_wav, decode_wav_subtract, decode_sniper } from '../pkg/ft8_web.js';
+import init, { decode_wav, decode_wav_subtract, decode_sniper, encode_ft8 } from '../pkg/ft8_web.js';
 import { Waterfall } from './waterfall.js';
 import { AudioCapture } from './audio-capture.js';
+import { AudioOutput } from './audio-output.js';
 import { FT8PeriodManager } from './ft8-period.js';
+import { QsoManager, QSO_STATE } from './qso.js';
+import { CatController } from './cat.js';
 
 // ── Elements ────────────────────────────────────────────────────────────────
 const dropZone = document.getElementById('drop-zone');
@@ -23,6 +26,18 @@ const snipeStatusEl = document.getElementById('snipe-status');
 const snipeOverlay = document.getElementById('snipe-overlay');
 const snipeFreqLabel = document.getElementById('snipe-freq-label');
 
+// QSO panel
+const myCallInput = document.getElementById('my-call');
+const myGridInput = document.getElementById('my-grid');
+const qsoStateEl = document.getElementById('qso-state');
+const qsoTxMsgEl = document.getElementById('qso-tx-msg');
+const btnCq = document.getElementById('btn-cq');
+const btnTx = document.getElementById('btn-tx');
+const autoQsoCheck = document.getElementById('auto-qso');
+const btnQsoReset = document.getElementById('btn-qso-reset');
+const btnCat = document.getElementById('btn-cat');
+const catStatusEl = document.getElementById('cat-status');
+
 // ── Waterfall setup ─────────────────────────────────────────────────────────
 function resizeCanvas() {
   wfCanvas.width = wfCanvas.clientWidth;
@@ -33,6 +48,100 @@ window.addEventListener('resize', resizeCanvas);
 
 const waterfall = new Waterfall(wfCanvas);
 const FREQ_MIN = 200, FREQ_MAX = 2800;
+
+// ── Audio output + CAT + QSO ────────────────────────────────────────────────
+const audioOut = new AudioOutput();
+const cat = new CatController();
+
+// Restore saved settings
+myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
+myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
+myCallInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mycall', myCallInput.value));
+myGridInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mygrid', myGridInput.value));
+
+const qso = new QsoManager({
+  myCall: myCallInput.value,
+  myGrid: myGridInput.value,
+  onStateChange: (state) => {
+    qsoStateEl.textContent = state;
+    const tx = qso.getNextTx();
+    qsoTxMsgEl.textContent = tx ? qso.formatTx(tx) : '';
+  },
+  onTxReady: (c1, c2, rpt) => {
+    qsoTxMsgEl.textContent = `${c1} ${c2} ${rpt}`.trim();
+  },
+});
+
+// Keep QSO manager in sync with input fields
+myCallInput.addEventListener('input', () => qso.setMyInfo(myCallInput.value, myGridInput.value));
+myGridInput.addEventListener('input', () => qso.setMyInfo(myCallInput.value, myGridInput.value));
+
+// ── QSO buttons ─────────────────────────────────────────────────────────────
+btnCq.addEventListener('click', () => {
+  qso.setMyInfo(myCallInput.value, myGridInput.value);
+  const tx = qso.callCq();
+  qsoTxMsgEl.textContent = qso.formatTx(tx);
+});
+
+btnQsoReset.addEventListener('click', () => {
+  qso.reset();
+  qsoTxMsgEl.textContent = '';
+});
+
+btnTx.addEventListener('click', async () => {
+  const tx = qso.getNextTx();
+  if (!tx) { statusEl.textContent = 'No TX message ready'; return; }
+  await transmit(tx.call1, tx.call2, tx.report);
+});
+
+async function transmit(call1, call2, report) {
+  if (!wasmReady) return;
+  const freq = snipeMode ? snipeFreq : 1500; // default 1500 Hz if not in snipe
+  try {
+    statusEl.textContent = `TX: ${call1} ${call2} ${report}`;
+    btnTx.classList.add('tx-active');
+
+    const samples = encode_ft8(call1, call2, report, freq);
+
+    // PTT ON
+    if (cat.connected) { await cat.ptt(true); }
+
+    // Play audio
+    await audioOut.play(samples);
+
+    // PTT OFF
+    if (cat.connected) { await cat.ptt(false); }
+
+    btnTx.classList.remove('tx-active');
+    statusEl.textContent = `TX complete: ${call1} ${call2} ${report}`;
+  } catch (e) {
+    btnTx.classList.remove('tx-active');
+    statusEl.textContent = `TX error: ${e.message || e}`;
+    if (cat.connected) { try { await cat.ptt(false); } catch (_) {} }
+  }
+}
+
+// ── CAT control ─────────────────────────────────────────────────────────────
+btnCat.addEventListener('click', async () => {
+  if (cat.connected) {
+    await cat.disconnect();
+    btnCat.classList.remove('connected');
+    catStatusEl.textContent = 'disconnected';
+    return;
+  }
+  if (!CatController.isSupported()) {
+    catStatusEl.textContent = 'Web Serial not supported';
+    return;
+  }
+  try {
+    await cat.requestPort();
+    await cat.connect();
+    btnCat.classList.add('connected');
+    catStatusEl.textContent = 'connected (CI-V)';
+  } catch (e) {
+    catStatusEl.textContent = `error: ${e.message || e}`;
+  }
+});
 
 // ── Snipe mode state ────────────────────────────────────────────────────────
 let snipeMode = false;
@@ -238,6 +347,25 @@ const periodMgr = new FT8PeriodManager({
     }
     waterfall.drawLabels(msgs);
     waterfall.drawFreqAxis();
+
+    // ── QSO state machine: process decoded messages ──────────────────
+    if (qso.state !== QSO_STATE.IDLE || qso.state === QSO_STATE.CQ_SENT) {
+      const period = periodMgr.getCurrentPeriod();
+      for (const m of msgs) {
+        const txMsg = qso.processMessage(m.message, period.isEven);
+        if (txMsg && autoQsoCheck.checked) {
+          // Auto-transmit on next period
+          setTimeout(() => transmit(txMsg.call1, txMsg.call2, txMsg.report), 500);
+          break;
+        }
+      }
+    }
+
+    // AP: if QSO has a DX call, use it for AP in next decode
+    if (qso.dxCall && !apCall) {
+      snipeCallInput.value = qso.dxCall;
+      confirmAp();
+    }
   },
 });
 
