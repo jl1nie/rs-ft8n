@@ -21,7 +21,7 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
 |  1234 +0.3  -12  CQ 3Y0Z JD34       | <- DF  DT  SNR  Message
 |   800 +0.1   -8  JA1ABC 3Y0Z PM95   |
 |--------------------------------------|
-| [CQ]  [Halt]  Auto                  | <- TX actions
+| [CQ]  [Halt]  Auto                  | <- TX actions (dynamic)
 +--------------------------------------+
 ```
 
@@ -34,13 +34,14 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
 3. Enter the following:
    - **My Callsign** -- your callsign (e.g., `W1AW`)
    - **My Grid** -- your grid locator (e.g., `FN31`)
+   - **Band (MHz)** -- select operating band (e.g., `14.074 (20m)`)
    - **Audio Input** -- select your USB audio interface (receive side)
    - **Audio Output** -- select TX audio output device (transmit side)
 4. **Tap the logo (rs-ft8n)** to start live decoding (logo turns blue)
 
 > Audio device selections are saved in localStorage and automatically restored on next visit. After initial setup, just tap the logo to start.
 
-> For CAT control, select your CAT Protocol in settings and tap **Connect CAT**. Requires Chrome or Edge (Web Serial API).
+> For CAT control, select your Rig Model in the CAT section and tap **Connect CAT**. Requires Chrome or Edge (Web Serial API).
 
 ---
 
@@ -118,14 +119,18 @@ During an active QSO, A Priori (AP) decoding is automatically enabled using the 
 
 A dedicated mode for hunting target stations. The waterfall is larger.
 
+The core of Snipe mode is the **separation of DF (TX frequency) and BPF (RX window center)**. Set the transmit frequency in Watch phase, then in Call phase only the receive window moves to track the target. This enables "off-frequency calling" where you transmit on a different frequency than the DX station.
+
 #### Watch Phase (Full-Band Receive)
 
-Find the target and choose a calling frequency.
+Find the target and choose the **transmit frequency (DF)**. Receive is full-band (100--3000 Hz).
 
 | Action | Effect |
 |--------|--------|
-| **Tap waterfall** | Set DF (red dashed line). In Call phase this becomes the 500 Hz window center |
+| **Tap waterfall** | Set **DF (TX frequency)** (shown as red dashed line) |
 | **Tap an RX message** | Set call1 as target (AP auto-enabled). A secondary "Call call2" button also appears in TX actions |
+
+**Phase hint:** Status shows `full-band  DF 1200 Hz`
 
 **Watch display:**
 
@@ -136,17 +141,24 @@ Find the target and choose a calling frequency.
 
 #### Call Phase (Keep Calling)
 
-Once you've set the DF in Watch, switch to **Call**.
+Once you've set the DF in Watch, switch to **Call**. When CAT is connected, the rig's 500 Hz narrow filter is automatically engaged.
+
+| Action | Effect |
+|--------|--------|
+| **Tap waterfall** | Set **BPF (RX window center)**. DF (TX frequency) remains as set in Watch |
+
+**Phase hint:** Status shows `BPF 1050 Hz  DF 1200 Hz`
 
 - 500 Hz BPF window shown as a cyan band on the waterfall
 - Only messages involving you and the target are displayed (noise reduction)
-- Automatically starts calling the target (TX queued for next period)
-- QSO failure (retry limit reached) -- auto-reverts to Watch
+- If you tapped a target in Watch, Auto mode continues the QSO state progression automatically
+- Switching to Call alone does not start TX -- tap a target in Watch first to initiate the QSO
+- QSO failure (retry limit reached) -- auto-reverts to Watch, rig filter restored to wide
 - You can manually switch back to Watch to change DF
 
 **Switching Watch / Call:**
 
-Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is preserved when switching.
+Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is preserved when switching. Returning to Watch automatically restores the CAT filter to wide (2400 Hz).
 
 ---
 
@@ -176,7 +188,7 @@ All TX is **synchronized to the next period boundary** (never immediate).
 | **Active QSO** | Single next-TX message | All TX options as buttons |
 
 - **Snipe**: A secondary `[Call xxx]` button appears when call2 differs from the target
-- **Halt**: Immediately stops transmission (cancels queued TX)
+- **Halt / Reset (progressive)**: First tap = stop TX immediately (button changes to "Reset"), second tap = reset QSO (saved as incomplete to log)
 - Status bar shows `TX queued: ...` when TX is pending
 
 ---
@@ -231,21 +243,41 @@ The table accumulates during the WASM session (max 1000 entries, LRU eviction) a
 
 ## Settings Panel
 
-Open/close with the gear icon.
+Open/close with the gear icon. Organized as an accordion with 4 sections.
+
+### Station
 
 | Item | Description |
 |------|-------------|
 | **My Callsign** | Your callsign |
 | **My Grid** | Grid locator (4 characters) |
+| **Band (MHz)** | Operating band selector (160m--23cm, 16 bands). Used for ADIF log frequency |
 | **Audio Input** | Receive audio device (selection auto-saved) |
 | **Audio Output** | TX audio output device (selection auto-saved) |
-| **CAT Protocol** | Yaesu (FTDX10) / Icom (CI-V) |
-| **Connect CAT** | Connect to rig via Web Serial (PTT control) |
-| **Start / Stop Audio** | Start or stop live decoding (also via logo tap) |
-| **Reset QSO** | Abort QSO (saved as incomplete to log) |
-| **Open WAV File** | Select a WAV file for offline analysis |
+| **Start Audio** | Start or stop live decoding (also via logo tap) |
+
+### CAT
+
+| Item | Description |
+|------|-------------|
+| **Rig Model** | Rig selector dropdown (dynamically populated from rig-profiles.json) |
+| **Connect CAT** | Connect to rig via Web Serial (PTT + filter control) |
+
+### Decode
+
+| Item | Description |
+|------|-------------|
 | **Multi-pass subtract** | Successive interference cancellation (3-pass SIC). Default ON. Auto-paused over budget |
 | **A Priori (AP)** | AP decoding. Default ON. Auto-paused over budget |
+| **CQ response: first decoded** | ON: respond to the first decoded CQ. OFF (default): respond to the strongest SNR CQ |
+| **Open WAV File** | Select a WAV file for offline analysis |
+
+### Log
+
+| Item | Description |
+|------|-------------|
+| **Export ZIP (ADIF + RX)** | Download QSO and RX logs as ZIP |
+| **Clear All Logs** | Delete all logs (confirmation dialog shown) |
 
 > AP target is set automatically -- from the QSO partner in Scout mode, or from the tapped target in Snipe mode. No manual input needed.
 
@@ -287,22 +319,29 @@ Drag & drop a WAV file onto the waterfall, or use **Open WAV File** in the setti
 
 ## CAT Control
 
-Uses the Web Serial API to control rig PTT from the browser.
+Uses the Web Serial API to control rig PTT and filters from the browser.
 
-**Supported protocols:**
+**Supported rigs (rig profiles):**
 
-| Protocol | Example rigs | Baud rate |
-|----------|-------------|-----------|
-| **Yaesu** | FTDX10, FT-991A, etc. | 38400 |
-| **Icom CI-V** | IC-7300, IC-705, etc. | 19200 |
+| Protocol | Supported rigs |
+|----------|---------------|
+| **Yaesu text CAT** | FTDX10, FTDX101MP, FT-891 |
+| **Icom CI-V** | IC-7300, IC-705, IC-7851 |
+
+Rig profiles are defined in `rig-profiles.json` with per-rig baud rate, PTT commands, and filter switching commands.
+
+**Automatic filter control (Snipe mode):**
+
+- **Entering Call phase**: Narrow filter (500 Hz) automatically applied
+- **Returning to Watch phase**: Wide filter (2400 Hz) automatically restored
 
 **Connection steps:**
 
 1. Connect your rig to the PC via USB cable
-2. Select CAT Protocol in the settings panel
+2. Select **Rig Model** in the CAT section of the settings panel
 3. **Connect CAT** -- browser serial port selection dialog opens
 4. Select the port -- connected
-5. PTT is automatically controlled during TX
+5. PTT is automatically controlled during TX; filter is auto-switched on Snipe phase changes
 
 > Web Serial API is only available in Chrome / Edge. Safari / Firefox are not supported.
 
