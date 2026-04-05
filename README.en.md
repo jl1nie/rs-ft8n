@@ -64,10 +64,12 @@ Load the same WAV files into WSJT-X:
 1. Launch WSJT-X → File → Open → select a test WAV
 2. Mode: FT8 → Decode
 
+Each WAV contains 15 strong crowd stations and a weak target station **CQ 3Y0Z JD34**.
+
 | WAV | WSJT-X | rs-ft8n WASM (subtract) | Key point |
 |-----|--------|------------------------|-----------|
-| `sim_busy_band.wav` | 7 stations | **16 stations** | OSD depth difference |
-| `sim_stress_fullband.wav` | 10 (target missed) | **15 (target missed)** | ADC saturation buries target (both) |
+| `sim_busy_band.wav` | 7 stations | **16 stations (incl. 3Y0Z)** | OSD depth difference |
+| `sim_stress_fullband.wav` | 10 (no 3Y0Z) | **15 (no 3Y0Z)** | ADC saturation buries 3Y0Z (both) |
 | **`sim_stress_bpf_edge_clean.wav`** | **decode failure** | **CQ 3Y0Z JD34 (197 ms)** | **rs-ft8n wins** |
 
 > **Multi-pass subtract** checkbox enables 3-pass successive interference cancellation: decode strong signals → subtract their waveforms → rescan the residual for weaker signals. Decodes more stations than single-pass at the cost of longer processing time.
