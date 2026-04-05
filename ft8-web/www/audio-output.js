@@ -20,6 +20,11 @@ export class AudioOutput {
     const sampleRate = 12000;
     this.ctx = new AudioContext({ sampleRate });
 
+    // Android Chrome suspends AudioContext without user gesture — resume it
+    if (this.ctx.state === 'suspended') {
+      await this.ctx.resume();
+    }
+
     // Set output device if supported and specified
     if (deviceId && this.ctx.setSinkId) {
       try { await this.ctx.setSinkId(deviceId); } catch (e) {
