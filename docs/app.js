@@ -518,7 +518,7 @@ const periodMgr = new FT8PeriodManager({
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
-    setStatus(`${n} decoded (${lastDecodeMs} ms)${shedTag}`);
+    setStatus(`${n}d ${lastDecodeMs}ms${shedTag}`);
 
     // AP target: use QSO dxCall if available, or last Snipe target
     if (qso.dxCall) apCall = qso.dxCall;
@@ -876,7 +876,7 @@ async function handleFile(file) {
     const results = runDecode(samples);
     const elapsed = performance.now() - t0;
 
-    setStatus(`${results.length} decoded (${elapsed.toFixed(0)} ms) — ${file.name}`);
+    setStatus(`${results.length}d ${elapsed.toFixed(0)}ms`);
     chatList.innerHTML = '';
 
     for (let i = 0; i < results.length; i++) {
