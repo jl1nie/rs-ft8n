@@ -52,6 +52,8 @@
   #scout-status .state { color: #4fc3f7; font-weight: bold; }
   #scout-status .dx { color: #76ff03; font-weight: bold; }
   #scout-status .decode-info { color: #666; margin-left: auto; font-size: .7rem; }
+  #scout-status .tx-queue { color: #f44336; font-weight: bold; font-size: .75rem;
+    margin-left: .3rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ── Scout chat ─────────────────────────────────────────────────────── */
   #scout-view { flex: 1; overflow-y: auto; display: none; }
@@ -158,6 +160,7 @@
     #scout-status .dot { width: 10px; height: 10px; }
     #scout-status .state { font-size: .85rem; }
     #scout-status .decode-info { font-size: .75rem; }
+    #scout-status .tx-queue { font-size: .8rem; }
     /* Snipe status */
     .snipe-target .dx-call { font-size: 1.3rem; }
     .qso-progress { font-size: .9rem; }
@@ -210,6 +213,7 @@
   <span class="state" id="scout-state"></span>
   <span class="dx" id="scout-dx"></span>
   <span class="decode-info" id="scout-decode-info"></span>
+  <span class="tx-queue" id="scout-tx-queue"></span>
 </div>
 
 <!-- Scout view: chat-style message flow -->

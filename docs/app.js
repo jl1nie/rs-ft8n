@@ -34,6 +34,7 @@ const fileInput = document.getElementById('file-input');
 const scoutState = document.getElementById('scout-state');
 const scoutDxEl = document.getElementById('scout-dx');
 const scoutDecodeInfo = document.getElementById('scout-decode-info');
+const scoutTxQueue = document.getElementById('scout-tx-queue');
 const scoutDots = [
   document.getElementById('scout-dot-1'), document.getElementById('scout-dot-2'),
   document.getElementById('scout-dot-3'), document.getElementById('scout-dot-4'),
@@ -67,7 +68,12 @@ const FREQ_MIN = 200, FREQ_MAX = 2800;
 
 // ── Status display ─────────────────────────────────────────────────────────
 function setStatus(text) {
-  scoutDecodeInfo.textContent = text;
+  // Show queued TX prominently, other status as secondary info
+  const isQueued = text.startsWith('TX queued') || text.startsWith('CQ queued');
+  scoutDecodeInfo.textContent = isQueued ? '' : text;
+  scoutDecodeInfo.style.color = '';
+  // TX queue line (shown below decode info)
+  scoutTxQueue.textContent = isQueued ? text : (periodMgr.hasTxQueued() ? scoutTxQueue.textContent : '');
   snipeTxLine.textContent = text;
 }
 
@@ -462,6 +468,7 @@ async function transmit(call1, call2, report, freq) {
   freq = freq || (currentMode === 'snipe' ? snipeDf : scoutDf);
   try {
     const txText = `${call1} ${call2} ${report}`.trim();
+    scoutTxQueue.textContent = ''; // clear queue indicator
     setStatus(`TX: ${txText}`);
     // Mark matching button (find by text content)
     const allBtns = txActionsEl.querySelectorAll('button');
