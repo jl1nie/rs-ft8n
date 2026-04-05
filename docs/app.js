@@ -881,8 +881,10 @@ document.getElementById('btn-clear-log').addEventListener('click', () => {
 function refreshQsoList() {
   const el = document.getElementById('qso-list');
   const entries = qsoLog.getAll();
-  if (!entries.length) { el.textContent = 'No QSOs'; return; }
-  el.innerHTML = entries.slice(0, 50).map(e => {
+  const rxCount = qsoLog.getRxLog().length;
+  const header = `<div style="color:var(--c-accent);margin-bottom:var(--sp-xs)">${entries.length} QSOs / ${rxCount} RX</div>`;
+  if (!entries.length) { el.innerHTML = header + 'No QSOs'; return; }
+  el.innerHTML = header + entries.slice(0, 50).map(e => {
     const t = e.utc.slice(0, 16).replace('T', ' ');
     const tag = e.state && e.state !== 'IDLE' ? ` [${e.state}]` : '';
     return `<div>${t} ${e.dxCall}${tag}</div>`;
