@@ -585,7 +585,7 @@ const periodMgr = new FT8PeriodManager({
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       periodMgr.queueTx({ ...txMsg, freq }, !period.isEven);
       setStatus(`TX queued: ${qso.formatTx(txMsg)}`);
-    } else if (!txMsg && qso.state !== QSO_STATE.IDLE) {
+    } else if (!txMsg && qso.state !== QSO_STATE.IDLE && autoCheck.checked) {
       // Save state before retry (retry may reset on max retries)
       const prevState = qso.state;
       const prevDx = qso.dxCall;
