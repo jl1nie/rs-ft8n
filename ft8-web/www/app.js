@@ -98,6 +98,13 @@ const scoutTargetCall = document.getElementById('scout-target-call');
 const scoutTargetMsg = document.getElementById('scout-target-msg');
 const scoutTargetInfo = document.getElementById('scout-target-info');
 
+function clearTargetCards() {
+  scoutTargetMsg.textContent = '';
+  scoutTargetInfo.textContent = '';
+  snipeDxMsg.textContent = '';
+  snipeDxInfo.textContent = '';
+}
+
 function updateScoutStatus() {
   const state = qso.state;
   const stateIdx = { IDLE: -1, CALLING: 0, REPORT: 1, FINAL: 2 }[state] ?? -1;
@@ -394,6 +401,7 @@ function updateTxActions() {
         const tx = qso.callStation(snipeAltCall);
         apCall = snipeAltCall;
         snipeDxCall.textContent = snipeAltCall;
+        clearTargetCards();
         snipeAltCall = '';
         if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
       });
@@ -603,6 +611,7 @@ const periodMgr = new FT8PeriodManager({
           qso.setMyInfo(myCallInput.value, myGridInput.value);
           const tx = qso.callStation(clickCall);
           apCall = clickCall;
+          clearTargetCards();
           if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
         } : null, freq, dt);
       }
@@ -706,6 +715,7 @@ const periodMgr = new FT8PeriodManager({
               const tx = qso.callStation(target);
               apCall = target;
               snipeDxCall.textContent = target;
+              clearTargetCards();
               snipeAltCall = (sender && sender !== target) ? sender : '';
               if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
             }
