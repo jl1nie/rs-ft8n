@@ -504,8 +504,8 @@ function runDecode(samples) {
 
 // ── TX queue helper (all manual TX goes through period manager) ─────────────
 function queueTxMsg(call1, call2, report) {
+  clearHalted();
   const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
-  // TX on opposite slot from DX; if unknown, use opposite of current period
   const txSlot = rxSlotEven !== null ? !rxSlotEven : !periodMgr.getCurrentPeriod().isEven;
   periodMgr.queueTx({ call1, call2, report, freq }, txSlot);
   setStatus(`TX queued: ${call1} ${call2} ${report}`);
@@ -685,9 +685,10 @@ const periodMgr = new FT8PeriodManager({
       }
     }
 
-    // Auto TX / retry — TX on opposite slot from RX (DX transmits on isEven, we TX on !isEven)
-    const txSlot = !isEven; // opposite of the period we just decoded
-    if (txMsg && autoCheck.checked) {
+    // Auto TX / retry (skip if halted — user must explicitly resume)
+    const txSlot = !isEven;
+    if (halted) { /* user halted, don't auto-queue */ }
+    else if (txMsg && autoCheck.checked) {
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       rxSlotEven = isEven; // remember DX's slot
       periodMgr.queueTx({ ...txMsg, freq }, txSlot);
@@ -849,13 +850,13 @@ btnHalt.addEventListener('click', () => {
   }
 });
 
-// Clear halted state when a new TX is queued (user resumed)
-const origQueueTx = periodMgr.queueTx.bind(periodMgr);
-periodMgr.queueTx = function(tx, txEven) {
-  halted = false;
-  btnHalt.textContent = 'Halt';
-  return origQueueTx(tx, txEven);
-};
+// Clear halted state when user explicitly queues TX (resume QSO)
+function clearHalted() {
+  if (halted) {
+    halted = false;
+    btnHalt.textContent = 'Halt';
+  }
+}
 
 // ── Audio start/stop ────────────────────────────────────────────────────────
 const logoEl = document.querySelector('.header h1');
