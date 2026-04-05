@@ -106,8 +106,6 @@ if (Symbol.dispose) DecodedMessage.prototype[Symbol.dispose] = DecodedMessage.pr
 
 /**
  * Decode FT8 from 12 kHz 16-bit mono PCM samples (single-pass).
- *
- * Pass an `Int16Array` from JS.  Returns an array of `DecodedMessage`.
  * @param {Int16Array} samples
  * @returns {DecodedMessage[]}
  */

@@ -22,58 +22,33 @@ impl DecodedMessage {
     }
 }
 
+fn to_decoded(r: ft8_core::decode::DecodeResult) -> Option<DecodedMessage> {
+    let text = unpack77(&r.message77)?;
+    if text.is_empty() { return None; }
+    Some(DecodedMessage {
+        freq_hz: r.freq_hz,
+        dt_sec: r.dt_sec,
+        snr_db: r.snr_db,
+        hard_errors: r.hard_errors,
+        pass: r.pass,
+        message: text,
+    })
+}
+
 /// Decode FT8 from 12 kHz 16-bit mono PCM samples (single-pass).
-///
-/// Pass an `Int16Array` from JS.  Returns an array of `DecodedMessage`.
 #[wasm_bindgen]
 pub fn decode_wav(samples: &[i16]) -> Vec<DecodedMessage> {
-    let results = decode_frame(
-        samples,
-        200.0, 2800.0,
-        1.5,
-        None,
-        DecodeDepth::BpAllOsd,
-        200,
-    );
-    results.into_iter().map(|r| {
-        let text = unpack77(&r.message77).unwrap_or_else(|| {
-            // Show hex of first 10 bytes for undecodable message types
-            r.message77.iter().take(20).map(|b| format!("{}", b)).collect::<Vec<_>>().join("")
-        });
-        DecodedMessage {
-            freq_hz: r.freq_hz,
-            dt_sec: r.dt_sec,
-            snr_db: r.snr_db,
-            hard_errors: r.hard_errors,
-            pass: r.pass,
-            message: text,
-        }
-    }).collect()
+    decode_frame(samples, 200.0, 2800.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
+        .into_iter()
+        .filter_map(to_decoded)
+        .collect()
 }
 
 /// Decode FT8 with multi-pass signal subtraction (3-pass).
 #[wasm_bindgen]
 pub fn decode_wav_subtract(samples: &[i16]) -> Vec<DecodedMessage> {
-    let results = decode_frame_subtract(
-        samples,
-        200.0, 2800.0,
-        1.0,
-        None,
-        DecodeDepth::BpAllOsd,
-        200,
-    );
-    results.into_iter().map(|r| {
-        let text = unpack77(&r.message77).unwrap_or_else(|| {
-            // Show hex of first 10 bytes for undecodable message types
-            r.message77.iter().take(20).map(|b| format!("{}", b)).collect::<Vec<_>>().join("")
-        });
-        DecodedMessage {
-            freq_hz: r.freq_hz,
-            dt_sec: r.dt_sec,
-            snr_db: r.snr_db,
-            hard_errors: r.hard_errors,
-            pass: r.pass,
-            message: text,
-        }
-    }).collect()
+    decode_frame_subtract(samples, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200)
+        .into_iter()
+        .filter_map(to_decoded)
+        .collect()
 }
