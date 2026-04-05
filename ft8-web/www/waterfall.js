@@ -213,29 +213,9 @@ export class Waterfall {
     ctx.setLineDash([]);
   }
 
-  /**
-   * Draw frequency axis labels at the top of the canvas.
-   */
+  /** Draw frequency axis labels at the top of the canvas. */
   drawFreqAxis() {
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const freqRange = this.freqMax - this.freqMin;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.fillRect(0, 0, w, 18);
-
-    ctx.font = '10px monospace';
-    ctx.fillStyle = '#888';
-    ctx.textBaseline = 'top';
-
-    const ticks = [200, 500, 1000, 1500, 2000, 2500, 2800];
-    for (const f of ticks) {
-      const x = ((f - this.freqMin) / freqRange) * w;
-      ctx.fillText(`${f}`, x + 2, 3);
-      ctx.fillStyle = '#333';
-      ctx.fillRect(x, 15, 1, 3);
-      ctx.fillStyle = '#888';
-    }
+    this._drawFreqAxisInternal();
   }
 
   // ── Internal ────────────────────────────────────────────────────────────

@@ -32,8 +32,8 @@ statusEl.textContent = 'Loading WASM module...';
 init().then(async () => {
   wasmReady = true;
   statusEl.textContent = 'Ready. Drop a WAV file or select an audio device.';
-  // Enumerate audio devices
-  await populateDevices();
+  // Enumerate audio devices (non-fatal if it fails)
+  try { await populateDevices(); } catch (e) { console.warn('Audio devices:', e); }
 }).catch(e => {
   statusEl.textContent = `WASM load failed: ${e}`;
 });

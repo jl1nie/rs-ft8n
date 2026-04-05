@@ -40,15 +40,9 @@ export class AudioCapture {
   async start(deviceId) {
     if (this.running) return;
 
-    // Try 12kHz AudioContext first, fall back to native rate
-    let targetRate = 12000;
-    try {
-      this.audioCtx = new AudioContext({ sampleRate: 12000 });
-    } catch (e) {
-      this.audioCtx = new AudioContext(); // native rate (typically 48000)
-      targetRate = this.audioCtx.sampleRate;
-    }
-    this.actualSampleRate = this.audioCtx.sampleRate;
+    // Use native AudioContext — AudioWorklet handles decimation to 12kHz
+    this.audioCtx = new AudioContext();
+    this.actualSampleRate = 12000; // will be updated by worklet info message
 
     // Get audio stream — disable all processing for clean radio audio
     const constraints = {
@@ -77,7 +71,10 @@ export class AudioCapture {
     // Handle messages from worklet
     this.workletNode.port.onmessage = (e) => {
       const msg = e.data;
-      if (msg.type === 'waterfall' && this.callbacks.onWaterfall) {
+      if (msg.type === 'info') {
+        this.actualSampleRate = msg.outputRate;
+        console.log(`Audio: native=${msg.nativeRate} Hz, output=${msg.outputRate} Hz, decimation=${msg.decimation}`);
+      } else if (msg.type === 'waterfall' && this.callbacks.onWaterfall) {
         this.callbacks.onWaterfall(msg.samples);
       } else if (msg.type === 'buffer-full' && this.callbacks.onBufferFull) {
         this.callbacks.onBufferFull();
