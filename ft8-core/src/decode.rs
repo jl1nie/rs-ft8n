@@ -85,6 +85,9 @@ pub struct ApHint {
     /// Known grid locator (e.g. "JD34").
     /// Locks message bits 58 (ir=0) + 59–73 (15-bit grid).
     pub grid: Option<String>,
+    /// Known report/response token (e.g. "RRR", "RR73", "73").
+    /// Locks bits 58–73 (ir flag + 15-bit report field) for full 77-bit lock.
+    pub report: Option<String>,
 }
 
 impl ApHint {
@@ -92,6 +95,7 @@ impl ApHint {
     pub fn with_call1(mut self, call: &str) -> Self { self.call1 = Some(call.to_string()); self }
     pub fn with_call2(mut self, call: &str) -> Self { self.call2 = Some(call.to_string()); self }
     pub fn with_grid(mut self, grid: &str) -> Self { self.grid = Some(grid.to_string()); self }
+    pub fn with_report(mut self, rpt: &str) -> Self { self.report = Some(rpt.to_string()); self }
 
     /// Returns true if any a-priori information is available.
     pub fn has_info(&self) -> bool { self.call1.is_some() || self.call2.is_some() }
@@ -127,6 +131,37 @@ impl ApHint {
         }
         if let Some(ref c2) = self.call2 {
             set_call_bits(c2, 29);  // bits 29–57
+        }
+
+        // Lock grid field (bits 58–73: ir=0 + 15-bit grid) if known
+        if let Some(ref grid) = self.grid {
+            if let Some(igrid) = crate::message::pack_grid4(grid) {
+                mask[58] = true; ap_llr[58] = -apmag; // ir=0
+                for i in 0..15 {
+                    let bit = ((igrid >> (14 - i)) & 1) as u8;
+                    mask[59 + i] = true;
+                    ap_llr[59 + i] = if bit == 1 { apmag } else { -apmag };
+                }
+            }
+        }
+
+        // Lock report field (bits 58–73) for known responses: RRR, RR73, 73
+        if let Some(ref rpt) = self.report {
+            // Type 1: igrid values for special responses
+            let igrid_val: Option<u32> = match rpt.as_str() {
+                "RRR"  => Some(32_400 + 2),
+                "RR73" => Some(32_400 + 3),
+                "73"   => Some(32_400 + 4),
+                _ => None,
+            };
+            if let Some(igrid) = igrid_val {
+                mask[58] = true; ap_llr[58] = -apmag; // ir=0
+                for i in 0..15 {
+                    let bit = ((igrid >> (14 - i)) & 1) as u8;
+                    mask[59 + i] = true;
+                    ap_llr[59 + i] = if bit == 1 { apmag } else { -apmag };
+                }
+            }
         }
 
         // Lock message type i3=1 (Type 1 standard) if any call is known
@@ -293,22 +328,31 @@ fn process_candidate(
                         .map(|v| v.abs())
                         .fold(0.0f32, f32::max) * 1.01;
 
-                    // Build multiple AP configurations
+                    // Build multiple AP configurations (deepest first)
                     let mut ap_passes: Vec<(ApHint, u8)> = Vec::new();
-                    // Pass 6: original (call2 only, or whatever was provided)
-                    ap_passes.push((ap.clone(), 6));
-                    // Pass 7: CQ + call2 (expect "CQ DXCALL GRID")
+
+                    // Pass 9/10/11: full 77-bit lock (call1+call2+response)
+                    // Equivalent to WSJT-X a4/a5/a6 for QSO in progress
+                    if ap.call1.is_some() && ap.call2.is_some() {
+                        for (rpt, pid) in [("RRR", 9u8), ("RR73", 10), ("73", 11)] {
+                            let ap_full = ap.clone().with_report(rpt);
+                            ap_passes.push((ap_full, pid));
+                        }
+                    }
+
+                    // Pass 7: CQ + call2 (expect "CQ DXCALL GRID", ~61 bits)
                     if ap.call2.is_some() && ap.call1.is_none() {
-                        let mut ap7 = ap.clone();
-                        ap7.call1 = Some("CQ".to_string());
+                        let ap7 = ap.clone().with_call1("CQ");
                         ap_passes.push((ap7, 7));
                     }
-                    // Pass 8: mycall + call2 (expect "MYCALL DXCALL REPORT")
-                    // mycall is encoded in call1 position of the response
-                    // We don't know mycall here, but if call1 was provided, use it
+
+                    // Pass 8: mycall + call2 (~61 bits)
                     if ap.call1.is_some() && ap.call2.is_some() {
                         ap_passes.push((ap.clone(), 8));
                     }
+
+                    // Pass 6: call2 only (~33 bits, fallback)
+                    ap_passes.push((ap.clone(), 6));
 
                     for (ap_cfg, pass_id) in &ap_passes {
                         let (ap_mask, ap_llr_override) = ap_cfg.build_ap(apmag);

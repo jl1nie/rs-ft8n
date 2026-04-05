@@ -6,12 +6,9 @@ use ft8_core::message::{unpack77_with_hash, is_plausible_message};
 use std::cell::RefCell;
 
 thread_local! {
-    /// Global callsign hash table, persists across decode calls.
-    /// Populated as callsigns are decoded; used to resolve `<...>` placeholders.
     static HASH_TABLE: RefCell<CallsignHashTable> = RefCell::new(CallsignHashTable::new());
 }
 
-/// Single decoded FT8 message (returned to JS).
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct DecodedMessage {
@@ -48,7 +45,6 @@ fn to_decoded(r: ft8_core::decode::DecodeResult) -> Option<DecodedMessage> {
     })
 }
 
-/// Register decoded callsigns in the hash table.
 fn register_callsigns(text: &str) {
     HASH_TABLE.with(|ht| {
         let mut ht = ht.borrow_mut();
@@ -59,7 +55,6 @@ fn register_callsigns(text: &str) {
             if word.starts_with("CQ") { continue; }
             if word.starts_with('<') || word.starts_with('+') || word.starts_with('-')
                 || word.starts_with("R+") || word.starts_with("R-") { continue; }
-            // 4-char grid locator
             if word.len() == 4 {
                 let b = word.as_bytes();
                 if b[0].is_ascii_uppercase() && b[1].is_ascii_uppercase()
@@ -67,7 +62,6 @@ fn register_callsigns(text: &str) {
                     continue;
                 }
             }
-            // Tags like [FD], [RTTY]
             if word.starts_with('[') { continue; }
             ht.insert(word);
         }
@@ -85,7 +79,6 @@ fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<Deco
     out
 }
 
-/// Decode FT8 from 12 kHz 16-bit mono PCM samples (single-pass).
 #[wasm_bindgen]
 pub fn decode_wav(samples: &[i16]) -> Vec<DecodedMessage> {
     decode_and_register(
@@ -93,47 +86,36 @@ pub fn decode_wav(samples: &[i16]) -> Vec<DecodedMessage> {
     )
 }
 
-/// Sniper-mode decode: ±250 Hz around target_freq, with optional EQ + multi-pass AP.
+/// Sniper-mode decode with multi-pass AP (single WASM call).
 ///
-/// `target_freq` — center frequency in Hz (e.g. 1000.0)
-/// `callsign` — target callsign for AP (empty string = no AP)
-/// `mycall` — own callsign for deeper AP (empty string = skip)
-///
-/// Runs up to 3 AP passes:
-///   pass 6: call2 only (~33 bit lock)
-///   pass 7: CQ + call2 (~61 bit lock, for "CQ DXCALL GRID")
-///   pass 8: mycall + call2 (~61 bit lock, for "MYCALL DXCALL REPORT")
+/// AP passes are handled internally by ft8-core (pass 6-11).
+/// The deepest applicable pass is tried first based on available info:
+///   mycall + dxcall + RRR/RR73/73 → 77-bit lock (passes 9-11)
+///   CQ + dxcall → 61-bit lock (pass 7)
+///   mycall + dxcall → 61-bit lock (pass 8)
+///   dxcall only → 33-bit lock (pass 6)
 #[wasm_bindgen]
 pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, mycall: &str) -> Vec<DecodedMessage> {
     use ft8_core::decode::{decode_sniper_ap, EqMode, ApHint};
 
-    if callsign.is_empty() {
-        return decode_and_register(
-            decode_sniper_ap(samples, target_freq, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, None)
-        );
-    }
+    let ap = if callsign.is_empty() {
+        None
+    } else if mycall.is_empty() {
+        // No mycall → CQ + call2 (core handles pass 6 & 7 internally)
+        Some(ApHint::new().with_call1("CQ").with_call2(callsign))
+    } else {
+        // mycall available → full AP (core handles passes 6-11 internally)
+        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
+    };
 
-    // Try multiple AP configurations (deepest first for best chance)
-    // Pass 7: CQ + call2 (for "CQ 3Y0Z JD34")
-    let ap_cq = ApHint::new().with_call1("CQ").with_call2(callsign);
-    let r = decode_sniper_ap(samples, target_freq, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap_cq));
-    if !r.is_empty() { return decode_and_register(r); }
-
-    // Pass 8: mycall + call2 (for "MYCALL 3Y0Z R-12")
-    if !mycall.is_empty() {
-        let ap_my = ApHint::new().with_call1(mycall).with_call2(callsign);
-        let r = decode_sniper_ap(samples, target_freq, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap_my));
-        if !r.is_empty() { return decode_and_register(r); }
-    }
-
-    // Pass 6: call2 only (fallback)
-    let ap = ApHint::new().with_call2(callsign);
     decode_and_register(
-        decode_sniper_ap(samples, target_freq, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap))
+        decode_sniper_ap(
+            samples, target_freq, DecodeDepth::BpAllOsd, 20,
+            EqMode::Adaptive, ap.as_ref(),
+        )
     )
 }
 
-/// Encode an FT8 message to audio waveform (12 kHz f32 PCM).
 #[wasm_bindgen]
 pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
     use ft8_core::message::pack77;
@@ -145,7 +127,6 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
     Ok(tones_to_f32(&tones, freq_hz, 1.0))
 }
 
-/// Decode FT8 with multi-pass signal subtraction (3-pass).
 #[wasm_bindgen]
 pub fn decode_wav_subtract(samples: &[i16]) -> Vec<DecodedMessage> {
     decode_and_register(

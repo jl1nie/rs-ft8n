@@ -1,8 +1,5 @@
 /* @ts-self-types="./ft8_web.d.ts" */
 
-/**
- * Single decoded FT8 message (returned to JS).
- */
 export class DecodedMessage {
     static __wrap(ptr) {
         ptr = ptr >>> 0;
@@ -105,16 +102,14 @@ export class DecodedMessage {
 if (Symbol.dispose) DecodedMessage.prototype[Symbol.dispose] = DecodedMessage.prototype.free;
 
 /**
- * Sniper-mode decode: ±250 Hz around target_freq, with optional EQ + multi-pass AP.
+ * Sniper-mode decode with multi-pass AP (single WASM call).
  *
- * `target_freq` — center frequency in Hz (e.g. 1000.0)
- * `callsign` — target callsign for AP (empty string = no AP)
- * `mycall` — own callsign for deeper AP (empty string = skip)
- *
- * Runs up to 3 AP passes:
- *   pass 6: call2 only (~33 bit lock)
- *   pass 7: CQ + call2 (~61 bit lock, for "CQ DXCALL GRID")
- *   pass 8: mycall + call2 (~61 bit lock, for "MYCALL DXCALL REPORT")
+ * AP passes are handled internally by ft8-core (pass 6-11).
+ * The deepest applicable pass is tried first based on available info:
+ *   mycall + dxcall + RRR/RR73/73 → 77-bit lock (passes 9-11)
+ *   CQ + dxcall → 61-bit lock (pass 7)
+ *   mycall + dxcall → 61-bit lock (pass 8)
+ *   dxcall only → 33-bit lock (pass 6)
  * @param {Int16Array} samples
  * @param {number} target_freq
  * @param {string} callsign
@@ -135,7 +130,6 @@ export function decode_sniper(samples, target_freq, callsign, mycall) {
 }
 
 /**
- * Decode FT8 from 12 kHz 16-bit mono PCM samples (single-pass).
  * @param {Int16Array} samples
  * @returns {DecodedMessage[]}
  */
@@ -149,7 +143,6 @@ export function decode_wav(samples) {
 }
 
 /**
- * Decode FT8 with multi-pass signal subtraction (3-pass).
  * @param {Int16Array} samples
  * @returns {DecodedMessage[]}
  */
@@ -163,7 +156,6 @@ export function decode_wav_subtract(samples) {
 }
 
 /**
- * Encode an FT8 message to audio waveform (12 kHz f32 PCM).
  * @param {string} call1
  * @param {string} call2
  * @param {string} report
