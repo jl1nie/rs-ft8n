@@ -466,13 +466,22 @@ async function transmit(call1, call2, report, freq) {
   if (!wasmReady) return;
   freq = freq || (currentMode === 'snipe' ? snipeDf : scoutDf);
   try {
-    setStatus(`TX: ${call1} ${call2} ${report}`);
-    // Mark active button
-    const activeBtn = txActionsEl.querySelector('button');
+    const txText = `${call1} ${call2} ${report}`.trim();
+    setStatus(`TX: ${txText}`);
+    // Mark matching button (find by text content)
+    const allBtns = txActionsEl.querySelectorAll('button');
+    let activeBtn = null;
+    for (const b of allBtns) {
+      if (b.textContent.trim() === txText || b.textContent.includes(call1)) {
+        activeBtn = b;
+        break;
+      }
+    }
+    if (!activeBtn && allBtns.length) activeBtn = allBtns[0];
     if (activeBtn) activeBtn.classList.add('tx-active');
 
     const utc = new Date().toISOString().substr(11, 5);
-    addChatMsg('tx sending', utc, `${call1} ${call2} ${report}`, undefined);
+    addChatMsg('tx sending', utc, txText, undefined);
 
     const samples = encode_ft8(call1, call2, report, freq);
     if (cat.connected) await cat.ptt(true);
