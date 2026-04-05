@@ -256,10 +256,7 @@ function runDecode(samples) {
     // Snipe ±250 Hz with EQ, optional AP
     return decode_sniper(samples, snipeFreq, apCall);
   }
-  if (apCall) {
-    // Full-band with AP (search for target across entire band)
-    return decode_sniper(samples, 1500.0, apCall); // TODO: full-band AP
-  }
+  // Full-band decode; AP is only used with snipe mode
   return subtractCheck.checked ? decode_wav_subtract(samples) : decode_wav(samples);
 }
 
@@ -362,10 +359,9 @@ const periodMgr = new FT8PeriodManager({
       }
     }
 
-    // AP: if QSO has a DX call, use it for AP in next decode
-    if (qso.dxCall && !apCall) {
+    // Hint: if QSO has a DX call, fill it into AP field (user confirms manually)
+    if (qso.dxCall && !apCall && snipeCallInput.value !== qso.dxCall) {
       snipeCallInput.value = qso.dxCall;
-      confirmAp();
     }
   },
 });
