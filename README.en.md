@@ -72,9 +72,9 @@ Each WAV contains 15 crowd stations and a weak target station **CQ 3Y0Z JD34**.
 | `sim_stress_fullband.wav` | crowd +20 dB / target -18 dB / **AGC locked to crowd → ADC saturation** | 10 (no 3Y0Z) | **15 (no 3Y0Z)** |
 | **`sim_stress_bpf_edge_clean.wav`** | target -18 dB / BPF edge -3 dB / target + noise only | **decode failure** | **CQ 3Y0Z JD34 (197 ms)** ※ |
 
-`sim_busy_band` normalizes all signals to fit within 16 bits, so 3Y0Z is decodable. `sim_stress_fullband` locks the AGC to the +20 dB crowd, burying the -18 dB 3Y0Z in quantization noise — this is the problem solved by the combination of BPF + EQ + AP. The BPF alone is not sufficient; the filter edge distortion correction (EQ) and known-bit locking (AP) are both required for successful decoding.
+`sim_busy_band` normalizes all signals to fit within 16 bits, so 3Y0Z is decodable. `sim_stress_fullband` locks the AGC to the +20 dB crowd, burying the -18 dB 3Y0Z in quantization noise. `sim_stress_bpf_edge_clean` contains only the target + noise after BPF filtering, with -3 dB edge attenuation and phase distortion remaining.
 
-> ※ rs-ft8n uses AP with the target callsign (3Y0Z) pre-specified. WSJT-X was also tested with 3Y0Z entered in the DX Call field (AP enabled), but still failed to decode. The differentiator is the **adaptive equalizer (EQ)** — correcting BPF edge amplitude/phase distortion from Costas pilots is unique to rs-ft8n and absent from WSJT-X. Without AP (EQ only), rs-ft8n still achieves 30% decode rate at -18 dB BPF edge ([detail](#bpf-edge-snr-sweep--cumulative-effect-of-bpf--eq--ap)).
+> ※ rs-ft8n uses AP with the target callsign (3Y0Z) pre-specified and the adaptive equalizer (EQ) to correct BPF edge distortion. WSJT-X was also tested with 3Y0Z in the DX Call field (AP enabled) but did not decode. The EQ's BPF edge correction appears to be the contributing factor. Without AP (EQ only), rs-ft8n achieves 30% decode rate at -18 dB BPF edge ([detail](#bpf-edge-snr-sweep--cumulative-effect-of-bpf--eq--ap)).
 
 > **Multi-pass subtract** checkbox enables 3-pass successive interference cancellation: decode strong signals → subtract their waveforms → rescan the residual for weaker signals. Decodes more stations than single-pass at the cost of longer processing time.
 
