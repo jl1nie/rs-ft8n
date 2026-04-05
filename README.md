@@ -169,9 +169,12 @@ BPF 通過帯域内に crowd 4 局 (@ +8 dB)、target (@ -14 dB):
 | Single-pass | 4（crowd のみ） | missed |
 | **Subtract** | **5** | **CQ 3Y0Z JD34 ★** |
 
-### デコーダ性能 (100 局、release build)
+### デコーダ性能
 
-測定環境: AMD Ryzen 9 9900X (12C/24T)、32 GB RAM、rustc 1.94.0、WSL2 Linux 5.15
+Native 測定環境: AMD Ryzen 9 9900X (12C/24T)、32 GB RAM、rustc 1.94.0、WSL2 Linux 5.15
+WASM 測定環境: Chrome、同一 PC
+
+#### Native (100 局、release build)
 
 | モード | デコード数 | 1 thread | 12 threads | FT8 バジェット (2.4 s) |
 |--------|-----------|----------|------------|----------------------|
@@ -180,6 +183,15 @@ BPF 通過帯域内に crowd 4 局 (@ +8 dB)、target (@ -14 dB):
 | sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
 
 **並列化について:** WSJT-X の FT8 デコーダは候補ループをシリアルに処理する。rs-ft8n は **Rayon で候補を並列デコード** し、12 コアで最大 7.7 倍の高速化を実現。シングルスレッドでも 100 局 440 ms（バジェット内）であり、並列化はマージン拡大のための最適化。
+
+#### WASM vs Native (subtract モード)
+
+| WAV | 信号数 | Native 1T | Native 12T | WASM | WASM / Native 1T |
+|-----|--------|-----------|------------|------|-------------------|
+| sim_stress_bpf_edge_clean | 1 局 | 65 ms | 22 ms | 197 ms | 3.0x |
+| sim_busy_band | 16 局 | 147 ms | 19 ms | 213 ms | 1.4x |
+
+WASM はシングルスレッド実行だが Native 1T の 1.4-3.0 倍に収まり、FT8 バジェット (2.4 s) に対して十分な余裕がある。信号数が増えるほど比率が改善する（FFT 等の固定コストが支配的になるため）。
 
 ## 機能詳細
 

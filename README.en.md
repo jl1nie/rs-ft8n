@@ -169,9 +169,12 @@ BPF passband with 4 crowd stations (@ +8 dB) masking target (@ -14 dB):
 | Single-pass | 4 (crowd only) | missed |
 | **Subtract** | **5** | **CQ 3Y0Z JD34 ★** |
 
-### Decoder Performance (100 stations, release build)
+### Decoder Performance
 
-Environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.15
+Native environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.15
+WASM environment: Chrome, same PC
+
+#### Native (100 stations, release build)
 
 | Mode | Decoded | 1 thread | 12 threads | Budget (2.4 s) |
 |------|---------|----------|------------|----------------|
@@ -180,6 +183,15 @@ Environment: AMD Ryzen 9 9900X (12C/24T), 32 GB RAM, rustc 1.94.0, WSL2 Linux 5.
 | sniper + EQ (Adaptive) | 16 | 65 ms | 22 ms | 0.9% |
 
 **Parallelism:** The WSJT-X FT8 decoder processes candidates serially. rs-ft8n uses **Rayon parallel candidate decoding**, achieving up to 7.7× speedup on 12 cores. Even single-threaded, 100 stations decode in 440 ms (within budget); parallelism widens the margin.
+
+#### WASM vs Native (subtract mode)
+
+| WAV | Signals | Native 1T | Native 12T | WASM | WASM / Native 1T |
+|-----|---------|-----------|------------|------|-------------------|
+| sim_stress_bpf_edge_clean | 1 | 65 ms | 22 ms | 197 ms | 3.0x |
+| sim_busy_band | 16 | 147 ms | 19 ms | 213 ms | 1.4x |
+
+WASM runs single-threaded but stays within 1.4-3.0x of native single-thread. The ratio improves with more signals as fixed costs (FFT, etc.) dominate. Well within the FT8 budget (2.4 s).
 
 ## Feature Details
 
