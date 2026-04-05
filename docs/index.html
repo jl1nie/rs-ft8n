@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rs-ft8n WASM Decoder</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+         background: #0a0a0a; color: #e0e0e0; padding: 1rem; max-width: 900px; margin: 0 auto; }
+  h1 { font-size: 1.3rem; margin-bottom: .5rem; color: #4fc3f7; }
+  .subtitle { font-size: .85rem; color: #888; margin-bottom: 1rem; }
+
+  #drop-zone {
+    border: 2px dashed #555; border-radius: 8px; padding: 2rem; text-align: center;
+    cursor: pointer; transition: border-color .2s; margin-bottom: 1rem;
+  }
+  #drop-zone.over { border-color: #4fc3f7; background: #112; }
+  #drop-zone input { display: none; }
+
+  #status { font-size: .9rem; color: #aaa; margin-bottom: .5rem; min-height: 1.2em; }
+  #timing { font-size: .9rem; color: #81c784; margin-bottom: 1rem; min-height: 1.2em; }
+
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th { background: #1a1a2e; color: #4fc3f7; padding: .4rem .5rem; text-align: left;
+       border-bottom: 1px solid #333; position: sticky; top: 0; }
+  td { padding: .3rem .5rem; border-bottom: 1px solid #222; }
+  tr:hover td { background: #1a1a2e; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .msg { color: #ffeb3b; font-weight: bold; }
+
+  .controls { display: flex; gap: .5rem; margin-bottom: .5rem; }
+  .controls label { font-size: .85rem; display: flex; align-items: center; gap: .3rem; }
+</style>
+</head>
+<body>
+
+<h1>rs-ft8n WASM Decoder</h1>
+<p class="subtitle">Drop a 12 kHz / 16-bit / mono WAV file to decode FT8</p>
+
+<div id="drop-zone" tabindex="0">
+  <p>Drop WAV here or click to select</p>
+  <input type="file" id="file-input" accept=".wav">
+</div>
+
+<div class="controls">
+  <label><input type="checkbox" id="subtract-mode"> Multi-pass subtract</label>
+</div>
+
+<div id="status"></div>
+<div id="timing"></div>
+
+<table id="results" hidden>
+<thead>
+  <tr><th>#</th><th class="num">Freq (Hz)</th><th class="num">dt (s)</th>
+      <th class="num">SNR (dB)</th><th class="num">Err</th><th>Pass</th><th>Message</th></tr>
+</thead>
+<tbody></tbody>
+</table>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

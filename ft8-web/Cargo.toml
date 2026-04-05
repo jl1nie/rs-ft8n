@@ -1,0 +1,17 @@
+[package]
+name = "ft8-web"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ft8-core = { path = "../ft8-core", default-features = false }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+[profile.release]
+opt-level = "z"
+lto = true

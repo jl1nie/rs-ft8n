@@ -2,5 +2,6 @@
 members = [
     "ft8-core",
     "ft8-bench",
+    "ft8-web",
 ]
 resolver = "2"

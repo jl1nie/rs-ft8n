@@ -1,6 +1,7 @@
 /// High-level FT8 decode pipeline.
 ///
 /// Chains: downsample → coarse_sync → fine_sync → LLR → BP decode
+#[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
 pub use crate::equalizer::EqMode;
@@ -353,8 +354,14 @@ fn decode_frame_inner(
 
     let fft_cache = build_fft_cache(audio);
 
+    #[cfg(feature = "parallel")]
     let raw: Vec<DecodeResult> = candidates
         .par_iter()
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, osd_score_min, known, eq_mode, None))
+        .collect();
+    #[cfg(not(feature = "parallel"))]
+    let raw: Vec<DecodeResult> = candidates
+        .iter()
         .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, osd_score_min, known, eq_mode, None))
         .collect();
 
@@ -498,8 +505,14 @@ pub fn decode_sniper_ap(
 
     let fft_cache = build_fft_cache(audio);
 
+    #[cfg(feature = "parallel")]
     let raw: Vec<DecodeResult> = candidates
         .par_iter()
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, 2.5, &[], eq_mode, ap_hint))
+        .collect();
+    #[cfg(not(feature = "parallel"))]
+    let raw: Vec<DecodeResult> = candidates
+        .iter()
         .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, 2.5, &[], eq_mode, ap_hint))
         .collect();
 
