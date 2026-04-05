@@ -363,38 +363,49 @@ fn process_candidate(
                                     llr_ap[i] = ap_llr_override[i];
                                 }
                             }
-                            // AP + BP
+                            // AP + BP (verify message plausibility to filter false positives)
                             if let Some(bp) = bp_decode(&llr_ap, Some(&ap_mask), BP_MAX_ITER) {
-                                let itone = message_to_tones(&bp.message77);
-                                let snr_db = compute_snr_db(cs, &itone);
-                                return Some(DecodeResult {
-                                    message77: bp.message77,
-                                    freq_hz: cand.freq_hz,
-                                    dt_sec: refined.dt_sec,
-                                    hard_errors: bp.hard_errors,
-                                    sync_score: refined.score,
-                                    pass: *pass_id,
-                                    sync_cv,
-                                    snr_db,
-                                });
+                                if bp.hard_errors < 30 {
+                                    if let Some(text) = crate::message::unpack77(&bp.message77) {
+                                        if crate::message::is_plausible_message(&text) {
+                                            let itone = message_to_tones(&bp.message77);
+                                            let snr_db = compute_snr_db(cs, &itone);
+                                            return Some(DecodeResult {
+                                                message77: bp.message77,
+                                                freq_hz: cand.freq_hz,
+                                                dt_sec: refined.dt_sec,
+                                                hard_errors: bp.hard_errors,
+                                                sync_score: refined.score,
+                                                pass: *pass_id,
+                                                sync_cv,
+                                                snr_db,
+                                            });
+                                        }
+                                    }
+                                }
                             }
-                            // AP + OSD fallback (matches WSJT-X decode174_91 behavior)
+                            // AP + OSD fallback (stricter threshold to reduce false positives)
                             if depth == DecodeDepth::BpAllOsd {
                                 let osd_result = osd_decode_deep(&llr_ap, 2);
                                 if let Some(osd) = osd_result {
-                                    if osd.hard_errors < 40 {
-                                        let itone = message_to_tones(&osd.message77);
-                                        let snr_db = compute_snr_db(cs, &itone);
-                                        return Some(DecodeResult {
-                                            message77: osd.message77,
-                                            freq_hz: cand.freq_hz,
-                                            dt_sec: refined.dt_sec,
-                                            hard_errors: osd.hard_errors,
-                                            sync_score: refined.score,
-                                            pass: *pass_id,
-                                            sync_cv,
-                                            snr_db,
-                                        });
+                                    // AP OSD: tight threshold + plausibility check
+                                    if osd.hard_errors < 25 {
+                                        if let Some(text) = crate::message::unpack77(&osd.message77) {
+                                            if crate::message::is_plausible_message(&text) {
+                                                let itone = message_to_tones(&osd.message77);
+                                                let snr_db = compute_snr_db(cs, &itone);
+                                                return Some(DecodeResult {
+                                                    message77: osd.message77,
+                                                    freq_hz: cand.freq_hz,
+                                                    dt_sec: refined.dt_sec,
+                                                    hard_errors: osd.hard_errors,
+                                                    sync_score: refined.score,
+                                                    pass: *pass_id,
+                                                    sync_cv,
+                                                    snr_db,
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             }
