@@ -4,7 +4,7 @@ import { AudioCapture } from './audio-capture.js';
 import { AudioOutput } from './audio-output.js';
 import { FT8PeriodManager } from './ft8-period.js';
 import { QsoManager, QSO_STATE } from './qso.js';
-import { CatController } from './cat.js';
+import { CatController, loadRigProfiles, getRigProfiles } from './cat.js';
 import { QsoLog } from './qso-log.js';
 
 // ── Elements ────────────────────────────────────────────────────────────────
@@ -239,8 +239,10 @@ function setSnipePhase(phase) {
   snipeView.classList.toggle('snipe-call-phase', phase === 'call');
   if (phase === 'watch') {
     snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
+    cat.setFilter(false); // restore wide filter
   } else {
     snipePhaseHint.textContent = `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
+    cat.setFilter(true); // engage narrow filter
   }
   updateSnipeOverlay();
 }
@@ -917,11 +919,14 @@ btnCat.addEventListener('click', async () => {
     return;
   }
   try {
-    const proto = document.getElementById('cat-protocol').value;
+    const rigId = document.getElementById('rig-model').value;
+    if (!rigId) { catStatusEl.textContent = 'Select a rig model'; return; }
     await cat.requestPort();
-    await cat.connect({ protocol: proto });
+    await cat.connect(rigId);
     btnCat.textContent = 'Disconnect';
-    catStatusEl.textContent = `connected (${proto})`;
+    const profiles = getRigProfiles();
+    catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
+    localStorage.setItem('rs-ft8n-rig', rigId);
   } catch (e) {
     catStatusEl.textContent = `error: ${e.message || e}`;
   }
@@ -1023,6 +1028,20 @@ setStatus('Loading...');
 init().then(async () => {
   wasmReady = true;
   setStatus('Ready');
+
+  // Load rig profiles and populate selector
+  const profiles = await loadRigProfiles();
+  const rigSelect = document.getElementById('rig-model');
+  rigSelect.innerHTML = '<option value="">-- select rig --</option>';
+  for (const [id, rig] of Object.entries(profiles)) {
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = rig.label;
+    rigSelect.appendChild(opt);
+  }
+  const savedRig = localStorage.getItem('rs-ft8n-rig');
+  if (savedRig) rigSelect.value = savedRig;
+
   try {
     const devices = await capture.enumerateDevices();
     deviceSelect.innerHTML = '<option value="">-- select --</option>';

@@ -1,20 +1,49 @@
 // CAT (Computer Aided Transceiver) control via Web Serial API.
-// Supports: Yaesu CAT (FTDX10 default), Icom CI-V.
+// Rig profiles loaded from rig-profiles.json (editable/extensible).
+
+let rigProfiles = {};
+
+/** Load rig profiles from JSON file. */
+export async function loadRigProfiles() {
+  try {
+    const url = new URL('rig-profiles.json', import.meta.url).href;
+    const res = await fetch(url);
+    rigProfiles = await res.json();
+  } catch (e) {
+    console.warn('Failed to load rig-profiles.json:', e);
+  }
+  return rigProfiles;
+}
+
+/** Get loaded profiles. */
+export function getRigProfiles() { return rigProfiles; }
+
+// ── Hex string helpers ──────────────────────────────────────────────────────
+
+function hexToBytes(hexStr) {
+  return new Uint8Array(hexStr.trim().split(/\s+/).map(h => parseInt(h, 16)));
+}
+
+function parseAddr(s) {
+  if (typeof s === 'number') return s;
+  return parseInt(s, 16);
+}
+
+// ── CAT Controller ──────────────────────────────────────────────────────────
 
 export class CatController {
   constructor() {
     this.port = null;
     this.writer = null;
     this.connected = false;
-    this.protocol = 'yaesu';
-    this.civAddress = 0x94;
-    this.pttOn = false; // track PTT state
-    this.onDisconnect = null; // callback
+    this.rig = null;
+    this.rigId = '';
+    this.pttOn = false;
+    this.narrowOn = false;
+    this.onDisconnect = null;
   }
 
-  static isSupported() {
-    return 'serial' in navigator;
-  }
+  static isSupported() { return 'serial' in navigator; }
 
   async requestPort() {
     if (!CatController.isSupported()) throw new Error('Web Serial API not supported');
@@ -22,74 +51,81 @@ export class CatController {
     return this.port;
   }
 
-  async connect(opts = {}) {
+  async connect(rigId) {
     if (!this.port) throw new Error('No port selected');
-    this.protocol = opts.protocol || 'yaesu';
-    const defaultBaud = this.protocol === 'yaesu' ? 38400 : 19200;
-    await this.port.open({ baudRate: opts.baudRate || defaultBaud });
-    if (opts.civAddress !== undefined) this.civAddress = opts.civAddress;
+    const rig = rigProfiles[rigId];
+    if (!rig) throw new Error(`Unknown rig: ${rigId}`);
+
+    this.rig = rig;
+    this.rigId = rigId;
+    await this.port.open({ baudRate: rig.baud });
     this.writer = this.port.writable.getWriter();
     this.connected = true;
     this.pttOn = false;
+    this.narrowOn = false;
 
-    // Detect serial port disconnect
     if (this.port.readable) {
-      this.port.readable.pipeTo(new WritableStream()).catch(() => {
-        this._handleDisconnect();
-      });
+      this.port.readable.pipeTo(new WritableStream()).catch(() => this._handleDisconnect());
     }
   }
 
   async disconnect() {
     await this.safePttOff();
     if (this.writer) { this.writer.releaseLock(); this.writer = null; }
-    try { if (this.port?.readable) await this.port.close(); } catch (_) {}
+    try { if (this.port) await this.port.close(); } catch (_) {}
     this.connected = false;
     this.pttOn = false;
+    this.narrowOn = false;
   }
 
-  /**
-   * Set PTT state.
-   * @param {boolean} on — true = transmit, false = receive
-   */
   async ptt(on) {
-    if (!this.connected) return;
+    if (!this.connected || !this.rig) return;
     try {
-      if (this.protocol === 'yaesu') {
-        await this._yaesuSend(on ? 0x08 : 0x88);
+      const cmd = on ? this.rig.pttOn : this.rig.pttOff;
+      if (this.rig.protocol === 'civ') {
+        await this._civSendHex(cmd);
       } else {
-        await this._civSend(0x1C, 0x00, on ? [0x01] : [0x00]);
+        await this._sendText(cmd);
       }
       this.pttOn = on;
     } catch (e) {
-      // Write failed — likely disconnected
       this._handleDisconnect();
       throw e;
     }
   }
 
-  /** Force PTT OFF, never throws. Call this in error handlers. */
   async safePttOff() {
     if (!this.connected || !this.pttOn) return;
+    try { await this.ptt(false); } catch (_) { this.pttOn = false; }
+  }
+
+  async setFilter(narrow) {
+    if (!this.connected || !this.rig) return;
     try {
-      await this.ptt(false);
-    } catch (_) {
-      // Best effort — port may already be dead
-      this.pttOn = false;
+      const cmd = narrow ? this.rig.filterNarrow : this.rig.filterWide;
+      if (!cmd) return;
+      if (this.rig.protocol === 'civ') {
+        await this._civSendHex(cmd);
+      } else {
+        await this._sendText(cmd);
+      }
+      this.narrowOn = narrow;
+    } catch (e) {
+      this._handleDisconnect();
     }
   }
 
   async setFreq(freqHz) {
-    if (!this.connected) return;
+    if (!this.connected || !this.rig) return;
     try {
-      if (this.protocol === 'yaesu') {
-        await this._yaesuSetFreq(freqHz);
-      } else {
+      if (this.rig.protocol === 'civ') {
         await this._civSetFreq(freqHz);
+      } else {
+        const hz = String(Math.round(freqHz)).padStart(9, '0');
+        await this._sendText(`FA${hz};`);
       }
     } catch (e) {
       this._handleDisconnect();
-      throw e;
     }
   }
 
@@ -98,32 +134,19 @@ export class CatController {
   _handleDisconnect() {
     this.connected = false;
     this.pttOn = false;
+    this.narrowOn = false;
     if (this.onDisconnect) this.onDisconnect();
   }
 
-  async _yaesuSend(cmd) {
-    const frame = new Uint8Array([0x00, 0x00, 0x00, 0x00, cmd]);
+  async _sendText(cmd) {
+    await this.writer.write(new TextEncoder().encode(cmd));
+  }
+
+  async _civSendHex(hexStr) {
+    const addr = parseAddr(this.rig.civAddr || '0x94');
+    const data = hexToBytes(hexStr);
+    const frame = new Uint8Array([0xFE, 0xFE, addr, 0xE0, ...data, 0xFD]);
     await this.writer.write(frame);
-  }
-
-  async _yaesuSetFreq(freqHz) {
-    let f = Math.round(freqHz / 10);
-    const bcd = new Uint8Array(5);
-    for (let i = 3; i >= 0; i--) {
-      const lo = f % 10; f = Math.floor(f / 10);
-      const hi = f % 10; f = Math.floor(f / 10);
-      bcd[i] = (hi << 4) | lo;
-    }
-    bcd[4] = 0x01;
-    await this.writer.write(bcd);
-  }
-
-  async _civSend(cmd, subCmd, data = []) {
-    const frame = [0xFE, 0xFE, this.civAddress, 0xE0, cmd];
-    if (subCmd !== null && subCmd !== undefined) frame.push(subCmd);
-    frame.push(...data);
-    frame.push(0xFD);
-    await this.writer.write(new Uint8Array(frame));
   }
 
   async _civSetFreq(freqHz) {
@@ -134,6 +157,8 @@ export class CatController {
       const hi = f % 10; f = Math.floor(f / 10);
       bcd.push((hi << 4) | lo);
     }
-    await this._civSend(0x05, null, bcd);
+    const addr = parseAddr(this.rig.civAddr || '0x94');
+    const frame = new Uint8Array([0xFE, 0xFE, addr, 0xE0, 0x05, ...bcd, 0xFD]);
+    await this.writer.write(frame);
   }
 }

@@ -1,0 +1,59 @@
+{
+  "ftdx10": {
+    "label": "Yaesu FTDX10",
+    "protocol": "yaesu-text",
+    "baud": 38400,
+    "pttOn": "TX1;",
+    "pttOff": "TX0;",
+    "filterNarrow": "SH008;",
+    "filterWide": "SH016;"
+  },
+  "ft891": {
+    "label": "Yaesu FT-891",
+    "protocol": "yaesu-text",
+    "baud": 38400,
+    "pttOn": "TX1;",
+    "pttOff": "TX0;",
+    "filterNarrow": "SH006;",
+    "filterWide": "SH016;"
+  },
+  "ft101mp": {
+    "label": "Yaesu FT-101MP",
+    "protocol": "yaesu-text",
+    "baud": 38400,
+    "pttOn": "TX1;",
+    "pttOff": "TX0;",
+    "filterNarrow": "NA01;",
+    "filterWide": "NA00;"
+  },
+  "ic7300": {
+    "label": "Icom IC-7300",
+    "protocol": "civ",
+    "baud": 19200,
+    "civAddr": "0x94",
+    "pttOn": "1C 00 01",
+    "pttOff": "1C 00 00",
+    "filterNarrow": "1A 03 46 00 F4 01",
+    "filterWide": "1A 03 46 00 60 09"
+  },
+  "ic705": {
+    "label": "Icom IC-705",
+    "protocol": "civ",
+    "baud": 19200,
+    "civAddr": "0xA4",
+    "pttOn": "1C 00 01",
+    "pttOff": "1C 00 00",
+    "filterNarrow": "1A 03 46 00 F4 01",
+    "filterWide": "1A 03 46 00 60 09"
+  },
+  "ic7851": {
+    "label": "Icom IC-7851",
+    "protocol": "civ",
+    "baud": 19200,
+    "civAddr": "0x8E",
+    "pttOn": "1C 00 01",
+    "pttOff": "1C 00 00",
+    "filterNarrow": "1A 03 46 00 F4 01",
+    "filterWide": "1A 03 46 00 60 09"
+  }
+}
