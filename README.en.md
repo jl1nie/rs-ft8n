@@ -24,6 +24,8 @@ By placing a narrow hardware bandpass filter *before* the ADC, the strong
 interferers are physically removed and the ADC's full dynamic range is
 devoted to the target signal. The software equalizer then corrects the
 amplitude roll-off and phase distortion introduced by the filter edges.
+When the target callsign is known, A Priori (AP) decoding locks 32 of
+the 77 message bits, further lowering the decode threshold by several dB.
 
 ## Key Results
 
@@ -74,6 +76,19 @@ degradation at center.
 | **WSJT-X** | **decode failure** |
 | **rs-ft8n sniper + EQ** | **CQ 3Y0Z JD34 decoded** |
 
+### BPF edge SNR sweep — cumulative effect of BPF + EQ + AP
+
+BPF edge (-3 dB), target callsign (3Y0Z) known, 20 seeds:
+
+| SNR | EQ OFF | EQ Adaptive | **EQ + AP** |
+|-----|--------|-------------|-------------|
+| -16 dB | 95% | 100% | 100% |
+| **-18 dB** | **10%** | **30%** | **60%** |
+| -20 dB | 0% | 0% | 5% |
+| -22 dB | 0% | 0% | 0% |
+
+At -18 dB: WSJT-X 0%, rs-ft8n EQ+AP 60%. Each stage (BPF → EQ → AP) progressively lowers the threshold.
+
 ### In-band crowd + signal subtraction
 
 BPF passband with 4 crowd stations (@ +8 dB) masking target (@ -14 dB):
@@ -106,7 +121,8 @@ PCM 16-bit 12 kHz
   ↓ [equalizer] (Wiener pilot correction from Costas arrays)
   ↓ compute_llr (Gray-coded soft metrics, 4 variants a/b/c/d)
   ├→ BP decode (log-domain, 30 iter, CRC-14)
-  └→ OSD fallback (order 2-3, when BP fails + sync_q ≥ 12)
+  ├→ OSD fallback (order 2-3, when BP fails + sync_q ≥ 12)
+  └→ [AP pass] (lock known bits, retry BP, pass=5)
 ```
 
 ### Adaptive Equalizer (`equalizer.rs`)
@@ -120,6 +136,16 @@ Corrects BPF amplitude/phase distortion using Costas arrays as pilot tones.
 - **Adaptive mode (`EqMode::Adaptive`):** Tries EQ first to recover edge
   signals; falls back to raw decode for center signals. No degradation at
   center, maximum benefit at edge.
+
+### A Priori (AP) Decoding (`decode.rs`)
+
+When the target callsign is known, locks 32 of 77 message bits at high-confidence
+LLR values. Locked bits are frozen during BP iterations (same mechanism as WSJT-X),
+reducing the number of unknown bits and lowering the decode threshold.
+
+- **AP magnitude:** `apmag = max(|llr|) × 1.01`
+- **Locked bits (call2 only):** bits 29–57 (28-bit call + 1-bit flag) + bits 74–76 (i3=1) = 32 bits
+- **Activation:** AP pass runs only after BP + OSD fail (pass=5)
 
 ### Signal Subtraction (`subtract.rs` + `decode.rs`)
 
@@ -225,17 +251,19 @@ for r in &results {
 }
 ```
 
-Sniper mode with equalizer:
+Sniper mode (BPF + EQ + AP):
 
 ```rust
-use ft8_core::decode::{decode_sniper_eq, DecodeDepth, EqMode};
+use ft8_core::decode::{decode_sniper_ap, DecodeDepth, EqMode, ApHint};
 
-let results = decode_sniper_eq(
+let ap = ApHint::new().with_call2("3Y0Z");
+let results = decode_sniper_ap(
     &samples,
     1000.0,                // target frequency (Hz)
     DecodeDepth::BpAllOsd,
     20,                    // max candidates
     EqMode::Adaptive,      // equalizer mode
+    Some(&ap),             // A Priori hint
 );
 ```
 
