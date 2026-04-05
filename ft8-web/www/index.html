@@ -147,19 +147,36 @@
 
   /* ── Responsive: mobile (narrow screens) ───────────────────────────── */
   @media (max-width: 600px) {
+    /* Header */
+    .header h1 { font-size: 1.1rem; }
+    .mode-tabs button { font-size: .85rem; padding: .3rem .8rem; }
+    .timer { font-size: .9rem; }
+    .header .gear { font-size: 1.5rem; padding: .2rem .5rem; }
+    /* Scout status bar */
+    .scout-mode #scout-status { font-size: .85rem; padding: .3rem .5rem; }
+    #scout-status .dot { width: 10px; height: 10px; }
+    #scout-status .state { font-size: .85rem; }
+    #scout-status .decode-info { font-size: .75rem; }
+    /* Snipe status */
+    .snipe-target .dx-call { font-size: 1.3rem; }
+    .qso-progress { font-size: .9rem; }
+    .qso-progress .dot { width: 12px; height: 12px; }
+    .qso-progress .label { font-size: .9rem; }
+    /* Message list */
     .chat-msg { font-size: .9rem; padding: .4rem .5rem; min-height: 36px; }
     .chat-msg .col-freq { font-size: .8rem; }
     .chat-msg .col-dt { font-size: .8rem; }
     .chat-msg .col-snr { font-size: .8rem; }
-    .period-sep { font-size: .7rem; }
-    #scout-status { font-size: .8rem; }
-    .snipe-target .dx-call { font-size: 1.3rem; }
-    .qso-progress { font-size: .85rem; }
-    .qso-progress .dot { width: 12px; height: 12px; }
-    #scout-status .dot { width: 10px; height: 10px; }
-    .header h1 { font-size: 1.1rem; }
-    .mode-tabs button { font-size: .8rem; padding: .3rem .7rem; }
+    .period-sep { font-size: .75rem; }
+    /* Bottom bar */
+    .bottom-bar button { font-size: 1rem; padding: .6rem 1rem; }
+    #tx-actions button { font-size: 1rem; padding: .6rem 1rem; }
+    #tx-actions button.cq { font-size: 1.1rem; padding: .6rem 1.5rem; }
+    .bottom-bar label { font-size: .9rem; }
+    /* Settings */
     #settings-panel { width: 100%; }
+    #settings-panel input, #settings-panel select { font-size: .9rem; padding: .4rem .5rem; }
+    #settings-panel button { font-size: .9rem; padding: .5rem .7rem; }
   }
 </style>
 </head>

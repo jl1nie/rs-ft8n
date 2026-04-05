@@ -364,33 +364,28 @@ function updateTxActions() {
     return;
   }
 
-  // Auto OFF — show all TX options
-  const options = [];
-  if (state === QSO_STATE.CALLING) {
-    options.push({ label: `${dx} ${myCall} ${myGrid}`, c1: dx, c2: myCall, rpt: myGrid });
-  }
-  if (state === QSO_STATE.REPORT) {
-    const rpt = qso._autoReport();
-    options.push({ label: `${dx} ${myCall} ${rpt}`, c1: dx, c2: myCall, rpt });
-    options.push({ label: `${dx} ${myCall} R${rpt}`, c1: dx, c2: myCall, rpt: `R${rpt}` });
-  }
-  if (state === QSO_STATE.FINAL) {
-    options.push({ label: `${dx} ${myCall} RR73`, c1: dx, c2: myCall, rpt: 'RR73' });
-    options.push({ label: `${dx} ${myCall} 73`, c1: dx, c2: myCall, rpt: '73' });
-  }
-  options.push({ label: `${dx} ${myCall} ${myGrid}`, c1: dx, c2: myCall, rpt: myGrid });
-  options.push({ label: `CQ ${myCall} ${myGrid}`, c1: 'CQ', c2: myCall, rpt: myGrid });
-
-  const seen = new Set();
-  for (const o of options) {
-    if (seen.has(o.label)) continue;
-    seen.add(o.label);
+  // Auto OFF — show next TX + CQ (2 buttons max)
+  const tx = qso.getNextTx();
+  if (tx) {
     const btn = document.createElement('button');
-    btn.className = 'tx-msg';
-    btn.textContent = o.label;
-    btn.addEventListener('click', () => queueTxMsg(o.c1, o.c2, o.rpt));
+    btn.className = 'tx-next';
+    btn.textContent = qso.formatTx(tx);
+    btn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
     txActionsEl.appendChild(btn);
   }
+  // Always offer CQ
+  const cqBtn = document.createElement('button');
+  cqBtn.className = 'cq';
+  cqBtn.textContent = 'CQ';
+  cqBtn.addEventListener('click', () => {
+    qso.setMyInfo(myCallInput.value, myGridInput.value);
+    const cqTx = qso.callCq();
+    const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
+    const period = periodMgr.getCurrentPeriod();
+    periodMgr.queueTx({ ...cqTx, freq }, !period.isEven);
+    setStatus(`CQ queued`);
+  });
+  txActionsEl.appendChild(cqBtn);
 }
 
 autoCheck.addEventListener('change', updateTxActions);
