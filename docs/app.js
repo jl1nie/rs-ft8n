@@ -164,6 +164,13 @@ function syncBand(src) {
   bandSelect.value = src.value;
   bandHeader.value = src.value;
   localStorage.setItem('rs-ft8n-band', src.value);
+  // Set rig VFO to new band frequency (adjusted for Snipe BPF if active)
+  const baseHz = Math.round(parseFloat(src.value) * 1e6);
+  if (currentMode === 'snipe' && snipePhase === 'call') {
+    cat.setFreq(baseHz + (snipeBpf - FILTER_CENTER));
+  } else {
+    cat.setFreq(baseHz);
+  }
 }
 bandSelect.addEventListener('change', () => syncBand(bandSelect));
 bandHeader.addEventListener('change', () => syncBand(bandHeader));
