@@ -39,10 +39,10 @@
     "civAddr": "0x94",
     "pttOn": "1C 00 01",
     "pttOff": "1C 00 00",
-    "modeData": "06 01 02 01",
-    "filterNarrow": "1A 03 09",
-    "filterWide": "1A 03 28",
-    "note": "SDR — DSP filter only. 06=set mode, 01=USB, 02=FIL2, 01=data. 09=500Hz, 28=2400Hz"
+    "modeData": "06 01 01 02",
+    "filterNarrow": "06 01 01 03",
+    "filterWide": "06 01 01 02",
+    "note": "SDR — DSP filter only. FIL3=narrow(500Hz), FIL2=wide(2400Hz). Set FIL widths in radio menu."
   },
   "ic705": {
     "label": "Icom IC-705",
@@ -52,10 +52,10 @@
     "ble": true,
     "pttOn": "1C 00 01",
     "pttOff": "1C 00 00",
-    "modeData": "06 01 02 01",
-    "filterNarrow": "1A 03 09",
-    "filterWide": "1A 03 28",
-    "note": "SDR — DSP filter only. 06=set mode, 01=USB, 02=FIL2, 01=data. BLE supported."
+    "modeData": "06 01 01 02",
+    "filterNarrow": "06 01 01 03",
+    "filterWide": "06 01 01 02",
+    "note": "SDR — DSP filter only. FIL3=narrow(500Hz), FIL2=wide(2400Hz). BLE supported."
   },
   "ic7851": {
     "label": "Icom IC-7851",
@@ -64,9 +64,9 @@
     "civAddr": "0x8E",
     "pttOn": "1C 00 01",
     "pttOff": "1C 00 00",
-    "modeData": "06 01 02 01",
-    "filterNarrow": "1A 03 09",
-    "filterWide": "1A 03 28",
-    "note": "1.2kHz roofing (auto-selected). DSP 09=500Hz, 28=2400Hz"
+    "modeData": "06 01 01 02",
+    "filterNarrow": "06 01 01 03",
+    "filterWide": "06 01 01 02",
+    "note": "1.2kHz roofing (auto-selected). FIL3=narrow(500Hz), FIL2=wide(2400Hz)."
   }
 }
