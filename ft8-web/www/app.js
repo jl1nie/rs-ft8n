@@ -149,8 +149,14 @@ const qsoLog = new QsoLog();
 // Restore settings
 myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
 myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
-myCallInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mycall', myCallInput.value));
-myGridInput.addEventListener('change', () => localStorage.setItem('rs-ft8n-mygrid', myGridInput.value));
+myCallInput.addEventListener('change', () => {
+  myCallInput.value = myCallInput.value.toUpperCase();
+  localStorage.setItem('rs-ft8n-mycall', myCallInput.value);
+});
+myGridInput.addEventListener('change', () => {
+  myGridInput.value = myGridInput.value.toUpperCase();
+  localStorage.setItem('rs-ft8n-mygrid', myGridInput.value);
+});
 // Sync header band selector from settings band selector
 for (const opt of bandSelect.options) {
   const o = document.createElement('option');
@@ -198,8 +204,14 @@ const qso = new QsoManager({
   onTxReady: () => updateQsoDisplay(),
 });
 
-myCallInput.addEventListener('input', () => qso.setMyInfo(myCallInput.value, myGridInput.value));
-myGridInput.addEventListener('input', () => qso.setMyInfo(myCallInput.value, myGridInput.value));
+myCallInput.addEventListener('input', () => {
+  myCallInput.value = myCallInput.value.toUpperCase();
+  qso.setMyInfo(myCallInput.value, myGridInput.value);
+});
+myGridInput.addEventListener('input', () => {
+  myGridInput.value = myGridInput.value.toUpperCase();
+  qso.setMyInfo(myCallInput.value, myGridInput.value);
+});
 
 const capture = new AudioCapture({
   onWaterfall: (samples) => waterfall.pushSamples(samples),
