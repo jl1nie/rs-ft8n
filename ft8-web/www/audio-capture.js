@@ -12,9 +12,11 @@ export class AudioCapture {
     this.audioCtx = null;
     this.stream = null;
     this.workletNode = null;
+    this.gainNode = null;
     this.running = false;
     this.actualSampleRate = 12000;
     this._onDisconnect = null; // callback when device disconnects
+    this.onPeak = null; // callback(level: 0-1) for input level meter
   }
 
   /** Enumerate available audio input devices. */
@@ -90,13 +92,19 @@ export class AudioCapture {
         this.callbacks.onWaterfall(msg.samples);
       } else if (msg.type === 'buffer-full' && this.callbacks.onBufferFull) {
         this.callbacks.onBufferFull();
+      } else if (msg.type === 'peak' && this.onPeak) {
+        this.onPeak(msg.level);
       } else if (msg.type === 'snapshot' && this._snapshotResolve) {
         this._snapshotResolve(msg.samples);
         this._snapshotResolve = null;
       }
     };
 
-    source.connect(this.workletNode);
+    // Insert gain node for input level control
+    this.gainNode = this.audioCtx.createGain();
+    this.gainNode.gain.value = 1.0;
+    source.connect(this.gainNode);
+    this.gainNode.connect(this.workletNode);
     // Don't connect to destination (we don't want to play back)
 
     this.workletNode.port.postMessage({ type: 'start' });
@@ -124,6 +132,11 @@ export class AudioCapture {
       this._snapshotResolve = resolve;
       this.workletNode?.port.postMessage({ type: 'snapshot' });
     });
+  }
+
+  /** Set input gain (0.0 - 2.0). */
+  setGain(value) {
+    if (this.gainNode) this.gainNode.gain.value = value;
   }
 
   /** Get the actual sample rate of the AudioContext. */

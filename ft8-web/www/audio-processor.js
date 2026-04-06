@@ -22,6 +22,11 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
     // Simple decimation counter
     this.decimCounter = 0;
 
+    // Peak level tracking (pre-decimation, raw input)
+    this.peakLevel = 0;
+    this.peakFrameCount = 0;
+    this.peakReportInterval = Math.round(this.nativeRate / 128 * 0.1); // ~100ms
+
     this.port.onmessage = (e) => {
       if (e.data.type === 'start') {
         this.recording = true;
@@ -57,6 +62,18 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0]?.[0];
     if (!input || !this.recording) return true;
+
+    // Track peak level on raw input (before decimation)
+    for (let i = 0; i < input.length; i++) {
+      const abs = Math.abs(input[i]);
+      if (abs > this.peakLevel) this.peakLevel = abs;
+    }
+    this.peakFrameCount += input.length;
+    if (this.peakFrameCount >= this.peakReportInterval) {
+      this.port.postMessage({ type: 'peak', level: this.peakLevel });
+      this.peakLevel = 0;
+      this.peakFrameCount = 0;
+    }
 
     // Decimate: take every Nth sample (simple, works well for integer ratios)
     for (let i = 0; i < input.length; i++) {

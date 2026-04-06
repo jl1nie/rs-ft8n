@@ -205,6 +205,20 @@
     opacity: 0; transition: opacity .3s, transform .3s; z-index: 200; pointer-events: none; }
   .toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
+  /* ── Audio level meters ───────────────────────────────────────────── */
+  .level-row { display: flex; align-items: center; gap: var(--sp-xs); margin-bottom: var(--sp-xs); }
+  .level-row label { font-size: var(--fs-sm); color: var(--c-text2); min-width: 2.2em; }
+  .level-row input[type="range"] { flex: 1; height: 28px; min-height: 28px; accent-color: var(--c-accent); }
+  .level-row .level-val { font-size: var(--fs-xs); color: var(--c-text2); min-width: 2.5em; text-align: right; }
+  .level-meter { height: 6px; background: var(--c-surface2); border-radius: 3px; overflow: hidden; flex: 1; }
+  .level-meter-fill { height: 100%; width: 0%; background: var(--c-success); transition: width 80ms, background-color 80ms; border-radius: 3px; }
+  .level-meter-fill.clip { background: var(--c-danger); }
+  .level-meter-row { display: flex; align-items: center; gap: var(--sp-xs); margin-bottom: var(--sp-sm); }
+  .level-meter-row label { font-size: var(--fs-xs); color: var(--c-text2); min-width: 2.2em; }
+  .clip-indicator { font-size: var(--fs-xs); color: var(--c-danger); font-weight: bold; min-width: 2.5em;
+    text-align: center; opacity: 0; transition: opacity 0.1s; }
+  .clip-indicator.active { opacity: 1; }
+
   /* ── Waterfall drop highlight ──────────────────────────────────────── */
   #waterfall-wrap.drop-over { outline: 2px dashed var(--c-accent); outline-offset: -2px; }
 
@@ -351,6 +365,26 @@
     <div class="field">
       <label>Audio Output</label>
       <select id="audio-output-device"><option value="">-- default --</option></select>
+    </div>
+    <div class="level-row">
+      <label>RX</label>
+      <input type="range" id="rx-gain" min="0" max="200" value="100" step="5">
+      <span class="level-val" id="rx-gain-val">100%</span>
+    </div>
+    <div class="level-meter-row">
+      <label>RX</label>
+      <div class="level-meter"><div class="level-meter-fill" id="rx-meter"></div></div>
+      <span class="clip-indicator" id="rx-clip">CLIP</span>
+    </div>
+    <div class="level-row">
+      <label>TX</label>
+      <input type="range" id="tx-gain" min="0" max="200" value="100" step="5">
+      <span class="level-val" id="tx-gain-val">100%</span>
+    </div>
+    <div class="level-meter-row">
+      <label>TX</label>
+      <div class="level-meter"><div class="level-meter-fill" id="tx-meter"></div></div>
+      <span class="clip-indicator" id="tx-clip">CLIP</span>
     </div>
     <button id="btn-start">Start Audio</button>
   </details>

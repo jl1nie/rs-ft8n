@@ -5,7 +5,9 @@ export class AudioOutput {
   constructor() {
     this.ctx = null;
     this.sourceNode = null;
+    this.gainNode = null;
     this.playing = false;
+    this.gain = 1.0;
   }
 
   /**
@@ -37,7 +39,10 @@ export class AudioOutput {
 
     this.sourceNode = this.ctx.createBufferSource();
     this.sourceNode.buffer = buffer;
-    this.sourceNode.connect(this.ctx.destination);
+    this.gainNode = this.ctx.createGain();
+    this.gainNode.gain.value = this.gain;
+    this.sourceNode.connect(this.gainNode);
+    this.gainNode.connect(this.ctx.destination);
 
     return new Promise((resolve) => {
       this.playing = true;
@@ -49,6 +54,22 @@ export class AudioOutput {
       };
       this.sourceNode.start();
     });
+  }
+
+  /** Set output gain (0.0 - 2.0). */
+  setGain(value) {
+    this.gain = value;
+    if (this.gainNode) this.gainNode.gain.value = value;
+  }
+
+  /** Compute peak level of samples (for meter display before playback). */
+  static peakLevel(samples) {
+    let peak = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const abs = Math.abs(samples[i]);
+      if (abs > peak) peak = abs;
+    }
+    return peak;
   }
 
   /** Stop playback immediately. */

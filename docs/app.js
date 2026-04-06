@@ -142,6 +142,7 @@ waterfall.dfLine = scoutDf; // show DF line on startup
 
 // ── Core modules ────────────────────────────────────────────────────────────
 const audioOut = new AudioOutput();
+audioOut.setGain((localStorage.getItem('rs-ft8n-tx-gain') || 100) / 100);
 const cat = new CatController();
 const qsoLog = new QsoLog();
 
@@ -170,6 +171,49 @@ bandSelect.addEventListener('change', async () => {
 });
 deviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-in', deviceSelect.value));
 outputDeviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-out', outputDeviceSelect.value));
+
+// ── Audio level controls ───────────────────────────────────────────────────
+const rxGainSlider = document.getElementById('rx-gain');
+const rxGainVal = document.getElementById('rx-gain-val');
+const rxMeter = document.getElementById('rx-meter');
+const rxClip = document.getElementById('rx-clip');
+const txGainSlider = document.getElementById('tx-gain');
+const txGainVal = document.getElementById('tx-gain-val');
+const txMeter = document.getElementById('tx-meter');
+const txClip = document.getElementById('tx-clip');
+
+const savedRxGain = localStorage.getItem('rs-ft8n-rx-gain');
+const savedTxGain = localStorage.getItem('rs-ft8n-tx-gain');
+if (savedRxGain) { rxGainSlider.value = savedRxGain; }
+if (savedTxGain) { txGainSlider.value = savedTxGain; }
+rxGainVal.textContent = rxGainSlider.value + '%';
+txGainVal.textContent = txGainSlider.value + '%';
+
+rxGainSlider.addEventListener('input', () => {
+  const pct = rxGainSlider.value;
+  rxGainVal.textContent = pct + '%';
+  capture.setGain(pct / 100);
+  localStorage.setItem('rs-ft8n-rx-gain', pct);
+});
+txGainSlider.addEventListener('input', () => {
+  const pct = txGainSlider.value;
+  txGainVal.textContent = pct + '%';
+  audioOut.setGain(pct / 100);
+  localStorage.setItem('rs-ft8n-tx-gain', pct);
+});
+
+// RX level meter from AudioWorklet peak reports
+capture.onPeak = (level) => {
+  const pct = Math.min(level * 100, 100);
+  rxMeter.style.width = pct + '%';
+  if (level > 0.95) {
+    rxMeter.classList.add('clip');
+    rxClip.classList.add('active');
+  } else {
+    rxMeter.classList.remove('clip');
+    rxClip.classList.remove('active');
+  }
+};
 
 const qso = new QsoManager({
   myCall: myCallInput.value,
@@ -567,6 +611,19 @@ async function transmit(call1, call2, report, freq) {
     addChatMsg('tx sending', utc, txText, undefined);
 
     const samples = encode_ft8(call1, call2, report, freq);
+
+    // Show TX level meter (peak of generated waveform * gain)
+    const txPeak = AudioOutput.peakLevel(samples) * (txGainSlider.value / 100);
+    const txPct = Math.min(txPeak * 100, 100);
+    txMeter.style.width = txPct + '%';
+    if (txPeak > 0.95) {
+      txMeter.classList.add('clip');
+      txClip.classList.add('active');
+    } else {
+      txMeter.classList.remove('clip');
+      txClip.classList.remove('active');
+    }
+
     if (cat.connected) await cat.ptt(true);
     await audioOut.play(samples, outputDeviceSelect.value || undefined);
     if (cat.connected) await cat.ptt(false);
@@ -910,6 +967,7 @@ async function toggleAudio() {
     if (!deviceId) { openSettings(); setStatus('Select audio device'); return; }
     try {
       await capture.start(deviceId);
+      capture.setGain(rxGainSlider.value / 100);
       localStorage.setItem('rs-ft8n-audio-in', deviceId);
       periodMgr.start();
       liveMode = true;
