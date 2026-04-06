@@ -161,6 +161,11 @@ myGridInput.addEventListener('change', () => {
 const savedStrictness = localStorage.getItem('rs-ft8n-strictness');
 if (savedStrictness !== null) strictnessSelect.value = savedStrictness;
 strictnessSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-strictness', strictnessSelect.value));
+const cqFirstCheck = document.getElementById('cq-first-decoded');
+const cqReplyLabel = document.getElementById('cq-reply-label');
+const updateCqLabel = () => { cqReplyLabel.textContent = cqFirstCheck.checked ? 'CQ reply: first decoded' : 'CQ reply: best SNR'; };
+cqFirstCheck.addEventListener('change', updateCqLabel);
+updateCqLabel();
 const savedBand = localStorage.getItem('rs-ft8n-band');
 if (savedBand) bandSelect.value = savedBand;
 bandSelect.addEventListener('change', async () => {
