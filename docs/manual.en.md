@@ -252,12 +252,27 @@ The Station section in the settings panel provides RX / TX level adjustment.
 | Item | Description |
 |------|-------------|
 | **RX gain slider** | Receive input level (0--200%). Adjusts GainNode before the decoder |
-| **RX level meter** | Real-time peak level display (green = normal, red = clipping) |
+| **RX level meter** | Real-time peak level display (green = normal, red = clipping). Slider changes reflected instantly |
 | **TX gain slider** | Transmit output level (0--200%) |
-| **TX level meter** | Peak level display during transmission |
-| **CLIP indicator** | Red **CLIP** text lights up when level exceeds 95% |
+| **TX level meter** | Peak level display during Test Tone and transmission. Slider changes reflected instantly |
+| **CLIP indicator** | Red **CLIP** text lights up when digital waveform peak exceeds 95% |
+| **Test Tone button** | Plays a continuous sine wave at the current DF frequency. Tap to start/stop. Use to adjust rig input level |
 
-**Important:** Excessive input levels are a major cause of decode failure. If the RX meter is constantly red (CLIP), reduce the RX gain or lower the rig's audio output level. TX clipping will transmit a distorted signal.
+### RX Level Adjustment
+
+Excessive input levels are a major cause of decode failure. If the RX meter is constantly red (CLIP), reduce the RX gain or lower the rig's audio output level.
+
+### TX Level Adjustment
+
+**The CLIP indicator only reflects digital clipping within the app.** No digital distortion occurs at TX gain 100% or below.
+
+However, the actual signal level reaching the rig is determined outside the app:
+
+- **Phone OS media volume** -- Android volume slider
+- **USB audio DAC output level** -- device-specific
+- **Rig MOD input gain** -- analog stage setting
+
+These are not reflected in the app's CLIP indicator. Play Test Tone and check the **rig's ALC meter** to ensure ALC does not deflect. Adjust OS volume and TX gain accordingly.
 
 Gain settings are saved to localStorage and restored on next launch.
 
