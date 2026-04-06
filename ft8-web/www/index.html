@@ -401,6 +401,14 @@
   </details>
   <details class="accordion">
     <summary>Decode</summary>
+    <div class="field">
+      <label>Strictness</label>
+      <select id="decode-strictness">
+        <option value="0">Strict (low FP)</option>
+        <option value="1" selected>Normal</option>
+        <option value="2">Deep (max sensitivity)</option>
+      </select>
+    </div>
     <label><input type="checkbox" id="subtract-mode" checked> Multi-pass subtract</label>
     <label><input type="checkbox" id="ap-mode" checked> A Priori (AP)</label>
     <label><input type="checkbox" id="cq-first-decoded"> CQ response: first decoded (default: strongest SNR)</label>

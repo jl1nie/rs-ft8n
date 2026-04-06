@@ -115,7 +115,7 @@ pub fn subtract_signal_weighted(audio: &mut Vec<i16>, result: &DecodeResult, gai
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decode::DecodeDepth;
+    use crate::decode::{DecodeDepth, DecodeStrictness};
     use crate::wave_gen::tones_to_i16;
 
     /// Subtracting a known signal should significantly reduce its power.
@@ -228,7 +228,7 @@ mod tests {
 
         // Multi-pass subtract should decode both
         let results = decode_frame_subtract(
-            &audio, 800.0, 1700.0, 1.0, None, DecodeDepth::BpAll, 50,
+            &audio, 800.0, 1700.0, 1.0, None, DecodeDepth::BpAll, 50, DecodeStrictness::Normal,
         );
         let found_strong = results.iter().any(|r| r.message77 == msg_strong);
         let found_weak   = results.iter().any(|r| r.message77 == msg_weak);

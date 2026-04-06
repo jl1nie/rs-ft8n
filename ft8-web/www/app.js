@@ -46,6 +46,7 @@ const outputDeviceSelect = document.getElementById('audio-output-device');
 const bandSelect = document.getElementById('band-header');
 const subtractCheck = document.getElementById('subtract-mode');
 const apCheck = document.getElementById('ap-mode');
+const strictnessSelect = document.getElementById('decode-strictness');
 const btnCat = document.getElementById('btn-cat');
 const btnCatBle = document.getElementById('btn-cat-ble');
 const catStatusEl = document.getElementById('cat-status');
@@ -157,6 +158,9 @@ myGridInput.addEventListener('change', () => {
   myGridInput.value = myGridInput.value.toUpperCase();
   localStorage.setItem('rs-ft8n-mygrid', myGridInput.value);
 });
+const savedStrictness = localStorage.getItem('rs-ft8n-strictness');
+if (savedStrictness !== null) strictnessSelect.value = savedStrictness;
+strictnessSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-strictness', strictnessSelect.value));
 const savedBand = localStorage.getItem('rs-ft8n-band');
 if (savedBand) bandSelect.value = savedBand;
 bandSelect.addEventListener('change', async () => {
@@ -540,7 +544,8 @@ function runDecode(samples) {
 
   // Subtract: use if enabled and not auto-disabled
   const useSub = subtractCheck.checked && !subDisabledAuto;
-  const results = useSub ? decode_wav_subtract(samples) : decode_wav(samples);
+  const strict = parseInt(strictnessSelect.value, 10);
+  const results = useSub ? decode_wav_subtract(samples, strict) : decode_wav(samples, strict);
   const baseMs = performance.now() - t0;
 
   // AP supplement: enabled by checkbox, auto-disabled by budget
@@ -699,11 +704,10 @@ const periodMgr = new FT8PeriodManager({
       const freq = r.freq_hz;
       const snr = r.snr_db;
       const dt = r.dt_sec;
-      const suspect = r.pass >= 4 && r.hard_errors >= 35;
       msgs.push({ freq_hz: freq, dt_sec: dt, snr_db: snr, message: msg });
 
-      // Log all non-suspect RX to persistent store
-      if (!suspect) {
+      // Log RX to persistent store
+      {
         qsoLog.addRx({ message: msg, freq_hz: freq, snr_db: snr });
       }
 
@@ -1153,7 +1157,6 @@ async function handleFile(file) {
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      if (r.pass >= 4 && r.hard_errors >= 35) { r.free(); continue; }
       addChatMsg('rx', `${i+1}`, r.message, r.snr_db, null, r.freq_hz, r.dt_sec);
       r.free();
     }

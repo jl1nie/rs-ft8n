@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth};
+use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeStrictness};
 use ft8_core::hash_table::CallsignHashTable;
 use ft8_core::message::{unpack77_with_hash, is_plausible_message};
 
@@ -68,6 +68,14 @@ fn register_callsigns(text: &str) {
     });
 }
 
+fn to_strictness(level: u8) -> DecodeStrictness {
+    match level {
+        0 => DecodeStrictness::Strict,
+        2 => DecodeStrictness::Deep,
+        _ => DecodeStrictness::Normal,
+    }
+}
+
 fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<DecodedMessage> {
     let mut out = Vec::new();
     for r in results {
@@ -80,7 +88,9 @@ fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<Deco
 }
 
 #[wasm_bindgen]
-pub fn decode_wav(samples: &[i16]) -> Vec<DecodedMessage> {
+pub fn decode_wav(samples: &[i16], strictness: u8) -> Vec<DecodedMessage> {
+    // strictness is currently unused for non-subtract decode (BP-only path has no OSD gate)
+    let _ = strictness;
     decode_and_register(
         decode_frame(samples, 100.0, 3000.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
     )
@@ -128,8 +138,8 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
 }
 
 #[wasm_bindgen]
-pub fn decode_wav_subtract(samples: &[i16]) -> Vec<DecodedMessage> {
+pub fn decode_wav_subtract(samples: &[i16], strictness: u8) -> Vec<DecodedMessage> {
     decode_and_register(
-        decode_frame_subtract(samples, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200)
+        decode_frame_subtract(samples, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200, to_strictness(strictness))
     )
 }

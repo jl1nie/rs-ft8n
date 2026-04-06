@@ -5,7 +5,7 @@
 ///   data/191111_110200.wav
 use std::path::Path;
 
-use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult};
+use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult, DecodeStrictness};
 use ft8_core::message::unpack77;
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -126,6 +126,7 @@ pub fn evaluate_real_data(wav_path: &Path) -> Result<RealDataReport, String> {
         None,
         DecodeDepth::BpAllOsd,
         200,
+        DecodeStrictness::Normal,
     );
 
     Ok(RealDataReport {

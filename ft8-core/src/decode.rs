@@ -31,6 +31,65 @@ pub enum DecodeDepth {
     BpAllOsd,
 }
 
+/// Decode strictness: controls false-positive vs sensitivity trade-off.
+///
+/// Adjusts OSD hard_errors thresholds, AP hard_errors thresholds, and
+/// the minimum sync score required for OSD fallback entry.
+/// Actual numeric values are placeholders pending benchmark calibration.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum DecodeStrictness {
+    /// Minimise false positives — tighter thresholds.
+    Strict,
+    /// Balanced (current behaviour).
+    #[default]
+    Normal,
+    /// Maximum sensitivity — looser thresholds, more FP risk.
+    Deep,
+}
+
+impl DecodeStrictness {
+    /// Maximum hard_errors for non-AP OSD decode.
+    ///
+    /// Calibrated from real WAV bench (2026-04-07):
+    ///   - BP pass 0: errors 0–8 (all clean)
+    ///   - OSD real signals: errors 19, 23
+    ///   - OSD false positive: errors 29
+    pub fn osd_max_errors(self, osd_depth: u8) -> u32 {
+        match (self, osd_depth) {
+            // Strict: high-confidence OSD (e19 real → keep, e23+ → cut)
+            (Self::Strict, 3) => 20,
+            (Self::Strict, _) => 22,
+            // Normal: catches errors=29 FP, keeps errors=23 real decode
+            (Self::Normal, 3) => 26,
+            (Self::Normal, _) => 29,
+            // Deep: previous defaults — maximum sensitivity
+            (Self::Deep,   3) => 30,
+            (Self::Deep,   _) => 40,
+        }
+    }
+
+    /// Maximum hard_errors for AP decode passes.
+    ///
+    /// Calibrated from synthetic QSO scenario:
+    ///   - REPORT AP at -18 dB: 15% FP rate with old thresholds (30/36)
+    pub fn ap_max_errors(self, locked_bits: usize) -> u32 {
+        match (self, locked_bits >= 55) {
+            (Self::Strict, true)  => 20,
+            (Self::Strict, false) => 24,
+            (Self::Normal, true)  => 25,
+            (Self::Normal, false) => 30,
+            // Deep: previous defaults
+            (Self::Deep,   true)  => 30,
+            (Self::Deep,   false) => 36,
+        }
+    }
+
+    /// Minimum coarse-sync score to enter OSD fallback.
+    pub fn osd_score_min(self) -> f32 {
+        match self { Self::Strict => 3.0, Self::Normal => 2.2, Self::Deep => 2.0 }
+    }
+}
+
 /// One successfully decoded FT8 message.
 #[derive(Debug, Clone)]
 pub struct DecodeResult {
@@ -200,7 +259,7 @@ pub fn decode_frame(
     depth: DecodeDepth,
     max_cand: usize,
 ) -> Vec<DecodeResult> {
-    decode_frame_inner(audio, freq_min, freq_max, sync_min, freq_hint, depth, max_cand, 2.5, &[], EqMode::Off)
+    decode_frame_inner(audio, freq_min, freq_max, sync_min, freq_hint, depth, max_cand, DecodeStrictness::Normal, &[], EqMode::Off)
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -220,11 +279,12 @@ fn process_candidate(
     audio: &[i16],
     fft_cache: &[num_complex::Complex<f32>],
     depth: DecodeDepth,
-    osd_score_min: f32,
+    strictness: DecodeStrictness,
     known: &[DecodeResult],
     eq_mode: EqMode,
     ap_hint: Option<&ApHint>,
 ) -> Option<DecodeResult> {
+    let osd_score_min = strictness.osd_score_min();
     let (cd0, _) = downsample(audio, cand.freq_hz, Some(fft_cache));
 
     let refined = refine_candidate(&cd0, cand, 10);
@@ -293,11 +353,7 @@ fn process_candidate(
                         osd_decode(llr_osd)
                     };
                     if let Some(osd) = osd_result {
-                        // Order-dependent false-positive filter:
-                        // order-2 (~4k candidates): < 40 errors
-                        // order-3 (~122k candidates): < 30 errors
-                        // (callsign validation in message.rs catches remaining FPs)
-                        let max_errors = if osd_depth == 3 { 30 } else { 40 };
+                        let max_errors = strictness.osd_max_errors(osd_depth);
                         if osd.hard_errors >= max_errors { continue; }
                         let itone = message_to_tones(&osd.message77);
                         let snr_db = compute_snr_db(cs, &itone);
@@ -356,16 +412,8 @@ fn process_candidate(
 
                     for (ap_cfg, pass_id) in &ap_passes {
                         let (ap_mask, ap_llr_override) = ap_cfg.build_ap(apmag);
-                        // Adaptive hard_errors threshold: more locked bits → stricter
                         let locked_bits = ap_mask.iter().filter(|&&m| m).count();
-                        // AP false-positive filter:
-                        // hard_errors adapts to locked bit count
-                        // Callsign verification below catches remaining FPs
-                        let max_errors: u32 = if locked_bits >= 55 {
-                            30  // 61+ bit lock: callsign verify is the main filter
-                        } else {
-                            36  // 33-bit lock: close to WSJT-X default (36)
-                        };
+                        let max_errors: u32 = strictness.ap_max_errors(locked_bits);
 
                         for &(base_llr, _) in llr_variants {
                             let mut llr_ap = *base_llr;
@@ -457,7 +505,7 @@ fn decode_frame_inner(
     freq_hint: Option<f32>,
     depth: DecodeDepth,
     max_cand: usize,
-    osd_score_min: f32,
+    strictness: DecodeStrictness,
     known: &[DecodeResult],
     eq_mode: EqMode,
 ) -> Vec<DecodeResult> {
@@ -471,12 +519,12 @@ fn decode_frame_inner(
     #[cfg(feature = "parallel")]
     let raw: Vec<DecodeResult> = candidates
         .par_iter()
-        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, osd_score_min, known, eq_mode, None))
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, strictness, known, eq_mode, None))
         .collect();
     #[cfg(not(feature = "parallel"))]
     let raw: Vec<DecodeResult> = candidates
         .iter()
-        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, osd_score_min, known, eq_mode, None))
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, strictness, known, eq_mode, None))
         .collect();
 
     // Deduplicate: preserve first occurrence; drop messages already in `known`.
@@ -518,20 +566,20 @@ pub fn decode_frame_subtract(
     freq_hint: Option<f32>,
     depth: DecodeDepth,
     max_cand: usize,
+    strictness: DecodeStrictness,
 ) -> Vec<DecodeResult> {
     let mut residual = audio.to_vec();
     let mut all_results: Vec<DecodeResult> = Vec::new();
 
-    // (sync_min_factor, osd_score_min)
-    let passes: &[(f32, f32)] = &[(1.0, 2.5), (0.75, 2.5), (0.5, 2.0)];
+    let passes: &[f32] = &[1.0, 0.75, 0.5];
 
-    for &(factor, osd_score_min) in passes {
+    for &factor in passes {
         let new = decode_frame_inner(
             &residual,
             freq_min, freq_max,
             sync_min * factor,
             freq_hint, depth, max_cand,
-            osd_score_min,
+            strictness,
             &all_results,
             EqMode::Off,
         );
@@ -622,12 +670,12 @@ pub fn decode_sniper_ap(
     #[cfg(feature = "parallel")]
     let raw: Vec<DecodeResult> = candidates
         .par_iter()
-        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, 2.5, &[], eq_mode, ap_hint))
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, DecodeStrictness::Normal, &[], eq_mode, ap_hint))
         .collect();
     #[cfg(not(feature = "parallel"))]
     let raw: Vec<DecodeResult> = candidates
         .iter()
-        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, 2.5, &[], eq_mode, ap_hint))
+        .filter_map(|cand| process_candidate(cand, audio, &fft_cache, depth, DecodeStrictness::Normal, &[], eq_mode, ap_hint))
         .collect();
 
     let mut results: Vec<DecodeResult> = Vec::new();

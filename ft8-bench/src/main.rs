@@ -79,6 +79,7 @@ fn main() {
 
 /// Fake JA callsigns (Q-code suffixes — impossible in real amateur allocations)
 /// paired with JA-area grid locators for crowd CQ messages.
+/// Sweep OSD thresholds to find the best Normal parameters.
 fn crowd_calls_grids() -> Vec<(&'static str, &'static str)> {
     vec![
         ("JQ1QSO", "PM95"), ("JQ1QRM", "PM95"), ("JQ1QRN", "PM96"),
@@ -539,9 +540,9 @@ fn run_bpf_subtract_scenario() {
     }
 
     // Subtract-pass (multi-pass decode with signal subtraction)
-    use ft8_core::decode::decode_frame_subtract;
+    use ft8_core::decode::{decode_frame_subtract, DecodeStrictness};
     let results_sub = decode_frame_subtract(
-        &audio, BPF_LO as f32, BPF_HI as f32, 0.8, None, DecodeDepth::BpAllOsd, 20,
+        &audio, BPF_LO as f32, BPF_HI as f32, 0.8, None, DecodeDepth::BpAllOsd, 20, DecodeStrictness::Normal,
     );
     let target_sub = results_sub.iter().any(|r| r.message77 == target_msg);
     println!(
@@ -776,7 +777,7 @@ fn run_wsjt_stress_test() {
 /// Run with `cargo run --release` for meaningful numbers.
 fn run_speed_bench() {
     use std::time::Instant;
-    use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth};
+    use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeStrictness};
     use ft8_core::message::pack77_type1;
 
     const N_WARM: usize = 3;
@@ -827,12 +828,12 @@ fn run_speed_bench() {
 
     // ── decode_frame_subtract (3-pass) ────────────────────────────────────────
     for _ in 0..N_WARM {
-        let _ = decode_frame_subtract(&audio, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        let _ = decode_frame_subtract(&audio, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200, DecodeStrictness::Normal);
     }
     let mut times_sub = Vec::with_capacity(N_MEASURE);
     for _ in 0..N_MEASURE {
         let t0 = Instant::now();
-        let r = decode_frame_subtract(&audio, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        let r = decode_frame_subtract(&audio, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200, DecodeStrictness::Normal);
         let elapsed = t0.elapsed();
         times_sub.push((elapsed, r.len()));
     }
@@ -959,7 +960,7 @@ fn run_interference_scenario() {
 /// 2. BPF edge: sweep target from -18 to -28 dB (sniper + EQ + AP)
 /// 3. Write WAVs at the extreme limit for WSJT-X comparison
 fn run_extreme_sweep() {
-    use ft8_core::decode::{decode_frame_subtract, decode_sniper_ap, DecodeDepth, EqMode, ApHint};
+    use ft8_core::decode::{decode_frame_subtract, decode_sniper_ap, DecodeDepth, DecodeStrictness, EqMode, ApHint};
     use ft8_core::message::{pack77_type1, unpack77};
 
     let target_msg = pack77_type1("CQ", "3Y0Z", "JD34").unwrap();
@@ -996,7 +997,7 @@ fn run_extreme_sweep() {
                 signals,
                 noise_seed: Some(seed),
             });
-            let r_sub = decode_frame_subtract(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+            let r_sub = decode_frame_subtract(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200, DecodeStrictness::Normal);
             if r_sub.iter().any(|r| r.message77 == target_msg) { ok_sub += 1; }
 
             let r_sniper = decode_sniper_ap(&audio, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap));
@@ -1130,7 +1131,7 @@ fn run_extreme_sweep() {
         let out = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("testdata").join("sim_extreme_hard.wav");
         let _ = simulator::write_wav(&out, &audio);
-        let r = decode_frame_subtract(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        let r = decode_frame_subtract(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200, DecodeStrictness::Normal);
         let found = r.iter().any(|r| r.message77 == target_msg);
         println!("\n  WAV: sim_extreme_hard.wav (crowd +40, target -20)  rs-ft8n: {}  decoded: {}", if found {"3Y0Z FOUND"} else {"3Y0Z missed"}, r.len());
     }

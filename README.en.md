@@ -31,7 +31,7 @@ FT8 operates on a 3 kHz audio band shared by dozens of stations. When a +40 dB a
 | Fine sync | Integer sample + fixed offset | **Parabolic interpolation in main sync** |
 | Signal subtraction | 4-pass subtract-coupled | **3-pass + QSB gate** |
 | OSD fallback | ndeep parameter | **sync_q adaptive** (≥18 → order-3) |
-| OSD false positive | None | **Order-dependent hard_errors + callsign validation** |
+| OSD false positive | None | **3-level Strictness (Strict/Normal/Deep)** + **callsign validation** |
 | FFT cache | `save` variable (serial) | **Explicit cache + Rayon parallel sharing** |
 | Parallelism | Serial candidate loop | **Rayon par_iter** |
 | WASM | None | **Complete QSO in the browser** (306 KB) |
