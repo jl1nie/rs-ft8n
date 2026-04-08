@@ -264,10 +264,15 @@
     height: 100%; width: 0%; background: var(--c-accent);
     border-radius: 2px; transition: width 0.3s ease;
   }
-  #splash-diag, #diag-info {
+  #splash-diag {
     margin-top: var(--sp-md); font: var(--fs-sm) monospace;
     color: var(--c-text2); text-align: left; min-width: 260px;
     line-height: 1.6;
+  }
+  #diag-info {
+    display: inline-block; text-align: left;
+    font: var(--fs-xs) monospace; color: var(--c-text2);
+    line-height: 1.5; opacity: 0.7;
   }
   #splash-diag .val, #diag-info .val { color: var(--c-accent); }
   #splash-diag .warn, #diag-info .warn { color: #ffa726; }
@@ -348,8 +353,8 @@
 <div id="scout-view">
   <div class="chat-list" id="chat-list">
     <div class="empty-state" id="empty-state">
-      Tap <b>rs-ft8n</b> to start
-      <div id="diag-info" style="margin-top:var(--sp-sm);font:var(--fs-xs) monospace;color:var(--c-text2);text-align:left;display:inline-block"></div>
+      <div style="font-size:var(--fs-lg);margin-bottom:var(--sp-md)">Tap <b>rs-ft8n</b> to start</div>
+      <div id="diag-info"></div>
     </div>
   </div>
 </div>
