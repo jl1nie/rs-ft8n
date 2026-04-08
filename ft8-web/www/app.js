@@ -1342,6 +1342,6 @@ init().then(async () => {
     }
   } catch (e) { console.warn('Audio devices:', e); }
   updateTxActions();
-  // Dismiss splash after a brief pause to show 100%
-  setTimeout(splashDismiss, 400);
+  // Dismiss splash — hold long enough to read diagnostics
+  setTimeout(splashDismiss, 2500);
 }).catch(e => { setStatus(`Load failed: ${e}`); splashDismiss(); });
