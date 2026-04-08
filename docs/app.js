@@ -273,6 +273,7 @@ const capture = new AudioCapture({
   onWaterfall: (samples) => waterfall.pushSamples(samples),
   onBufferFull: () => {},
 });
+capture.onSampleRate = (rate) => waterfall.setSampleRate(rate);
 capture._onDisconnect = () => {
   periodMgr.stop();
   liveMode = false;

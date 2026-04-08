@@ -17,6 +17,7 @@ export class AudioCapture {
     this.actualSampleRate = 12000;
     this._onDisconnect = null; // callback when device disconnects
     this.onPeak = null; // callback(level: 0-1) for input level meter
+    this.onSampleRate = null; // callback(rate) when actual sample rate is determined
   }
 
   /** Enumerate available audio input devices. */
@@ -88,6 +89,7 @@ export class AudioCapture {
       if (msg.type === 'info') {
         this.actualSampleRate = msg.outputRate;
         console.log(`Audio: native=${msg.nativeRate} Hz, output=${msg.outputRate} Hz, decimation=${msg.decimation}`);
+        if (this.onSampleRate) this.onSampleRate(msg.outputRate);
       } else if (msg.type === 'waterfall' && this.callbacks.onWaterfall) {
         this.callbacks.onWaterfall(msg.samples);
       } else if (msg.type === 'buffer-full' && this.callbacks.onBufferFull) {

@@ -117,6 +117,15 @@ export class Waterfall {
     this.residual = new Float32Array(0);
   }
 
+  /** Update sample rate and recompute frequency bin mapping. */
+  setSampleRate(rate) {
+    if (rate === this.sampleRate) return;
+    this.sampleRate = rate;
+    this.binMin = Math.floor(this.freqMin / this.sampleRate * this.fftSize);
+    this.binMax = Math.ceil(this.freqMax / this.sampleRate * this.fftSize);
+    this.numBins = this.binMax - this.binMin;
+  }
+
   /** Clear the waterfall display. */
   clear() {
     this.ctx.fillStyle = '#000';
