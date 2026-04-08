@@ -1,17 +1,13 @@
 // AudioWorklet processor for FT8 audio capture.
 // Runs on the audio rendering thread — no ES module imports allowed.
-// Handles resampling from native rate to 12kHz and accumulates 15-second buffers.
+// AudioContext is created at 12 kHz, so samples arrive at 12 kHz directly.
 
 class FT8AudioProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    this.targetRate = 12000;
-    this.nativeRate = sampleRate; // AudioWorklet global 'sampleRate'
-    this.decimation = Math.round(this.nativeRate / this.targetRate);
-    // Actual output rate after integer decimation
-    this.outputRate = this.nativeRate / this.decimation;
+    this.outputRate = sampleRate; // AudioWorklet global 'sampleRate' — should be 12000
 
-    this.bufferSize = Math.round(this.outputRate * 15); // 15 seconds at output rate
+    this.bufferSize = Math.round(this.outputRate * 15); // 15 seconds
     this.buffer = new Float32Array(this.bufferSize);
     this.writePos = 0;
     this.recording = false;
@@ -19,20 +15,16 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
     this.waterfallAccum = new Float32Array(this.waterfallChunkSize);
     this.waterfallPos = 0;
 
-    // Simple decimation counter
-    this.decimCounter = 0;
-
-    // Peak level tracking (pre-decimation, raw input)
+    // Peak level tracking
     this.peakLevel = 0;
     this.peakFrameCount = 0;
-    this.peakReportInterval = Math.round(this.nativeRate / 128 * 0.1); // ~100ms
+    this.peakReportInterval = Math.round(this.outputRate / 128 * 0.1); // ~100ms
 
     this.port.onmessage = (e) => {
       if (e.data.type === 'start') {
         this.recording = true;
         this.writePos = 0;
         this.waterfallPos = 0;
-        this.decimCounter = 0;
       } else if (e.data.type === 'stop') {
         this.recording = false;
       } else if (e.data.type === 'snapshot') {
@@ -45,16 +37,15 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
         });
         this.writePos = 0;
         this.waterfallPos = 0;
-        this.decimCounter = 0;
       }
     };
 
-    // Report actual rates to main thread
+    // Report actual rate to main thread
     this.port.postMessage({
       type: 'info',
-      nativeRate: this.nativeRate,
+      nativeRate: this.outputRate,
       outputRate: this.outputRate,
-      decimation: this.decimation,
+      decimation: 1,
       bufferSize: this.bufferSize,
     });
   }
@@ -63,7 +54,7 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
     const input = inputs[0]?.[0];
     if (!input || !this.recording) return true;
 
-    // Track peak level on raw input (before decimation)
+    // Track peak level
     for (let i = 0; i < input.length; i++) {
       const abs = Math.abs(input[i]);
       if (abs > this.peakLevel) this.peakLevel = abs;
@@ -75,29 +66,25 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
       this.peakFrameCount = 0;
     }
 
-    // Decimate: take every Nth sample (simple, works well for integer ratios)
+    // Write samples directly — no decimation needed (AudioContext runs at 12 kHz)
     for (let i = 0; i < input.length; i++) {
-      this.decimCounter++;
-      if (this.decimCounter >= this.decimation) {
-        this.decimCounter = 0;
-        const sample = input[i];
+      const sample = input[i];
 
-        // Period buffer
-        if (this.writePos < this.bufferSize) {
-          this.buffer[this.writePos++] = sample;
-        }
+      // Period buffer
+      if (this.writePos < this.bufferSize) {
+        this.buffer[this.writePos++] = sample;
+      }
 
-        // Waterfall chunk
-        if (this.waterfallPos < this.waterfallChunkSize) {
-          this.waterfallAccum[this.waterfallPos++] = sample;
-        }
-        if (this.waterfallPos >= this.waterfallChunkSize) {
-          this.port.postMessage({
-            type: 'waterfall',
-            samples: new Float32Array(this.waterfallAccum),
-          });
-          this.waterfallPos = 0;
-        }
+      // Waterfall chunk
+      if (this.waterfallPos < this.waterfallChunkSize) {
+        this.waterfallAccum[this.waterfallPos++] = sample;
+      }
+      if (this.waterfallPos >= this.waterfallChunkSize) {
+        this.port.postMessage({
+          type: 'waterfall',
+          samples: new Float32Array(this.waterfallAccum),
+        });
+        this.waterfallPos = 0;
       }
     }
 

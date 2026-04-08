@@ -2,6 +2,7 @@ use wasm_bindgen::prelude::*;
 use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeStrictness};
 use ft8_core::hash_table::CallsignHashTable;
 use ft8_core::message::{unpack77_with_hash, is_plausible_message};
+use ft8_core::resample::resample_to_12k;
 
 use std::cell::RefCell;
 
@@ -87,12 +88,17 @@ fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<Deco
     out
 }
 
+/// Decode a 15-second FT8 audio frame (wide-band scan).
+///
+/// `sample_rate` — input PCM sample rate in Hz (e.g. 12000, 44100, 48000).
+/// Non-12 000 Hz input is automatically resampled before decoding.
 #[wasm_bindgen]
-pub fn decode_wav(samples: &[i16], strictness: u8) -> Vec<DecodedMessage> {
+pub fn decode_wav(samples: &[i16], strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
     // strictness is currently unused for non-subtract decode (BP-only path has no OSD gate)
     let _ = strictness;
+    let audio = if sample_rate != 12000 { resample_to_12k(samples, sample_rate) } else { samples.to_vec() };
     decode_and_register(
-        decode_frame(samples, 100.0, 3000.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
+        decode_frame(&audio, 100.0, 3000.0, 1.5, None, DecodeDepth::BpAllOsd, 200)
     )
 }
 
@@ -105,7 +111,7 @@ pub fn decode_wav(samples: &[i16], strictness: u8) -> Vec<DecodedMessage> {
 ///   mycall + dxcall → 61-bit lock (pass 8)
 ///   dxcall only → 33-bit lock (pass 6)
 #[wasm_bindgen]
-pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, mycall: &str, eq_on: bool) -> Vec<DecodedMessage> {
+pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
     use ft8_core::decode::{decode_sniper_ap, EqMode, ApHint};
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
@@ -118,9 +124,10 @@ pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, mycall: 
         Some(ApHint::new().with_call1(mycall).with_call2(callsign))
     };
 
+    let audio = if sample_rate != 12000 { resample_to_12k(samples, sample_rate) } else { samples.to_vec() };
     decode_and_register(
         decode_sniper_ap(
-            samples, target_freq, DecodeDepth::BpAllOsd, 20,
+            &audio, target_freq, DecodeDepth::BpAllOsd, 20,
             eq_mode, ap.as_ref(),
         )
     )
@@ -137,9 +144,14 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
     Ok(tones_to_f32(&tones, freq_hz, 1.0))
 }
 
+/// Decode with iterative signal subtraction.
+///
+/// `sample_rate` — input PCM sample rate in Hz. Non-12 000 Hz input is
+/// automatically resampled before decoding.
 #[wasm_bindgen]
-pub fn decode_wav_subtract(samples: &[i16], strictness: u8) -> Vec<DecodedMessage> {
+pub fn decode_wav_subtract(samples: &[i16], strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    let audio = if sample_rate != 12000 { resample_to_12k(samples, sample_rate) } else { samples.to_vec() };
     decode_and_register(
-        decode_frame_subtract(samples, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200, to_strictness(strictness))
+        decode_frame_subtract(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200, to_strictness(strictness))
     )
 }

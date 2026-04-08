@@ -559,13 +559,14 @@ autoCheck.addEventListener('change', updateTxActions);
 // Snipe always runs both (narrow band = fast).
 const BUDGET_MS = 2400;
 
-function runDecode(samples) {
+function runDecode(samples, sampleRate) {
   const t0 = performance.now();
 
   // Subtract: use if enabled and not auto-disabled
   const useSub = subtractCheck.checked && !subDisabledAuto;
   const strict = parseInt(strictnessSelect.value, 10);
-  const results = useSub ? decode_wav_subtract(samples, strict) : decode_wav(samples, strict);
+  const sr = sampleRate || capture.getSampleRate();
+  const results = useSub ? decode_wav_subtract(samples, strict, sr) : decode_wav(samples, strict, sr);
   const baseMs = performance.now() - t0;
 
   // AP supplement: enabled by checkbox, auto-disabled by budget
@@ -582,7 +583,7 @@ function runDecode(samples) {
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const myCall = myCallInput.value.trim().toUpperCase();
       const eqOn = eqModeSelect.value === 'adaptive';
-      const ap = decode_sniper(samples, freq, apTarget, myCall, eqOn);
+      const ap = decode_sniper(samples, freq, apTarget, myCall, eqOn, sr);
       for (const r of ap) {
         if (!results.some(x => Math.abs(x.freq_hz - r.freq_hz) < 10)) {
           results.push(r);
@@ -1170,7 +1171,7 @@ async function handleFile(file) {
     await new Promise(r => setTimeout(r, 0));
 
     const t0 = performance.now();
-    const results = runDecode(samples);
+    const results = runDecode(samples, 12000);
     const elapsed = performance.now() - t0;
 
     setStatus(`${results.length}d ${elapsed.toFixed(0)}ms`);

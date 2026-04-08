@@ -44,9 +44,9 @@ export class AudioCapture {
   async start(deviceId) {
     if (this.running) return;
 
-    // Use native AudioContext — AudioWorklet handles decimation to 12kHz
-    this.audioCtx = new AudioContext();
-    this.actualSampleRate = 12000; // will be updated by worklet info message
+    // Request 12kHz AudioContext — browser resamples from native rate internally
+    this.audioCtx = new AudioContext({ sampleRate: 12000 });
+    this.actualSampleRate = 12000;
 
     // Get audio stream — disable all processing for clean radio audio
     const constraints = {
