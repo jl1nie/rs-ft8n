@@ -273,8 +273,21 @@ myGridInput.addEventListener('input', () => {
   qso.setMyInfo(myCallInput.value, myGridInput.value);
 });
 
+// Waterfall FFT can be disabled at runtime via Settings → Decode → "Waterfall FFT".
+// Useful for isolating whether the main-thread FFT load affects audio decode quality.
+const wfEnableEl = document.getElementById('waterfall-enable');
+let waterfallEnabled = (localStorage.getItem('rs-ft8n-wf-enable') ?? '1') === '1';
+if (wfEnableEl) {
+  wfEnableEl.checked = waterfallEnabled;
+  wfEnableEl.addEventListener('change', () => {
+    waterfallEnabled = wfEnableEl.checked;
+    localStorage.setItem('rs-ft8n-wf-enable', waterfallEnabled ? '1' : '0');
+    if (!waterfallEnabled) waterfall.clear();
+  });
+}
+
 const capture = new AudioCapture({
-  onWaterfall: (samples) => waterfall.pushSamples(samples),
+  onWaterfall: (samples) => { if (waterfallEnabled) waterfall.pushSamples(samples); },
   onBufferFull: () => {},
 });
 capture.onSampleRate = (rate) => waterfall.setSampleRate(rate);
@@ -1229,7 +1242,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-10-c';
+const APP_VERSION = '2026-04-10-d';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
