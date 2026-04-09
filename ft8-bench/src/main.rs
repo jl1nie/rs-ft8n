@@ -239,6 +239,73 @@ fn run_busy_band_hard_scenario() {
         if target_mixed { "DECODED" } else { "missed" }
     );
 
+    // ── i16 quantisation headroom probe (single seed) ────────────────────────
+    // Same f32 mix, but scaled so the strongest sample fits at ~88% of i16
+    // range (no AGC clipping). The crowd is no longer hard-clipped, but the
+    // weak target still has only a few LSBs of dynamic range to work with.
+    let audio_clean_quant = simulator::generate_frame(&config);
+    let results_clean_full = decode_frame(
+        &audio_clean_quant, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200,
+    );
+    let target_clean_full = results_clean_full.iter().any(|r| r.message77 == target_msg);
+    let results_clean_sniper = decode_sniper(
+        &audio_clean_quant, TARGET_FREQ, DecodeDepth::BpAllOsd, 20,
+    );
+    let target_clean_sniper = results_clean_sniper.iter().any(|r| r.message77 == target_msg);
+    println!(
+        "  [i16 clean: full   ] total decoded: {:2}  target @ {TARGET_FREQ:.0} Hz: {}",
+        results_clean_full.len(),
+        if target_clean_full { "DECODED" } else { "missed" }
+    );
+    println!(
+        "  [i16 clean: sniper ] total decoded: {:2}  target @ {TARGET_FREQ:.0} Hz: {}",
+        results_clean_sniper.len(),
+        if target_clean_sniper { "DECODED" } else { "missed" }
+    );
+
+    // ── i16 quantisation sweep: 30 seeds, AGC vs clean side-by-side ─────────
+    // Statistical comparison of AGC clipping vs clean i16 quantisation on the
+    // *same* set of noise realisations. If clean wins clearly, AGC clipping
+    // distortion is the bottleneck (→ physical BPF helps). If AGC wins or
+    // they tie, i16 LSB quantisation itself is the limit (→ a future
+    // f32-native ft8-core would unlock more).
+    const SWEEP_SEEDS: u64 = 30;
+    let mut agc_full_ok    = 0usize;
+    let mut agc_sniper_ok  = 0usize;
+    let mut clean_full_ok  = 0usize;
+    let mut clean_sniper_ok = 0usize;
+    for seed in 0..SWEEP_SEEDS {
+        let cfg = make_busy_band_scenario(
+            target_msg, TARGET_FREQ, TARGET_SNR,
+            &interferer_msgs, INTERFERER_SNR,
+            Some(seed),
+        );
+        let f32_mix = simulator::generate_frame_f32(&cfg);
+        let audio_agc   = simulator::quantise_crowd_agc(&f32_mix, INTERFERER_SNR, num_crowd);
+        let audio_clean = simulator::generate_frame(&cfg);
+
+        let r1 = decode_frame(&audio_agc,   200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        if r1.iter().any(|r| r.message77 == target_msg) { agc_full_ok += 1; }
+
+        let r2 = decode_sniper(&audio_agc,   TARGET_FREQ, DecodeDepth::BpAllOsd, 20);
+        if r2.iter().any(|r| r.message77 == target_msg) { agc_sniper_ok += 1; }
+
+        let r3 = decode_frame(&audio_clean, 200.0, 2800.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        if r3.iter().any(|r| r.message77 == target_msg) { clean_full_ok += 1; }
+
+        let r4 = decode_sniper(&audio_clean, TARGET_FREQ, DecodeDepth::BpAllOsd, 20);
+        if r4.iter().any(|r| r.message77 == target_msg) { clean_sniper_ok += 1; }
+    }
+    println!("  ── i16 quantisation sweep ({} seeds) ──", SWEEP_SEEDS);
+    println!("  [AGC   full-band ] target hits: {:2}/{SWEEP_SEEDS}  ({:>3.0}%)",
+        agc_full_ok, 100.0 * agc_full_ok as f32 / SWEEP_SEEDS as f32);
+    println!("  [AGC   sniper sw ] target hits: {:2}/{SWEEP_SEEDS}  ({:>3.0}%)",
+        agc_sniper_ok, 100.0 * agc_sniper_ok as f32 / SWEEP_SEEDS as f32);
+    println!("  [clean full-band ] target hits: {:2}/{SWEEP_SEEDS}  ({:>3.0}%)",
+        clean_full_ok, 100.0 * clean_full_ok as f32 / SWEEP_SEEDS as f32);
+    println!("  [clean sniper sw ] target hits: {:2}/{SWEEP_SEEDS}  ({:>3.0}%)",
+        clean_sniper_ok, 100.0 * clean_sniper_ok as f32 / SWEEP_SEEDS as f32);
+
     // ── BPF-filtered audio: sweep 20 seeds to show success rate ──────────────
     // The hardware BPF removes the crowd before the ADC, so the decoder only
     // sees target + AWGN.  At −20 dB SNR we are near the FT8 threshold; the
@@ -278,6 +345,14 @@ fn run_busy_band_hard_scenario() {
         .join("testdata").join("sim_busy_band_hard_mixed.wav");
     if simulator::write_wav(&out_mixed, &audio_mixed).is_ok() {
         println!("  WAV (crowd-AGC mixed) written: {}", out_mixed.display());
+    }
+    // Write i16-clean WAV (no AGC clipping) so WSJT-X can be tested on it.
+    // Compare to the AGC version: any extra decodes here come from removing
+    // clipping distortion, not from i16 quantisation headroom.
+    let out_clean = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("testdata").join("sim_busy_band_hard_clean.wav");
+    if simulator::write_wav(&out_clean, &audio_clean_quant).is_ok() {
+        println!("  WAV (i16 clean, no clip) written: {}", out_clean.display());
     }
     // Write BPF WAV (seed=0) as the cleanest target-only reference
     {
