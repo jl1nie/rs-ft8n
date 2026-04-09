@@ -87,31 +87,15 @@ export class AudioCapture {
     const processorUrl = new URL('audio-processor.js', import.meta.url).href;
     await this.audioCtx.audioWorklet.addModule(processorUrl);
 
-    // AudioContext is forced to 12 kHz (see above), so the worklet receives
-    // 12 kHz samples. snapshot path passes them straight through, and the
-    // waterfall path boxcar-decimates 12k → 6k (factor 2) just to halve the
-    // main-thread FFT cost vs running at 12k.
-    this.workletNode = new AudioWorkletNode(this.audioCtx, 'ft8-audio-processor', {
-      processorOptions: {
-        snapshotTargetRate: 12000,
-        waterfallTargetRate: 6000,
-      },
-    });
+    this.workletNode = new AudioWorkletNode(this.audioCtx, 'ft8-audio-processor');
 
     // Handle messages from worklet
     this.workletNode.port.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === 'info') {
-        // The worklet handles both snapshot and waterfall decimation, so the
-        // rate exposed to JS consumers is the snapshot rate (= what we hand
-        // to the WASM decoder), not the AudioContext native rate.
-        this.nativeRate = msg.nativeRate;
-        this.actualSampleRate = msg.snapshotRate;
-        this.waterfallRate = msg.waterfallRate;
-        console.log(
-          `Audio: native=${msg.nativeRate} Hz, snapshot=${msg.snapshotRate} Hz, waterfall=${msg.waterfallRate} Hz`
-        );
-        if (this.onSampleRate) this.onSampleRate(msg.nativeRate, msg.snapshotRate, msg.waterfallRate);
+        this.actualSampleRate = msg.outputRate;
+        console.log(`Audio: native=${msg.nativeRate} Hz, output=${msg.outputRate} Hz`);
+        if (this.onSampleRate) this.onSampleRate(msg.outputRate);
       } else if (msg.type === 'waterfall' && this.callbacks.onWaterfall) {
         this.callbacks.onWaterfall(msg.samples);
       } else if (msg.type === 'buffer-full' && this.callbacks.onBufferFull) {

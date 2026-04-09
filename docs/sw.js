@@ -1,5 +1,5 @@
 // Service Worker for rs-ft8n PWA — offline cache
-const CACHE_NAME = 'rs-ft8n-v8';
+const CACHE_NAME = 'rs-ft8n-v9';
 const ASSETS = [
   './',
   './index.html',
