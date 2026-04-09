@@ -44,16 +44,18 @@ export class AudioCapture {
   async start(deviceId) {
     if (this.running) return;
 
-    // Open AudioContext at the device's native rate. Forcing 12 kHz here
-    // makes Chrome insert a live MediaStream resampler whose periodic slip
-    // correction shows up as wavy/sinusoidal spectrum on weak-clock devices
-    // (e.g. Atom tablets). Native rate avoids the resampler entirely; the
-    // 48k→12k conversion happens later, offline, inside ft8-core's
-    // resample_to_12k (called from the WASM decode entry points).
-    this.audioCtx = new AudioContext();
-    this.actualSampleRate = this.audioCtx.sampleRate;
-
-    // Get audio stream — disable all processing for clean radio audio
+    // Get audio stream FIRST so we can read the mic's actual sample rate.
+    //
+    // Why: `new AudioContext()` (no args) defaults to the system OUTPUT
+    // device's rate. On a machine with a high-end USB DAC playing at
+    // 384 kHz, AudioContext opens at 384 kHz, while the rig's USB-CDC mic
+    // input is still at 48 kHz. Chrome then live-upsamples 48→384 between
+    // MediaStream and AudioContext, and the live resampler's slip
+    // correction creates the same wavy/sinusoidal spectrum we just
+    // eliminated for Atom tablets.
+    //
+    // Solution: open the AudioContext at the *mic's* native rate, not the
+    // output device's. Then no live resampling happens.
     const constraints = {
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -62,11 +64,19 @@ export class AudioCapture {
         autoGainControl: false,
       }
     };
-
     this.stream = await navigator.mediaDevices.getUserMedia(constraints);
 
+    // Read the mic's actual sample rate from the track.
+    const tracks = this.stream.getAudioTracks();
+    const trackSettings = tracks[0]?.getSettings?.() || {};
+    const micRate = trackSettings.sampleRate || 48000;
+
+    this.audioCtx = new AudioContext({ sampleRate: micRate });
+    this.actualSampleRate = this.audioCtx.sampleRate;
+    console.log(`AudioCapture: mic=${micRate} Hz, AudioContext=${this.actualSampleRate} Hz`);
+
     // Detect device disconnection
-    for (const track of this.stream.getTracks()) {
+    for (const track of tracks) {
       track.onended = () => {
         if (this.running) {
           this.stop();

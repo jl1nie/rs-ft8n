@@ -1271,21 +1271,21 @@ init().then(async () => {
   splashStep('Probing audio...', 55);
   await new Promise(r => setTimeout(r, 0));
 
-  // 2a. Native sample rate (default AudioContext)
-  let nativeRate = '?';
+  // 2a. System output rate (AudioContext default — informational only).
+  // This is NOT the rate we'll capture at; capture rate is determined by
+  // the selected mic input device when audio is started.
+  let systemRate = '?';
   try {
     const probeCtx = new AudioContext();
-    nativeRate = probeCtx.sampleRate;
+    systemRate = probeCtx.sampleRate;
     await probeCtx.close();
   } catch (e) {
-    nativeRate = 'error';
+    systemRate = 'error';
   }
-  diagLine('Native rate', `${nativeRate} Hz`);
-
-  // 2b. Capture rate — AudioContext is now opened at the device's native rate
-  // (no live MediaStream resampler), so this should equal Native rate.
-  diagLine('Capture rate', `${nativeRate} Hz`, 'ok');
+  diagLine('System rate', `${systemRate} Hz`);
   diagLine('Waterfall rate', '6000 Hz (decimated)', 'ok');
+  // The actual capture rate (mic device native rate) is logged to the
+  // browser console when Start Audio is pressed.
 
   // 2c. Navigator / UA info
   const ua = navigator.userAgent;
