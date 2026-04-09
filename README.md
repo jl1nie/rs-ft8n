@@ -274,7 +274,7 @@ rs-ft8n/
 │       ├── cat.js          CAT 制御 (Yaesu/Icom, Web Serial API)
 │       ├── audio-capture.js    getUserMedia + AudioWorklet
 │       ├── audio-output.js     TX 音声出力 (setSinkId 対応)
-│       ├── audio-processor.js  AudioWorklet (48kHz→12kHz デシメーション)
+│       ├── audio-processor.js  AudioWorklet (snapshot ネイティブ + waterfall 6kHz デシメーション)
 │       └── ft8-period.js       FT8 15 秒ピリオド管理 + TX キュー
 └── docs/              GitHub Pages デプロイ (ft8-web/www/ から自動同期)
 ```

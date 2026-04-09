@@ -349,7 +349,7 @@ Tap **Export ZIP (ADIF + RX)** in the settings panel to download a ZIP containin
 
 Drag & drop a WAV file onto the waterfall, or use **Open WAV File** in the settings panel.
 
-- **Requirements**: 12 kHz / 16-bit / mono WAV
+- **Requirements**: 16-bit / mono WAV (any sample rate — 12 / 44.1 / 48 kHz etc., auto-resampled in Rust)
 - Auto-stops live audio if active
 - Waterfall + decode results displayed immediately
 
@@ -425,8 +425,9 @@ Setup: MENU -> Set -> Filter -> DATA-USB -> adjust FIL2 / FIL3 widths
 | Logo stays dimmed | Tap logo to start audio. Check Audio Input is selected in settings |
 | 0 decodes | Check antenna, audio level (verify no CLIP), and frequency (e.g., 14.074 MHz) |
 | RX meter always shows CLIP | Lower RX gain or reduce rig audio output level |
-| WAV drop error | Verify 12 kHz / 16-bit / mono format. 48 kHz WAV is not supported |
+| WAV drop error | Verify 16-bit / mono format (any sample rate is OK) |
 | CAT won't connect | Use Chrome / Edge. Restart browser and retry |
+| `port busy or unresponsive` shown | Another CAT app (e.g. WSJT-X) is holding the same COM port. Close it and retry |
 | IC-705 not found via BLE | Ensure phone Location is ON. Ensure IC-705 Pairing Reception is ON. Pair in OS settings first |
 | CAT disconnected appears | Command write collision. Restart browser and reconnect |
 | Waterfall is black | Verify the correct Audio Input device. Tap logo to restart |

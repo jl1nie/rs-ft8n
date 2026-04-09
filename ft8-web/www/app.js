@@ -1144,14 +1144,15 @@ function parseWav(buf) {
   if (String.fromCharCode(view.getUint8(0), view.getUint8(1), view.getUint8(2), view.getUint8(3)) !== 'RIFF')
     throw new Error('Not a WAV file');
   const sr = view.getUint32(24, true), bps = view.getUint16(34, true), ch = view.getUint16(22, true);
-  if (sr !== 12000) throw new Error(`${sr} Hz (need 12000)`);
+  // sample rate is now passed through to decode_wav (resample_to_12k handles
+  // any rate). Only enforce 16-bit / mono for the JS-side parser.
   if (bps !== 16) throw new Error(`${bps}-bit (need 16)`);
   if (ch !== 1) throw new Error(`${ch} ch (need mono)`);
   let off = 12;
   while (off < buf.byteLength - 8) {
     const id = String.fromCharCode(view.getUint8(off), view.getUint8(off+1), view.getUint8(off+2), view.getUint8(off+3));
     const sz = view.getUint32(off + 4, true);
-    if (id === 'data') return new Int16Array(buf, off + 8, sz / 2);
+    if (id === 'data') return { samples: new Int16Array(buf, off + 8, sz / 2), sampleRate: sr };
     off += 8 + sz; if (off % 2) off++;
   }
   throw new Error('No data chunk');
@@ -1169,8 +1170,12 @@ async function handleFile(file) {
   }
   try {
     const buf = await file.arrayBuffer();
-    const samples = parseWav(buf);
+    const { samples, sampleRate: wavRate } = parseWav(buf);
+
+    // Render the waterfall at the WAV's actual rate. The next live-audio
+    // start will reset this back to 6 kHz via capture.onSampleRate.
     waterfall.clear();
+    waterfall.setSampleRate(wavRate);
     waterfall.pushSamples(samples);
     waterfall.drawFreqAxis();
 
@@ -1178,7 +1183,7 @@ async function handleFile(file) {
     await new Promise(r => setTimeout(r, 0));
 
     const t0 = performance.now();
-    const results = runDecode(samples, 12000);
+    const results = runDecode(samples, wavRate);
     const elapsed = performance.now() - t0;
 
     setStatus(`${results.length}d ${elapsed.toFixed(0)}ms`);

@@ -29,10 +29,13 @@
 * **Freq Sync:** $6.25 \text{ Hz}$ ビン間を放物線補完し、$0.1 \text{ Hz}$ 単位の $DF$ を特定。
 * **Double Sync:** 開始・終了の Costas Array（72シンボル離隔）の相関をペアで評価し、偽ピークを排除する。
 
-### 3.3. マルチサンプルレート対応
+### 3.3. マルチサンプルレート対応（デュアルレート設計）
 * **内部処理:** デコードパイプライン全体は 12 000 Hz を前提とする。
-* **入力レート自由:** `ft8-core` の `resample` モジュールが任意のサンプルレート（44100, 48000 Hz 等）を 12 000 Hz に線形補間リサンプルする。WASM エントリポイント (`decode_wav`, `decode_sniper`, `decode_wav_subtract`) は `sample_rate: u32` を受け取り、12 000 Hz 以外の場合は自動でリサンプル後にデコードする。
-* **ブラウザ側:** `AudioContext({ sampleRate: 12000 })` によりブラウザがネイティブレートから 12 kHz へのリサンプルを行うため、AudioWorklet での間引きは不要。
+* **入力レート自由 (オフライン):** `ft8-core` の `resample` モジュールが任意のサンプルレート（44100, 48000 Hz 等）を 12 000 Hz に線形補間リサンプルする。WASM エントリポイント (`decode_wav`, `decode_sniper`, `decode_wav_subtract`) は `sample_rate: u32` を受け取り、12 000 Hz 以外の場合は自動でリサンプル後にデコードする。
+* **ブラウザ側 (ライブ取り込み):** `AudioContext` は **デバイスのネイティブレート** で開く (`new AudioContext()` 引数なし)。`AudioContext({ sampleRate: 12000 })` を強制すると Chrome がライブ MediaStream リサンプラを差し込み、その周期的スリップ補正がスペクトル全体に数十 Hz の波打ちを生む（弱クロックの Atom クラスで顕在化）。ライブ経路ではリサンプラを通さず、48k→12k 変換は **デコード直前に Rust 側でオフラインで** 行う（WSJT-X と同じ方針）。
+* **デュアルレート AudioWorklet:** ワークレットは 2 系統のバッファを持つ。
+  * **Snapshot/period バッファ** はネイティブレート (典型 48 kHz) で 15 秒分を貯め、`decode_wav` 等にそのまま渡す。
+  * **Waterfall バッファ** はワークレット内でボックスカー平均兼位相累算デシメータを通して **6 kHz** に間引く。FT8 の表示帯域 100–3000 Hz は Nyquist 上 6 kHz で十分で、メインスレッドの JS FFT 負荷をネイティブレートと無関係に一定に保つ（Atom でも UI 余裕）。`Waterfall` は `fftSize=1024 / sampleRate=6000` で bin 幅 5.86 Hz（旧 12 k/2048 と同一）を維持。
 
 ### 3.4. WASM エコシステムへの展開
 * **計算基盤:** `rustfft`（WASM SIMD 128-bit 対応）を使用。

@@ -171,7 +171,7 @@ rs-ft8n/
 │       ├── waterfall.js    Canvas spectrogram (radix-2 FFT, DF line)
 │       ├── qso-log.js      QSO + RX log, ZIP export (ADIF + CSV)
 │       ├── cat.js          CAT control (Yaesu/Icom, Web Serial)
-│       ├── audio-*.js      Capture, output, AudioWorklet decimation
+│       ├── audio-*.js      Capture (native rate), output, AudioWorklet (dual-rate: snapshot native + waterfall 6kHz decimation)
 │       └── ft8-period.js   FT8 15-second period manager + TX queue
 └── docs/              GitHub Pages deployment (auto-synced from ft8-web/www/)
 ```
