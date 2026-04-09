@@ -45,7 +45,11 @@ class FT8AudioProcessor extends AudioWorkletProcessor {
     this.wfDecimPhase = 0;
     this.wfBoxSum = 0;
     this.wfBoxN = 0;
-    this.waterfallChunkSize = 1024; // → 1024/6000 ≈ 170 ms per chunk
+    // Chunk size 512 at 6 kHz target → one chunk every ~85 ms, matching the
+    // original 12k/1024 cadence so the waterfall scrolls at ~12 fps. Larger
+    // chunks (e.g. 1024 here) bunch renders into 170 ms bursts which look
+    // jerky and feel "heavy" even though the actual CPU work is lower.
+    this.waterfallChunkSize = 512;
     this.waterfallAccum = new Float32Array(this.waterfallChunkSize);
     this.waterfallPos = 0;
 
