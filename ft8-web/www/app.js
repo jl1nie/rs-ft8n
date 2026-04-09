@@ -1,4 +1,8 @@
-import init, { decode_wav, decode_wav_subtract, decode_sniper, encode_ft8 } from '../pkg/ft8_web.js';
+import init, {
+  decode_wav, decode_wav_subtract, decode_sniper,
+  decode_wav_f32, decode_wav_subtract_f32, decode_sniper_f32,
+  encode_ft8,
+} from '../pkg/ft8_web.js';
 import { Waterfall } from './waterfall.js';
 import { AudioCapture } from './audio-capture.js';
 import { AudioOutput } from './audio-output.js';
@@ -138,11 +142,11 @@ function resizeCanvas() {
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
-// Waterfall at the default 12 kHz / fftSize 2048 — matches the AudioContext
-// rate so the worklet just copies samples through. (We tried a 6 kHz/1024
-// variant for CPU efficiency but it produced visually wrong frequency bins
-// on at least one user's machine; reverting to known-good config.)
-const waterfall = new Waterfall(wfCanvas);
+// Waterfall at 6 kHz / fftSize 1024 — bin width 5.86 Hz (identical to the
+// old 12k/2048 setup), but ~half the main-thread FFT cost. The audio
+// worklet boxcar-decimates 12 kHz → 6 kHz internally for this path; the
+// snapshot/decode path stays at 12 kHz so decoding is unaffected.
+const waterfall = new Waterfall(wfCanvas, { sampleRate: 6000, fftSize: 1024 });
 waterfall.dfLine = scoutDf; // show DF line on startup
 
 // ── Core modules ────────────────────────────────────────────────────────────
@@ -579,11 +583,19 @@ const BUDGET_MS = 2400;
 function runDecode(samples, sampleRate) {
   const t0 = performance.now();
 
+  // Dispatch to f32 or i16 entry points based on the input array type.
+  // Live capture passes Float32Array directly (worklet output) — skips
+  // the JS i16 conversion loop. WAV file drops still arrive as Int16Array.
+  const isF32 = samples instanceof Float32Array;
+  const fnDecode    = isF32 ? decode_wav_f32          : decode_wav;
+  const fnSubtract  = isF32 ? decode_wav_subtract_f32 : decode_wav_subtract;
+  const fnSniper    = isF32 ? decode_sniper_f32       : decode_sniper;
+
   // Subtract: use if enabled and not auto-disabled
   const useSub = subtractCheck.checked && !subDisabledAuto;
   const strict = parseInt(strictnessSelect.value, 10);
   const sr = sampleRate || capture.getSampleRate();
-  const results = useSub ? decode_wav_subtract(samples, strict, sr) : decode_wav(samples, strict, sr);
+  const results = useSub ? fnSubtract(samples, strict, sr) : fnDecode(samples, strict, sr);
   const baseMs = performance.now() - t0;
 
   // AP supplement: enabled by checkbox, auto-disabled by budget
@@ -600,7 +612,7 @@ function runDecode(samples, sampleRate) {
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const myCall = myCallInput.value.trim().toUpperCase();
       const eqOn = eqModeSelect.value === 'adaptive';
-      const ap = decode_sniper(samples, freq, apTarget, myCall, eqOn, sr);
+      const ap = fnSniper(samples, freq, apTarget, myCall, eqOn, sr);
       for (const r of ap) {
         if (!results.some(x => Math.abs(x.freq_hz - r.freq_hz) < 10)) {
           results.push(r);
@@ -707,13 +719,11 @@ const periodMgr = new FT8PeriodManager({
     const float32 = await capture.snapshot();
     if (float32.length < 12000) return;
 
-    // Convert to i16
-    const samples = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      samples[i] = Math.round(Math.max(-32768, Math.min(32767, float32[i] * 32767)));
-    }
-
-    const results = runDecode(samples);
+    // Pass Float32Array directly — runDecode dispatches to the f32 WASM
+    // entry points which fold scaling + i16 conversion + (no-op) resample
+    // into a single Rust pass. Saves the ~5-10 ms JS conversion loop on
+    // slow CPUs every period.
+    const results = runDecode(float32);
     const n = results.length;
     const utc = new Date(periodIndex * 15000).toISOString().substr(11, 5);
     // Period separator with UTC (skip if no decodes)
@@ -1242,7 +1252,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-10-d';
+const APP_VERSION = '2026-04-10-e';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
@@ -1254,17 +1264,37 @@ init().then(async () => {
   await new Promise(r => setTimeout(r, 0)); // yield to render splash
 
   // ── 1. Decode benchmark ──────────────────────────────────────────
-  const benchSamples = new Int16Array(180000); // 15s silence at 12kHz
-  const bt0 = performance.now();
-  decode_wav(benchSamples, 1, 12000);
-  const benchMs = performance.now() - bt0;
-  console.log(`Bench: decode silence = ${benchMs.toFixed(0)} ms`);
+  // Compare two paths on identical 15-second silence input:
+  //   • i16 path: simulate JS Float32→Int16 conversion loop + decode_wav
+  //   • f32 path: pass Float32Array directly to decode_wav_f32 (production)
+  // The f32 path is what live capture now uses; the i16 path is what WAV
+  // file drops use. Should be roughly equal at 12 kHz, with f32 winning by
+  // ~5-10 ms on slow CPUs because the JS conversion loop is gone.
+  const benchF32 = new Float32Array(180000); // 15s silence at 12kHz
+
+  // Path A: i16 (with JS conversion loop, mimicking the old live path)
+  const ta0 = performance.now();
+  const benchI16 = new Int16Array(benchF32.length);
+  for (let i = 0; i < benchF32.length; i++) {
+    benchI16[i] = Math.round(Math.max(-32768, Math.min(32767, benchF32[i] * 32767)));
+  }
+  decode_wav(benchI16, 1, 12000);
+  const benchMsI16 = performance.now() - ta0;
+
+  // Path B: f32 direct (current live path)
+  const tb0 = performance.now();
+  decode_wav_f32(benchF32, 1, 12000);
+  const benchMsF32 = performance.now() - tb0;
+
+  const benchMs = benchMsF32; // f32 is what production uses for shedding decisions
+  console.log(`Bench: i16=${benchMsI16.toFixed(0)} ms, f32=${benchMsF32.toFixed(0)} ms`);
 
   // Static shedding thresholds — tuned so Atom-class tablets (~400 ms) get
   // `sub off` preemptively instead of relying on runtime adaptive shedding,
   // which would otherwise miss the first 1-2 decodes after startup.
   const benchCls = benchMs > 800 ? 'bad' : benchMs > 300 ? 'warn' : 'ok';
-  diagLine('Decode bench', `${benchMs.toFixed(0)} ms`, benchCls);
+  diagLine('Decode bench (i16)', `${benchMsI16.toFixed(0)} ms`);
+  diagLine('Decode bench (f32)', `${benchMsF32.toFixed(0)} ms`, benchCls);
 
   if (benchMs > 800) {
     subDisabledAuto = true;

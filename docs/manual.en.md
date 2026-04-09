@@ -168,7 +168,7 @@ Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is 
 
 ## Waterfall
 
-Real-time spectrogram covering 200-2800 Hz. Scout: responsive height (min(25vh, 220px)), Snipe: 280px.
+Real-time spectrogram covering 100-3000 Hz. Scout: responsive height (min(25vh, 220px)), Snipe: 280px.
 
 | Element | Description |
 |---------|-------------|
@@ -179,6 +179,12 @@ Real-time spectrogram covering 200-2800 Hz. Scout: responsive height (min(25vh, 
 | **Yellow text** | Decoded messages |
 | **Tap / click** | Set DF + status bar shows frequency |
 | **WAV drag & drop** | Offline analysis (auto-stops live audio) |
+
+### How FT8 signals look
+
+FT8 signals appear as ~50 Hz wide vertical bands that **smoothly snake between 8 tone positions, hopping every 160 ms (one symbol)**. This is the natural per-symbol visualization of 8-GFSK modulation — it is **normal**, not a glitch.
+
+WSJT-X uses a much longer FFT integration window (~2.7 s ≈ 17 symbols), so the per-symbol tone hops are averaged out into uniform 50 Hz wide bars. rs-ft8n renders per-symbol ("honest"), WSJT-X renders per-frame ("tidied up"). The display difference does not affect decode quality.
 
 ---
 

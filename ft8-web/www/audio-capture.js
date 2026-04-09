@@ -87,15 +87,25 @@ export class AudioCapture {
     const processorUrl = new URL('audio-processor.js', import.meta.url).href;
     await this.audioCtx.audioWorklet.addModule(processorUrl);
 
-    this.workletNode = new AudioWorkletNode(this.audioCtx, 'ft8-audio-processor');
+    // Worklet boxcar-decimates the waterfall path to 6 kHz internally
+    // (snapshot path stays at 12 kHz). Halves the main-thread FFT cost
+    // while keeping bin width identical to the old 12k/2048 setup.
+    this.workletNode = new AudioWorkletNode(this.audioCtx, 'ft8-audio-processor', {
+      processorOptions: { waterfallTargetRate: 6000 },
+    });
 
     // Handle messages from worklet
     this.workletNode.port.onmessage = (e) => {
       const msg = e.data;
       if (msg.type === 'info') {
-        this.actualSampleRate = msg.outputRate;
-        console.log(`Audio: native=${msg.nativeRate} Hz, output=${msg.outputRate} Hz`);
-        if (this.onSampleRate) this.onSampleRate(msg.outputRate);
+        // Snapshot rate (= AudioContext rate) is what runDecode uses;
+        // waterfall rate is what the spectrogram FFT runs at.
+        this.actualSampleRate = msg.snapshotRate || msg.outputRate;
+        this.waterfallRate = msg.waterfallRate || msg.outputRate;
+        console.log(
+          `Audio: native=${msg.nativeRate} Hz, snapshot=${this.actualSampleRate} Hz, waterfall=${this.waterfallRate} Hz`
+        );
+        if (this.onSampleRate) this.onSampleRate(this.waterfallRate);
       } else if (msg.type === 'waterfall' && this.callbacks.onWaterfall) {
         this.callbacks.onWaterfall(msg.samples);
       } else if (msg.type === 'buffer-full' && this.callbacks.onBufferFull) {
