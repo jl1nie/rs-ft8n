@@ -93,6 +93,10 @@ export class CatController {
     // close without disconnect), close it first so the next open() succeeds.
     try { await this.port.close(); } catch (_) {}
 
+    const info = this.port.getInfo();
+    console.log('[CAT] port info:', JSON.stringify(info),
+                'baud:', rig.baud, 'rig:', rigId);
+
     // port.open() can hang indefinitely on Windows when another application
     // (e.g. WSJT-X) is holding the same COM port. Race against a 10-second
     // timeout so the UI never gets permanently wedged.
@@ -119,8 +123,9 @@ export class CatController {
       this.port = null;
       this.transport = null;
       this.transportType = '';
+      const pi = info ? `VID:${info.usbVendorId} PID:${info.usbProductId}` : 'unknown';
       throw new Error(
-        `port open failed (${e.message}). Check: (1) rig is powered on and USB cable connected, (2) no other CAT app (WSJT-X etc.) is using the port.`
+        `port open failed [${pi}, ${rig.baud} baud] (${e.message}). Check: (1) rig is powered on and USB cable connected, (2) no other CAT app (WSJT-X etc.) is using the port.`
       );
     }
   }
