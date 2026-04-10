@@ -1147,6 +1147,8 @@ btnCat.addEventListener('click', async () => {
     catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
     localStorage.setItem('rs-ft8n-rig', rigId);
   } catch (e) {
+    await cat.disconnect();
+    btnCat.textContent = 'Connect CAT';
     catStatusEl.textContent = `error: ${e.message || e}`;
   }
 });
