@@ -91,9 +91,7 @@ export class CatController {
     this.rigId = rigId;
     // port.open() can hang indefinitely on Windows when another application
     // (e.g. WSJT-X) is holding the same COM port. Race against a 10-second
-    // timeout so the UI never gets permanently wedged. Legitimate slow
-    // openings (USB serial bridge first init, BT-serial dongle wake-up) can
-    // take 1-5 s, so anything shorter false-alarms on healthy systems.
+    // timeout so the UI never gets permanently wedged.
     const timeout = (ms) => new Promise((_, rej) =>
       setTimeout(() => rej(new Error(`open timeout after ${ms}ms`)), ms));
     try {
@@ -101,38 +99,44 @@ export class CatController {
         this.port.open({ baudRate: rig.baud }),
         timeout(10000),
       ]);
+      this.writer = this.port.writable.getWriter();
+      this.transportType = 'serial';
+      this.transport = { write: (data) => this.writer.write(data) };
+      this.connected = true;
+      this.pttOn = false;
+      this.narrowOn = false;
     } catch (e) {
-      // The port is in an unknown state — best-effort close and force a
-      // fresh requestPort() on the next attempt by clearing this.port.
-      try { await this.port.close(); } catch (_) {}
+      // Clean up partially-opened port and force fresh requestPort() next time
+      if (this.writer) {
+        try { this.writer.releaseLock(); } catch (_) {}
+        this.writer = null;
+      }
+      try { if (this.port) await this.port.close(); } catch (_) {}
       this.port = null;
+      this.transport = null;
+      this.transportType = '';
       throw new Error(
         `port open failed (${e.message}). If WSJT-X or another CAT app is running, close it and retry.`
       );
     }
-    this.writer = this.port.writable.getWriter();
-    this.transportType = 'serial';
-    this.transport = { write: (data) => this.writer.write(data) };
-    this.connected = true;
-    this.pttOn = false;
-    this.narrowOn = false;
-
-    if (this.port.readable) {
-      this.port.readable.pipeTo(new WritableStream()).catch(() => this._handleDisconnect());
-    }
   }
 
   async disconnect() {
+    this.connected = false;
     await this.safePttOff();
+
     if (this.transportType === 'ble') {
       if (this.transport) await this.transport.disconnect();
     } else {
-      if (this.writer) { this.writer.releaseLock(); this.writer = null; }
+      // Release writer lock, then close port
+      if (this.writer) {
+        try { this.writer.releaseLock(); } catch (_) {}
+        this.writer = null;
+      }
       try { if (this.port) await this.port.close(); } catch (_) {}
     }
     this.transport = null;
     this.transportType = '';
-    this.connected = false;
     this.pttOn = false;
     this.narrowOn = false;
   }
@@ -209,6 +213,10 @@ export class CatController {
     this.connected = false;
     this.pttOn = false;
     this.narrowOn = false;
+    if (this.writer) {
+      try { this.writer.releaseLock(); } catch (_) {}
+      this.writer = null;
+    }
     if (this.onDisconnect) this.onDisconnect();
   }
 
