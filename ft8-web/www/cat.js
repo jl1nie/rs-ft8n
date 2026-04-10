@@ -35,6 +35,8 @@ export class CatController {
   constructor() {
     this.port = null;
     this.writer = null;
+    this._reader = null;
+    this._readLoopDone = null;
     this.connected = false;
     this.rig = null;
     this.rigId = '';
@@ -58,22 +60,45 @@ export class CatController {
 
     this.rig = rig;
     this.rigId = rigId;
-    await this.port.open({ baudRate: rig.baud });
-    this.writer = this.port.writable.getWriter();
-    this.connected = true;
-    this.pttOn = false;
-    this.narrowOn = false;
-
-    if (this.port.readable) {
-      this.port.readable.pipeTo(new WritableStream()).catch(() => this._handleDisconnect());
+    try {
+      await this.port.open({ baudRate: rig.baud });
+      this.writer = this.port.writable.getWriter();
+      if (this.port.readable) {
+        this._reader = this.port.readable.getReader();
+        this._readLoopDone = this._readLoop();
+      }
+      this.connected = true;
+      this.pttOn = false;
+      this.narrowOn = false;
+    } catch (e) {
+      await this.disconnect();
+      throw e;
     }
   }
 
   async disconnect() {
-    await this.safePttOff();
-    if (this.writer) { this.writer.releaseLock(); this.writer = null; }
-    try { if (this.port) await this.port.close(); } catch (_) {}
     this.connected = false;
+    await this.safePttOff();
+
+    // 1. Cancel reader (terminates read loop)
+    if (this._reader) {
+      try { await this._reader.cancel(); } catch (_) {}
+    }
+    // Wait for read loop to finish and releaseLock
+    if (this._readLoopDone) {
+      try { await this._readLoopDone; } catch (_) {}
+      this._readLoopDone = null;
+    }
+
+    // 2. Release writer lock
+    if (this.writer) {
+      try { this.writer.releaseLock(); } catch (_) {}
+      this.writer = null;
+    }
+
+    // 3. Close port (safe now — all locks released)
+    try { if (this.port) await this.port.close(); } catch (_) {}
+
     this.pttOn = false;
     this.narrowOn = false;
   }
@@ -131,10 +156,33 @@ export class CatController {
 
   // ── Internal ──────────────────────────────────────────────────────────
 
+  async _readLoop() {
+    try {
+      while (true) {
+        const { done } = await this._reader.read();
+        if (done) break;
+        // CI-V response parsing can be added here in the future
+      }
+    } catch (_) {
+      // Port disconnect or reader.cancel() lands here
+    } finally {
+      try { this._reader.releaseLock(); } catch (_) {}
+      this._reader = null;
+    }
+  }
+
   _handleDisconnect() {
     this.connected = false;
     this.pttOn = false;
     this.narrowOn = false;
+    // Best-effort cleanup of stream locks
+    if (this._reader) {
+      try { this._reader.cancel(); } catch (_) {}
+    }
+    if (this.writer) {
+      try { this.writer.releaseLock(); } catch (_) {}
+      this.writer = null;
+    }
     if (this.onDisconnect) this.onDisconnect();
   }
 
