@@ -32,7 +32,7 @@ const MAX_HASH22: usize = 1000;
 /// # Arguments
 /// * `call` — callsign (up to 11 chars, will be uppercased and padded)
 /// * `m` — bit width: 10, 12, or 22
-fn ihashcall(call: &str, m: u32) -> u32 {
+pub fn ihashcall(call: &str, m: u32) -> u32 {
     let call = call.to_ascii_uppercase();
     let bytes = call.as_bytes();
 

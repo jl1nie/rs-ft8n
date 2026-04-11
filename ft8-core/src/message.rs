@@ -541,38 +541,112 @@ pub fn is_standard_callsign(call: &str) -> bool {
     }
 }
 
+/// Check if a string has the structure of an amateur radio callsign base
+/// (without portable/CEPT modifiers).
+///
+/// ITU Radio Regulations Article 19: a callsign consists of
+/// `[prefix][digit][suffix]` where:
+/// - prefix: 1-3 alphanumeric chars, at least one letter
+/// - digit: one separating digit
+/// - suffix: 1-4 uppercase letters (1x1 special stations have 1 letter)
+fn is_base_callsign(s: &str) -> bool {
+    let b = s.as_bytes();
+    if b.len() < 2 || b.len() > 7 { return false; }
+
+    // Find the rightmost digit followed by only letters — that's the
+    // separating digit between prefix and suffix.
+    let mut split = None;
+    for i in (0..b.len()).rev() {
+        if b[i].is_ascii_digit() && b[i + 1..].iter().all(|c| c.is_ascii_uppercase()) {
+            split = Some(i);
+            break;
+        }
+    }
+    let split = match split {
+        Some(s) if s + 1 < b.len() => s, // must have ≥1 letter suffix
+        _ => return false,
+    };
+
+    let prefix = &b[..split];
+    let suffix = &b[split + 1..];
+
+    // Prefix: 1-3 chars, alphanumeric, at least one letter
+    if prefix.is_empty() || prefix.len() > 3 { return false; }
+    if !prefix.iter().all(|c| c.is_ascii_alphanumeric()) { return false; }
+    if !prefix.iter().any(|c| c.is_ascii_alphabetic()) { return false; }
+
+    // Suffix: 1-4 uppercase letters
+    suffix.len() <= 4 && suffix.iter().all(|c| c.is_ascii_uppercase())
+}
+
+/// Check whether a string is a valid FT8 callsign (standard or non-standard).
+///
+/// Accepts callsigns per ITU Radio Regulations and FT8 encoding:
+///
+/// 1. **Standard** (pack28 format): handled by [`is_standard_callsign`].
+/// 2. **Base callsign** without modifiers: e.g. `3DA0WPX` (7-char, Type 4).
+/// 3. **Compound callsign** with `/`:
+///    - `CALL/mod`: portable/mobile (`JA1ABC/P`, `JA1ABC/1`, `JA1ABC/QRP`)
+///    - `prefix/CALL`: CEPT (`F/JA1ABC`, `ZS6/JA1ABC`)
+///    - At least one side must be a valid base callsign; the other must be
+///      a short modifier (1-3 alphanumeric chars).
+pub fn is_valid_callsign(call: &str) -> bool {
+    if is_standard_callsign(call) { return true; }
+
+    let parts: Vec<&str> = call.split('/').collect();
+    match parts.len() {
+        1 => is_base_callsign(parts[0]),
+        2 => {
+            let (a, b) = (parts[0], parts[1]);
+            let a_base = is_base_callsign(a);
+            let b_base = is_base_callsign(b);
+            // Short modifier: 1-3 alphanumeric chars (P, M, MM, AM, QRP, 1, etc.)
+            let a_mod = !a.is_empty() && a.len() <= 3
+                && a.as_bytes().iter().all(|c| c.is_ascii_alphanumeric());
+            let b_mod = !b.is_empty() && b.len() <= 3
+                && b.as_bytes().iter().all(|c| c.is_ascii_alphanumeric());
+
+            (a_base && b_mod) || (a_mod && b_base) || (a_base && b_base)
+        }
+        _ => false,
+    }
+}
+
 /// Check if a decoded FT8 message looks plausible (not a false positive).
 ///
-/// Validates that callsign-like tokens in the message match standard format.
-/// Special tokens (CQ, DE, QRZ, `<...>`, grid, report) are accepted.
+/// CRC-14 provides 1/16384 false-positive probability per candidate.  This
+/// function adds a secondary filter by validating that callsign-like tokens
+/// follow ITU format rules (must contain a digit) and use the FT8 character
+/// set.  Special tokens (CQ, reports, grids, hash placeholders) are skipped.
 pub fn is_plausible_message(text: &str) -> bool {
     let words: Vec<&str> = text.split_whitespace().collect();
     if words.is_empty() { return false; }
 
-    // Special message formats that are always OK
+    // Contest/DXpedition markers — trust the unpack result
     if text.contains("[FD]") || text.contains("[RTTY]") || text.contains("RR73;") {
-        // Contest/DXpedition types — trust the unpack
         return true;
     }
 
-    // Check each token that looks like it should be a callsign
-    let is_cq = words.first().map_or(false, |&w| w == "CQ");
     for (idx, &w) in words.iter().enumerate() {
-        // Skip known non-callsign tokens
+        // Known non-callsign tokens
         if matches!(w, "CQ" | "DE" | "QRZ" | "RRR" | "RR73" | "73"
             | "R" | "" | "DX") { continue; }
-        if w.starts_with("CQ") { continue; } // "CQ NNN" patterns
-        // CQ suffix (e.g., "POTA", "NA", "DX") — word after CQ, all letters, ≤4 chars
-        if is_cq && idx == 1 && w.len() <= 4 && w.bytes().all(|b| b.is_ascii_uppercase()) {
+        // "CQ NNN" compound tokens
+        if w.starts_with("CQ") { continue; }
+        // CQ activity suffix: token right after CQ, all uppercase ≤4 chars
+        // e.g., POTA, SOTA, NA, EU (unpack28 directional CQ, C4 alphabet)
+        if idx == 1 && words[0] == "CQ"
+            && w.len() <= 4 && w.bytes().all(|b| b.is_ascii_uppercase()) {
             continue;
         }
-        if w.starts_with('<') && w.ends_with('>') { continue; } // <...> hash
-        if w.starts_with("R+") || w.starts_with("R-") { continue; } // R-report
-        if w.starts_with('+') || w.starts_with('-') {
-            // Check if numeric report like "-12" or "+05"
-            if w[1..].parse::<i32>().is_ok() { continue; }
+        // Hash placeholder
+        if w.starts_with('<') && w.ends_with('>') { continue; }
+        // Reports: R+NN, R-NN, +NN, -NN
+        if w.starts_with("R+") || w.starts_with("R-") { continue; }
+        if (w.starts_with('+') || w.starts_with('-')) && w[1..].parse::<i32>().is_ok() {
+            continue;
         }
-        // 4-char grid locator (e.g., PM95)
+        // 4-char grid locator
         if w.len() == 4 {
             let b = w.as_bytes();
             if b[0].is_ascii_uppercase() && b[1].is_ascii_uppercase()
@@ -581,11 +655,8 @@ pub fn is_plausible_message(text: &str) -> bool {
             }
         }
 
-        // This token should be a callsign — validate it.
-        // Non-standard callsigns (Type 4) may contain '/' with digits
-        // (e.g., "NFW/0811", "JR1UJX/P") — accept them too.
-        if w.contains('/') { continue; }
-        if !is_standard_callsign(w) {
+        // Remaining tokens should be callsigns — validate per ITU + FT8 rules
+        if !is_valid_callsign(w) {
             return false;
         }
     }
@@ -615,6 +686,29 @@ pub fn pack28(call: &str) -> Option<u32> {
         "QRZ" => return Some(1),
         "CQ"  => return Some(2),
         _ => {}
+    }
+
+    // CQ with suffix: "CQ NNN" or "CQ XXXX"
+    if let Some(suffix) = call.strip_prefix("CQ ") {
+        let suffix = suffix.trim();
+        if !suffix.is_empty() {
+            // Numeric suffix: "CQ 001" - "CQ 999"
+            if let Ok(n) = suffix.parse::<u32>() {
+                if n <= 999 { return Some(3 + n); }
+            }
+            // Directional suffix: "CQ POTA", "CQ DX", etc. (1-4 uppercase letters)
+            let sb = suffix.as_bytes();
+            if sb.len() <= 4 && sb.iter().all(|c| c.is_ascii_uppercase()) {
+                let mut buf = [b' '; 4];
+                for (i, &b) in sb.iter().enumerate() { buf[i] = b; }
+                let i1 = C4.iter().position(|&c| c == buf[0])?;
+                let i2 = C4.iter().position(|&c| c == buf[1])?;
+                let i3 = C4.iter().position(|&c| c == buf[2])?;
+                let i4 = C4.iter().position(|&c| c == buf[3])?;
+                return Some(1003 + ((i1 * 27 + i2) * 27 + i3) as u32 * 27 + i4 as u32);
+            }
+            return None; // Invalid CQ suffix
+        }
     }
 
     let bytes = call.as_bytes();
@@ -748,6 +842,84 @@ pub fn pack77(call1: &str, call2: &str, report: &str) -> Option<[u8; 77]> {
     Some(msg)
 }
 
+/// Write `len` bits of a u64 `val` (MSB first) into `msg` starting at `start`.
+fn write_bits_u64(msg: &mut [u8; 77], start: usize, len: usize, val: u64) {
+    for i in 0..len {
+        msg[start + i] = ((val >> (len - 1 - i)) & 1) as u8;
+    }
+}
+
+/// Pack a Type 4 message: one non-standard callsign + one hashed standard
+/// callsign, or `CQ nonstd`.
+///
+/// # Arguments
+/// * `nonstd` — non-standard callsign (1-11 chars from C38 alphabet)
+/// * `std_call` — standard callsign to 12-bit hash (ignored when `is_cq`)
+/// * `report` — `""`, `"RRR"`, `"RR73"`, or `"73"`
+/// * `is_cq` — if true, packs `"CQ nonstd"` (CQ flag set)
+///
+/// # Layout (77 bits)
+/// ```text
+/// [12-bit hash][58-bit base-38 nonstd][1-bit iflip][2-bit nrpt][1-bit icq][3-bit i3=4]
+/// ```
+pub fn pack77_type4(
+    nonstd: &str,
+    std_call: &str,
+    report: &str,
+    is_cq: bool,
+) -> Option<[u8; 77]> {
+    let nonstd = nonstd.trim().to_ascii_uppercase();
+    let nb = nonstd.as_bytes();
+    if nb.is_empty() || nb.len() > 11 { return None; }
+    if !nb.iter().all(|c| C38.contains(c)) { return None; }
+
+    // Encode non-standard callsign as 58-bit base-38 number
+    let mut n58: u64 = 0;
+    // Pad to 11 characters with leading spaces
+    let mut padded = [b' '; 11];
+    let offset = 11 - nb.len();
+    for (i, &b) in nb.iter().enumerate() {
+        padded[offset + i] = b;
+    }
+    for &ch in &padded {
+        let idx = C38.iter().position(|&c| c == ch)?;
+        n58 = n58 * 38 + idx as u64;
+    }
+
+    // 12-bit hash of standard callsign
+    let n12 = if is_cq {
+        0u32 // unused when CQ flag is set
+    } else {
+        use crate::hash_table::ihashcall;
+        ihashcall(std_call, 12)
+    };
+
+    // Report encoding
+    let nrpt: u32 = match report.trim() {
+        "" => 0,
+        "RRR" => 1,
+        "RR73" => 2,
+        "73" => 3,
+        _ => return None,
+    };
+
+    // iflip: 0 = <hash> nonstd, 1 = nonstd <hash>
+    // When std_call packs via pack28, place hash first (iflip=0).
+    // Otherwise nonstd first (iflip=1).
+    let iflip: u8 = if is_cq || pack28(std_call).is_some() { 0 } else { 1 };
+
+    let icq: u8 = if is_cq { 1 } else { 0 };
+
+    let mut msg = [0u8; 77];
+    write_bits(&mut msg, 0, 12, n12);           // 12-bit hash (bits 0-11)
+    write_bits_u64(&mut msg, 12, 58, n58);      // 58-bit base-38 (bits 12-69)
+    msg[70] = iflip;                             // iflip (bit 70)
+    write_bits(&mut msg, 71, 2, nrpt);          // nrpt (bits 71-72)
+    msg[73] = icq;                               // icq (bit 73)
+    write_bits(&mut msg, 74, 3, 4);             // i3=4 (bits 74-76)
+    Some(msg)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -805,6 +977,19 @@ mod tests {
         assert_eq!(pack28("CQ"), Some(2));
         assert_eq!(pack28("DE"), Some(0));
         assert_eq!(pack28("QRZ"), Some(1));
+
+        // CQ with directional suffix — roundtrip
+        for cq in &["CQ POTA", "CQ SOTA", "CQ DX", "CQ NA", "CQ EU"] {
+            let n = pack28(cq).unwrap_or_else(|| panic!("pack28 failed for {cq}"));
+            let decoded = unpack28(n);
+            assert_eq!(decoded, *cq, "CQ suffix roundtrip mismatch for {cq}");
+        }
+
+        // CQ with numeric suffix
+        let n = pack28("CQ 001").unwrap();
+        assert_eq!(unpack28(n), "CQ 001");
+        let n = pack28("CQ 999").unwrap();
+        assert_eq!(unpack28(n), "CQ 999");
     }
 
     #[test]
@@ -833,22 +1018,55 @@ mod tests {
 
     #[test]
     fn standard_callsign_invalid() {
-        assert!(!is_standard_callsign("NFW/0811"));  // slash + digits, not /R or /P
-        assert!(!is_standard_callsign("791JLI"));    // 79 is not a valid prefix
+        assert!(!is_standard_callsign("NFW/0811"));
+        assert!(!is_standard_callsign("791JLI"));
         assert!(!is_standard_callsign(""));
-        assert!(!is_standard_callsign("ABCDEFG"));   // no digit, too long
-        assert!(!is_standard_callsign("123"));       // all digits
+        assert!(!is_standard_callsign("ABCDEFG"));
+        assert!(!is_standard_callsign("123"));
     }
 
     #[test]
     fn standard_callsign_edge_cases() {
-        // These are syntactically valid even if not real
         assert!(is_standard_callsign("SY2XHO"));    // SY prefix (Greece)
-        assert!(is_standard_callsign("8I9NIH"));    // 8I prefix + 9NIH — valid format
+        assert!(is_standard_callsign("8I9NIH"));    // 8I prefix
     }
 
     #[test]
-    fn plausible_message_check() {
+    fn valid_callsign_standard() {
+        // Standard pack28 format
+        assert!(is_valid_callsign("JA1ABC"));
+        assert!(is_valid_callsign("3Y0Z"));
+        assert!(is_valid_callsign("W1AW"));
+        assert!(is_valid_callsign("W1AW/P"));
+        assert!(is_valid_callsign("JM1VWQ/R"));
+        assert!(is_valid_callsign("W1A"));       // 1x1 special event
+    }
+
+    #[test]
+    fn valid_callsign_nonstandard() {
+        // Type 4: CEPT, area indicators, long prefixes
+        assert!(is_valid_callsign("JL1NIE/1"));   // area indicator
+        assert!(is_valid_callsign("JL1NIE/P"));   // portable (also standard)
+        assert!(is_valid_callsign("F/JA1ABC"));   // CEPT prefix
+        assert!(is_valid_callsign("ZS6/JA1ABC")); // country/call
+        assert!(is_valid_callsign("JR9ECD/P"));   // portable
+        assert!(is_valid_callsign("3DA0WPX"));    // 7-char call (3-char prefix)
+        assert!(is_valid_callsign("JA1ABC/QRP")); // QRP modifier
+    }
+
+    #[test]
+    fn valid_callsign_rejected() {
+        assert!(!is_valid_callsign("NFW/0811"));   // no valid base call on either side
+        assert!(!is_valid_callsign("ABCDEF"));     // no digit
+        assert!(!is_valid_callsign(""));
+        assert!(!is_valid_callsign("A"));          // too short
+        assert!(!is_valid_callsign("HELLO+WORLD"));// non-C38 characters
+        assert!(!is_valid_callsign("123"));        // no letter suffix
+        assert!(!is_valid_callsign("//////"));     // nonsense
+    }
+
+    #[test]
+    fn plausible_message_standard() {
         assert!(is_plausible_message("CQ JA1ABC PM95"));
         assert!(is_plausible_message("CQ DX R6WA LN32"));
         assert!(is_plausible_message("JA1ABC 3Y0Z -12"));
@@ -856,21 +1074,74 @@ mod tests {
         assert!(is_plausible_message("JA1ABC 3Y0Z 73"));
         assert!(is_plausible_message("CQ 3Y0Z JD34"));
         assert!(is_plausible_message("OH3NIV ZS6S R-12"));
+    }
 
-        // Type 4 non-standard callsigns with '/'
-        assert!(is_plausible_message("<...> NFW/0811 73"));
+    #[test]
+    fn plausible_message_nonstandard() {
+        // Type 4 non-standard callsigns
         assert!(is_plausible_message("JR1UJX/P JH1GIN PM96"));
         assert!(is_plausible_message("<...> JH4IUV/P RR73"));
         assert!(is_plausible_message("CQ JR9ECD/P"));
+        assert!(is_plausible_message("F/JA1ABC 3Y0Z -12"));
+        assert!(is_plausible_message("CQ SOTA JL1NIE/1"));
 
-        // Hashed callsigns alone
+        // Hash placeholders
         assert!(is_plausible_message("<...> JA1ABC -12"));
         assert!(is_plausible_message("JA1ABC <...> RRR"));
 
-        // CQ with suffix (POTA, SOTA, DX, etc.)
+        // CQ with activity suffix
         assert!(is_plausible_message("CQ POTA JA1ABC PM95"));
         assert!(is_plausible_message("CQ NA W1AW FN31"));
         assert!(is_plausible_message("CQ SOTA JL1NIE/P"));
+
+        // Contest/DXpedition markers
+        assert!(is_plausible_message("JA1ABC 3Y0Z [FD]"));
+    }
+
+    #[test]
+    fn plausible_message_rejected() {
+        // No valid callsign structure
+        assert!(!is_plausible_message("NFW/0811 73"));
+        assert!(!is_plausible_message("ABCDEF GHIJKL"));
+        assert!(!is_plausible_message(""));
+    }
+
+    #[test]
+    fn pack77_type4_roundtrip() {
+        // CQ with non-standard callsign
+        let msg = pack77_type4("JL1NIE/P", "", "", true).expect("pack failed");
+        let text = unpack77(&msg).expect("unpack failed");
+        assert_eq!(text, "CQ JL1NIE/P");
+
+        // Non-standard + hashed, no report
+        let msg = pack77_type4("JL1NIE/1", "JA1ABC", "", false).expect("pack failed");
+        let text = unpack77(&msg).expect("unpack failed");
+        assert!(text.contains("JL1NIE/1"), "should contain non-std call: {text}");
+        assert!(text.contains("<...>"), "should contain hash placeholder: {text}");
+
+        // Non-standard + hashed, with 73
+        let msg = pack77_type4("JR9ECD/P", "W1AW", "73", false).expect("pack failed");
+        let text = unpack77(&msg).expect("unpack failed");
+        assert!(text.contains("JR9ECD/P"), "got: {text}");
+        assert!(text.contains("73"), "got: {text}");
+
+        // F/JA1ABC (CEPT)
+        let msg = pack77_type4("F/JA1ABC", "W1AW", "RR73", false).expect("pack failed");
+        let text = unpack77(&msg).expect("unpack failed");
+        assert!(text.contains("F/JA1ABC"), "got: {text}");
+        assert!(text.contains("RR73"), "got: {text}");
+    }
+
+    #[test]
+    fn pack77_type4_cq_with_pack77() {
+        // pack77 should work with CQ + non-standard callsign that doesn't pack via pack28
+        // This test ensures the Type 4 path produces valid messages
+        let msg = pack77_type4("JL1NIE/1", "", "", true).expect("pack failed");
+        let text = unpack77(&msg).expect("unpack failed");
+        assert_eq!(text, "CQ JL1NIE/1");
+
+        // Verify it passes plausibility
+        assert!(is_plausible_message(&text));
     }
 
     #[test]
