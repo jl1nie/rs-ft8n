@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>QsoLog Test</title>
+<style>
+  body { font: 13px monospace; background: #111; color: #ccc; padding: 1em; }
+  h2 { color: #4fc3f7; margin: 1.2em 0 0.3em; }
+  .pass { color: #69f0ae; }
+  .fail { color: #ff5252; font-weight: bold; }
+  .info { color: #888; }
+  pre { background: #1e1e1e; padding: 0.5em; border-radius: 4px; white-space: pre-wrap; font-size: 11px; }
+  #summary { margin-top: 1.5em; font-size: 1.1em; border-top: 1px solid #333; padding-top: 0.5em; }
+</style>
+</head>
+<body>
+<h1>QsoLog / ZIP — Test Suite</h1>
+<div id="out"></div>
+<div id="summary"></div>
+
+<script type="module">
+import { QsoLog } from './qso-log.js';
+
+// ── Minimal test harness ────────────────────────────────────────────────────
+let passed = 0, failed = 0;
+const out = document.getElementById('out');
+
+function section(name) {
+  const h = document.createElement('h2');
+  h.textContent = name;
+  out.appendChild(h);
+}
+
+function assert(desc, cond, detail = '') {
+  const div = document.createElement('div');
+  if (cond) {
+    div.className = 'pass';
+    div.textContent = `✓ ${desc}`;
+    passed++;
+  } else {
+    div.className = 'fail';
+    div.textContent = `✗ ${desc}${detail ? ' — ' + detail : ''}`;
+    failed++;
+  }
+  out.appendChild(div);
+}
+
+function assertContains(desc, str, sub) {
+  assert(desc, str.includes(sub), `expected "${sub}" in output`);
+}
+
+function assertNotContains(desc, str, sub) {
+  assert(desc, !str.includes(sub), `expected "${sub}" NOT in output`);
+}
+
+function info(text) {
+  const div = document.createElement('div');
+  div.className = 'info';
+  div.textContent = `  ${text}`;
+  out.appendChild(div);
+}
+
+function show(label, text) {
+  const pre = document.createElement('pre');
+  pre.textContent = `${label}:\n${text.slice(0, 600)}${text.length > 600 ? '\n...' : ''}`;
+  out.appendChild(pre);
+}
+
+// ── Setup: fresh localStorage namespace for tests ──────────────────────────
+const TEST_PREFIX = '__test__';
+// Patch localStorage keys used by QsoLog to avoid clobbering real data
+const REAL_QSO_KEY = 'rs-ft8n-qso-log';
+const REAL_RX_KEY  = 'rs-ft8n-rx-log';
+const backup = {
+  qso: localStorage.getItem(REAL_QSO_KEY),
+  rx:  localStorage.getItem(REAL_RX_KEY),
+};
+function resetStorage() {
+  localStorage.removeItem(REAL_QSO_KEY);
+  localStorage.removeItem(REAL_RX_KEY);
+}
+function restoreStorage() {
+  if (backup.qso !== null) localStorage.setItem(REAL_QSO_KEY, backup.qso);
+  else localStorage.removeItem(REAL_QSO_KEY);
+  if (backup.rx !== null) localStorage.setItem(REAL_RX_KEY, backup.rx);
+  else localStorage.removeItem(REAL_RX_KEY);
+}
+
+// ── Test 1: Add and retrieve QSO entries ───────────────────────────────────
+section('1. QSO add / retrieve');
+resetStorage();
+{
+  const log = new QsoLog();
+  assert('starts empty', log.getAll().length === 0);
+
+  log.add({
+    dxCall: 'N7TBR',
+    dxGrid: 'OI43',
+    txReport: '-15',
+    rxReport: '-18',
+    freq: 1791,
+    bandMHz: '14.074',
+    state: 'IDLE',
+  });
+  assert('one entry added', log.getAll().length === 1);
+
+  const e = log.getAll()[0];
+  assert('dxCall stored', e.dxCall === 'N7TBR');
+  assert('dxGrid stored', e.dxGrid === 'OI43');
+  assert('txReport stored', e.txReport === '-15');
+  assert('rxReport stored', e.rxReport === '-18');
+  assert('state IDLE stored', e.state === 'IDLE');
+  assert('utc is ISO string', /\d{4}-\d{2}-\d{2}T/.test(e.utc));
+}
+
+// ── Test 2: Incomplete QSO states ─────────────────────────────────────────
+section('2. Incomplete QSO states');
+resetStorage();
+{
+  const log = new QsoLog();
+  for (const state of ['CALLING', 'REPORT', 'FINAL']) {
+    log.add({ dxCall: 'JA1ABC', state });
+  }
+  assert('three incomplete entries', log.getAll().length === 3);
+  const states = log.getAll().map(e => e.state);
+  assert('CALLING present', states.includes('CALLING'));
+  assert('REPORT present', states.includes('REPORT'));
+  assert('FINAL present', states.includes('FINAL'));
+}
+
+// ── Test 3: completeOnly ADIF filter ──────────────────────────────────────
+section('3. ADIF — completeOnly filter');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.add({ dxCall: 'VK2XX', dxGrid: 'QF56', state: 'IDLE',    bandMHz: '14.074', rxReport: '-10', txReport: '-12' });
+  log.add({ dxCall: 'W1AW',  dxGrid: 'FN31', state: 'CALLING', bandMHz: '14.074' });
+
+  const adifAll      = log.toAdif({ completeOnly: false });
+  const adifComplete = log.toAdif({ completeOnly: true });
+
+  assertContains('all: VK2XX present',       adifAll, 'VK2XX');
+  assertContains('all: W1AW present',        adifAll, 'W1AW');
+  assertContains('complete: VK2XX present',  adifComplete, 'VK2XX');
+  assertNotContains('complete: W1AW absent', adifComplete, 'W1AW');
+  assertContains('all: incomplete comment',  adifAll, 'incomplete:CALLING');
+  assertNotContains('complete: no comment',  adifComplete, 'incomplete:');
+}
+
+// ── Test 4: ADIF field formatting ─────────────────────────────────────────
+section('4. ADIF field formatting');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.add({
+    dxCall: '3Y0Z', dxGrid: 'JD34',
+    txReport: '-05', rxReport: '-20',
+    bandMHz: '14.074', state: 'IDLE',
+  });
+  const adif = log.toAdif({ completeOnly: true });
+  show('ADIF output', adif);
+
+  assertContains('CALL field',       adif, '<CALL:4>3Y0Z');
+  assertContains('GRIDSQUARE field', adif, '<GRIDSQUARE:4>JD34');
+  assertContains('MODE field',       adif, '<MODE:3>FT8');
+  assertContains('FREQ field',       adif, '<FREQ:6>14.074');
+  assertContains('RST_RCVD field',   adif, '<RST_RCVD:3>-20');
+  assertContains('RST_SENT field',   adif, '<RST_SENT:3>-05');
+  assertContains('QSO_DATE field',   adif, '<QSO_DATE:8>');
+  assertContains('TIME_ON field',    adif, '<TIME_ON:4>');
+  assertContains('EOR marker',       adif, '<EOR>');
+  assertContains('EOH marker',       adif, '<EOH>');
+}
+
+// ── Test 5: Empty callsign skipped in ADIF ─────────────────────────────────
+section('5. ADIF — empty callsign skipped');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.add({ dxCall: '', state: 'IDLE' });
+  log.add({ dxCall: 'VK3IO', state: 'IDLE', bandMHz: '7.074' });
+  const adif = log.toAdif({ completeOnly: false });
+  assertContains('VK3IO present', adif, 'VK3IO');
+  const callCount = (adif.match(/<CALL:/g) || []).length;
+  assert('only 1 CALL field (empty skipped)', callCount === 1);
+}
+
+// ── Test 6: RX log add / CSV export ───────────────────────────────────────
+section('6. RX log — add and CSV export');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.addRx({ message: 'CQ 3Y0Z JD34', freq_hz: 1000.4, snr_db: -15.7 });
+  log.addRx({ message: 'JA1ABC 3Y0Z -05', freq_hz: 1234.8, snr_db: -5.2 });
+  // Message with quotes (CSV escaping)
+  log.addRx({ message: 'CQ "TEST" K1JT', freq_hz: 800, snr_db: 0 });
+
+  assert('rx log has 3 entries', log.getRxLog().length === 3);
+
+  const csv = log.toRxCsv();
+  show('RX CSV output', csv);
+
+  assertContains('CSV header', csv, 'UTC,Freq(Hz),SNR(dB),Message');
+  assertContains('message in CSV', csv, 'CQ 3Y0Z JD34');
+  assertContains('freq rounded', csv, '1000');
+  assertContains('snr rounded', csv, '-16');
+  assertContains('quote escaped', csv, '""TEST""');
+}
+
+// ── Test 7: RX log persistence (localStorage round-trip) ──────────────────
+section('7. localStorage round-trip');
+resetStorage();
+{
+  const log1 = new QsoLog();
+  log1.add({ dxCall: 'JA7CJM', state: 'IDLE', bandMHz: '21.074' });
+  log1.addRx({ message: 'CQ JA7CJM PM74', freq_hz: 1500, snr_db: -8 });
+
+  // New instance reads from localStorage
+  const log2 = new QsoLog();
+  assert('QSO persisted', log2.getAll().length === 1);
+  assert('QSO callsign correct', log2.getAll()[0].dxCall === 'JA7CJM');
+  assert('RX persisted', log2.getRxLog().length === 1);
+  assert('RX message correct', log2.getRxLog()[0].message === 'CQ JA7CJM PM74');
+}
+
+// ── Test 8: RX log trim at 10000 ──────────────────────────────────────────
+section('8. RX log max-size trim');
+resetStorage();
+{
+  const log = new QsoLog();
+  // Add 10001 entries — should trim to 8000
+  for (let i = 0; i < 10001; i++) {
+    log.addRx({ message: `MSG${i}`, freq_hz: 1000, snr_db: -10 });
+  }
+  assert('trimmed to 8000', log.getRxLog().length === 8000);
+  assert('newest entry kept', log.getRxLog().at(-1).message === 'MSG10000');
+}
+
+// ── Test 9: clear() ────────────────────────────────────────────────────────
+section('9. clear()');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.add({ dxCall: 'W1AW', state: 'IDLE' });
+  log.addRx({ message: 'CQ W1AW FN31', freq_hz: 1000, snr_db: -5 });
+  log.clear();
+  assert('QSO log empty after clear', log.getAll().length === 0);
+  assert('RX log empty after clear', log.getRxLog().length === 0);
+
+  const log2 = new QsoLog();
+  assert('persisted as empty (QSO)', log2.getAll().length === 0);
+  assert('persisted as empty (RX)',  log2.getRxLog().length === 0);
+}
+
+// ── Test 10: exportZip produces a Blob ────────────────────────────────────
+section('10. exportZip — ZIP blob');
+resetStorage();
+{
+  const log = new QsoLog();
+  log.add({ dxCall: 'DX0TEST', state: 'IDLE', bandMHz: '14.074' });
+  log.addRx({ message: 'CQ DX0TEST AB12', freq_hz: 1500, snr_db: -10 });
+
+  // Intercept the download anchor click
+  let downloaded = false;
+  let zipUrl = null;
+  const origCreate = document.createElement.bind(document);
+  document.createElement = (tag) => {
+    const el = origCreate(tag);
+    if (tag === 'a') {
+      el.click = () => {
+        downloaded = true;
+        zipUrl = el.href;
+      };
+    }
+    return el;
+  };
+
+  await log.exportZip();
+  document.createElement = origCreate; // restore
+
+  assert('exportZip triggered download', downloaded);
+  assert('download URL is blob:', zipUrl?.startsWith('blob:'));
+
+  // Fetch the blob and check ZIP magic bytes
+  const res = await fetch(zipUrl);
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  assert('ZIP magic bytes PK (0x50 0x4B)', bytes[0] === 0x50 && bytes[1] === 0x4B);
+  assert('ZIP has content (>100 bytes)', buf.byteLength > 100);
+  info(`ZIP size: ${buf.byteLength} bytes`);
+}
+
+// ── Restore real storage ───────────────────────────────────────────────────
+restoreStorage();
+
+// ── Summary ───────────────────────────────────────────────────────────────
+const summary = document.getElementById('summary');
+summary.innerHTML = `<span class="${failed === 0 ? 'pass' : 'fail'}">
+  ${passed + failed} tests — ${passed} passed, ${failed} failed
+</span>`;
+</script>
+</body>
+</html>

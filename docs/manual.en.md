@@ -134,10 +134,12 @@ Find the target and choose the **transmit frequency (DF)**. Receive is full-band
 
 **Watch display:**
 
-- **Top**: Target station's latest message (call / frequency / SNR)
-- **Callers**: List of other stations calling the target
-- **Message list**: DF / DT / SNR / Message in unified format with period separators. Watch and Call share the same list — it is preserved when switching phases
-- **QSO progress dots**: filled-circle empty-circle empty-circle empty-circle -> all filled
+- **Top card**: `TARGET_CALL  1234 Hz  -18 dB` — target callsign and latest heard freq/SNR on one line
+- **Pileup line** (single line, truncated with …):
+  - `Picked: YB2AYA@1234` — who the DX responded to this period and their DF
+  - `Pile: JA1ABC@1567 VK2XX@890` — who is calling the DX and their transmit frequency
+- **Message list**: DF / DT / SNR / Message unified format with period separators. Shared between Watch and Call — preserved across phase switches
+- **QSO progress dots**: filled → → → all filled
 
 #### Call Phase (Narrow-Filter Receive)
 
