@@ -1,7 +1,7 @@
 // Main thread keeps WASM init for encode_ft8 (TX waveform synthesis).
 // Decode runs in a Web Worker (decode-worker.js) so a 200-400 ms decode
 // call doesn't freeze the waterfall or the UI.
-import init, { encode_ft8 } from '../pkg/ft8_web.js';
+import init, { encode_ft8 } from './ft8_web.js';
 
 // ── Decode worker (off-main-thread WASM) ───────────────────────────────────
 const decodeWorker = new Worker(
