@@ -1,6 +1,6 @@
 [package]
 name = "ft8-desktop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "rs-ft8n Desktop - FT8 Sniper Decoder"
 
