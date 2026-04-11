@@ -85,6 +85,33 @@ impl DecoderState {
     }
 }
 
+/// Normalize f32 samples to a target peak before converting to i16.
+///
+/// FT8 signals from hardware are often at very low absolute levels
+/// (< 0.01 f32) depending on the audio adapter's gain.  A direct
+/// `s * 32767` conversion would leave i16 values near ±300, wasting 6–7
+/// bits and degrading SNR in the decoder's integer math.
+///
+/// This function scales the buffer so the peak reaches TARGET_PEAK (0.8),
+/// preserving signal-to-noise ratio while making full use of the i16 range.
+/// Pure noise is also scaled, so SNR is unchanged — only the absolute
+/// amplitude is adjusted.  Buffers below the silence floor are left as-is.
+fn normalize_to_i16(samples: &[f32]) -> Vec<i16> {
+    const TARGET_PEAK: f32 = 0.8;
+    const SILENCE_FLOOR: f32 = 1e-6;
+
+    let peak = samples.iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+    let scale = if peak > SILENCE_FLOOR {
+        TARGET_PEAK / peak
+    } else {
+        1.0
+    };
+    samples
+        .iter()
+        .map(|&s| (s * scale * 32767.0).clamp(-32768.0, 32767.0) as i16)
+        .collect()
+}
+
 fn to_strictness(level: u8) -> DecodeStrictness {
     match level {
         0 => DecodeStrictness::Strict,
@@ -101,11 +128,7 @@ pub fn decode_wideband(
     strictness: u8,
 ) -> Vec<DecodedMessage> {
     let _ = strictness;
-    // ft8-core expects i16 for decode_frame
-    let audio: Vec<i16> = samples
-        .iter()
-        .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
-        .collect();
+    let audio = normalize_to_i16(&samples);
     let results = decode_frame(&audio, 100.0, 3000.0, 1.5, None, DecodeDepth::BpAllOsd, 200);
     state.decode_and_register(results)
 }
@@ -117,10 +140,7 @@ pub fn decode_subtract(
     samples: Vec<f32>,
     strictness: u8,
 ) -> Vec<DecodedMessage> {
-    let audio: Vec<i16> = samples
-        .iter()
-        .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
-        .collect();
+    let audio = normalize_to_i16(&samples);
     let results = decode_frame_subtract(
         &audio,
         100.0,
@@ -144,11 +164,7 @@ pub fn decode_sniper(
     mycall: String,
     eq_on: bool,
 ) -> Vec<DecodedMessage> {
-    let audio: Vec<i16> = samples
-        .iter()
-        .map(|&s| (s * 32767.0).clamp(-32768.0, 32767.0) as i16)
-        .collect();
-
+    let audio = normalize_to_i16(&samples);
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
 
     let ap = if callsign.is_empty() {

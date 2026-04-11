@@ -36,13 +36,25 @@ pub fn resample_to_12k(samples: &[i16], src_rate: u32) -> Vec<i16> {
 ///
 /// Used by the WASM live-capture path so the JS side can hand a Float32Array
 /// straight from the AudioWorklet without an intermediate i16 conversion loop.
-/// Float samples in [-1.0, 1.0] are scaled by 32767 and clamped before being
-/// interpolated and stored as i16.
+///
+/// **Normalization:** before resampling the input is peak-normalised to
+/// `TARGET_PEAK` (0.8 full-scale).  This ensures the full i16 dynamic range
+/// is used regardless of the hardware input level — a common problem with USB
+/// radio audio adapters whose Windows volume setting may be very low.
+/// Signal-to-noise ratio is preserved because signal and noise are scaled
+/// equally.  Buffers whose peak is below `SILENCE_FLOOR` are treated as
+/// silence and left at 0.
 ///
 /// If `src_rate == 12000`, this still allocates and converts (no zero-copy)
-/// because the output is i16 and the input is f32. The cost is one pass over
-/// the data, which is much cheaper in WASM than the equivalent JS loop.
+/// because the output is i16 and the input is f32.
 pub fn resample_f32_to_12k(samples: &[f32], src_rate: u32) -> Vec<i16> {
+    const TARGET_PEAK: f64 = 0.8;
+    const SILENCE_FLOOR: f64 = 1e-6;
+
+    // Find peak amplitude
+    let peak = samples.iter().fold(0.0f64, |m, &s| m.max((s as f64).abs()));
+    let scale = if peak > SILENCE_FLOOR { TARGET_PEAK / peak } else { 1.0 };
+
     let ratio = TARGET_RATE / src_rate as f64;
     let out_len = (samples.len() as f64 * ratio).ceil() as usize;
     let mut out = Vec::with_capacity(out_len);
@@ -62,8 +74,7 @@ pub fn resample_f32_to_12k(samples: &[f32], src_rate: u32) -> Vec<i16> {
             continue;
         };
 
-        // Scale [-1.0, 1.0] → i16 with clamp.
-        let scaled = (v * 32767.0).clamp(-32768.0, 32767.0);
+        let scaled = (v * scale * 32767.0).clamp(-32768.0, 32767.0);
         out.push(scaled.round() as i16);
     }
 

@@ -35,11 +35,16 @@ fn main() {
             serial::serial_close,
             // Audio capture
             audio::audio_list_devices,
+            audio::audio_list_output_devices,
             audio::audio_start,
             audio::audio_stop,
             audio::audio_get_peak,
             audio::audio_buffer_ready,
             audio::audio_get_snapshot,
+            audio::audio_set_gain,
+            audio::audio_play_start,
+            audio::audio_play_stop,
+            audio::audio_play_done,
             // Decode
             decoder::decode_wideband,
             decoder::decode_subtract,
