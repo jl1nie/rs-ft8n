@@ -1185,14 +1185,18 @@ const btnTestTone = document.getElementById('btn-test-tone');
 btnTestTone.addEventListener('click', async () => {
   if (audioOut.playing) {
     audioOut.stop();
+    if (cat.connected) await cat.safePttOff();
     btnTestTone.textContent = 'Test Tone';
+    timerEl.classList.remove('tx-on');
     txMeter.style.width = '0%';
     txMeter.classList.remove('clip');
     txClip.classList.remove('active');
   } else {
     const df = currentMode === 'snipe' ? snipeDf : scoutDf;
+    if (cat.connected) await cat.ptt(true);
     await audioOut.startTone(df, outputDeviceSelect.value || undefined);
     btnTestTone.textContent = `Stop (${df} Hz)`;
+    timerEl.classList.add('tx-on');
     updateTxMeter();
   }
 });
