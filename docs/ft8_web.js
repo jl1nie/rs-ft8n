@@ -102,6 +102,68 @@ export class DecodedMessage {
 if (Symbol.dispose) DecodedMessage.prototype[Symbol.dispose] = DecodedMessage.prototype.free;
 
 /**
+ * Phase 1 decode (i16): fast single-pass decode.
+ *
+ * Caches the resampled audio and FFT for a subsequent `decode_phase2` call.
+ * @param {Int16Array} samples
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_phase1(samples, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_phase1(ptr0, len0, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Phase 1 decode (f32): fast single-pass decode for live AudioWorklet path.
+ *
+ * Caches the resampled audio and FFT for a subsequent `decode_phase2_f32` call.
+ * @param {Float32Array} samples
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_phase1_f32(samples, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_phase1_f32(ptr0, len0, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Phase 2 decode (i16): 3-pass subtract using cached Phase 1 state.
+ *
+ * Panics if `decode_phase1` was not called first.
+ * @param {number} strictness
+ * @returns {DecodedMessage[]}
+ */
+export function decode_phase2(strictness) {
+    const ret = wasm.decode_phase2(strictness);
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
+ * Phase 2 decode (f32): 3-pass subtract using cached Phase 1 state.
+ *
+ * Panics if `decode_phase1_f32` was not called first.
+ * @param {number} strictness
+ * @returns {DecodedMessage[]}
+ */
+export function decode_phase2_f32(strictness) {
+    const ret = wasm.decode_phase2_f32(strictness);
+    var v1 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v1;
+}
+
+/**
  * Sniper-mode decode with multi-pass AP (single WASM call).
  *
  * AP passes are handled internally by ft8-core (pass 6-11).
@@ -246,10 +308,11 @@ export function encode_ft8(call1, call2, report, freq_hz) {
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v4;
 }
+
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
-        __wbg___wbindgen_throw_6b64449b9b9ed33c: function(arg0, arg1) {
+        __wbg___wbindgen_throw_81fc77679af83bc6: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
         },
         __wbg_decodedmessage_new: function(arg0) {
