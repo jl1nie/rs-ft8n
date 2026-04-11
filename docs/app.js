@@ -957,7 +957,30 @@ const periodMgr = new FT8PeriodManager({
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
     setStatus(`${n}d ${lastDecodeMs}ms${shedTag}`);
-    snipeDecodeInfo.textContent = `${n}d ${lastDecodeMs}ms${shedTag}`;
+    {
+      // Decoder depth breakdown for snipe-decode-info
+      let bp = 0, osd2 = 0, osd3 = 0, osd4 = 0;
+      for (const r of results) {
+        const p = r.pass ?? 0;
+        if (p <= 3) bp++;
+        else if (p === 4) osd2++;
+        else if (p === 5) osd3++;
+        else if (p === 13) osd4++;
+        else bp++; // AP passes count as BP-level for display
+      }
+      const parts = [`${n}d ${lastDecodeMs}ms`];
+      if (n > 0) {
+        const depth = [
+          bp   && `BP:${bp}`,
+          osd2 && `OSD2:${osd2}`,
+          osd3 && `OSD3:${osd3}`,
+          osd4 && `OSD4:${osd4}`,
+        ].filter(Boolean).join(' ');
+        if (depth) parts.push(depth);
+      }
+      if (shedTag) parts.push(shedTag.trim());
+      snipeDecodeInfo.textContent = parts.join('  ');
+    }
 
     // AP target: use QSO dxCall if available, or last Snipe target
     if (qso.dxCall) apCall = qso.dxCall;
@@ -1474,7 +1497,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-11-k';
+const APP_VERSION = '2026-04-11-l';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
