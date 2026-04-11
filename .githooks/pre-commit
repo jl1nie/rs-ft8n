@@ -1,0 +1,9 @@
+#!/bin/bash
+# Auto-deploy ft8-web/www/ → docs/ before each commit.
+set -euo pipefail
+cd "$(git rev-parse --show-toplevel)"
+
+bash deploy.sh
+
+# Stage updated docs/ files
+git add docs/*.js docs/*.html docs/*.json 2>/dev/null || true
