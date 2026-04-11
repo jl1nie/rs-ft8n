@@ -493,6 +493,19 @@
     <button id="btn-open-wav">Open WAV File</button>
   </details>
   <details class="accordion">
+    <summary>TX Messages</summary>
+    <div class="field">
+      <label>Tx1 CQ suffix</label>
+      <input type="text" id="tx1-cq-suffix" placeholder="POTA" maxlength="4" style="text-transform:uppercase;width:5em">
+      <div style="font-size:var(--fs-xs);color:var(--c-text2)">POTA / SOTA / DX etc. (blank = CQ only)</div>
+    </div>
+    <div class="field">
+      <label>Tx5 Free text</label>
+      <input type="text" id="tx5-free-text" placeholder="JA/TK-001" maxlength="13" style="text-transform:uppercase">
+      <div style="font-size:var(--fs-xs);color:var(--c-text2)">Replaces RR73. SOTA/POTA ref, JCC etc.</div>
+    </div>
+  </details>
+  <details class="accordion">
     <summary>Log</summary>
     <button id="btn-export-zip">Export ZIP (ADIF + RX)</button>
     <button id="btn-clear-log" style="color:var(--c-danger);border-color:var(--c-danger)">Clear All Logs</button>

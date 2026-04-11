@@ -920,6 +920,43 @@ pub fn pack77_type4(
     Some(msg)
 }
 
+/// Pack a free-text message (Type 0, n3=0).
+///
+/// `text` — up to 13 characters from the FREE_TEXT alphabet
+/// (`0-9 A-Z + - . / ?` and space).  Shorter text is right-padded with spaces.
+///
+/// # Examples
+/// ```
+/// # use ft8_core::message::{pack77_free_text, unpack77};
+/// let msg = pack77_free_text("JA/TK-001").unwrap();
+/// assert_eq!(unpack77(&msg).unwrap(), "JA/TK-001");
+/// ```
+pub fn pack77_free_text(text: &str) -> Option<[u8; 77]> {
+    let text = text.to_ascii_uppercase();
+    let bytes = text.as_bytes();
+    if bytes.is_empty() || bytes.len() > 13 { return None; }
+
+    // Pad to 13 characters with trailing spaces
+    let mut padded = [b' '; 13];
+    for (i, &b) in bytes.iter().enumerate() {
+        padded[i] = b;
+    }
+
+    // Encode as base-42 number (fits in 71 bits: 42^13 ≈ 2^71.4)
+    let mut n: u128 = 0;
+    for &ch in &padded {
+        let idx = FREE_TEXT.iter().position(|&c| c == ch)? as u128;
+        n = n * 42 + idx;
+    }
+
+    let mut msg = [0u8; 77];
+    for i in 0..71 {
+        msg[i] = ((n >> (70 - i)) & 1) as u8;
+    }
+    // bits 71-76 = 0 (i3=0, n3=0) — already zero
+    Some(msg)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1166,6 +1203,31 @@ mod tests {
 
         // Verify it passes plausibility
         assert!(is_plausible_message(&text));
+    }
+
+    #[test]
+    fn pack77_free_text_roundtrip() {
+        // SOTA references
+        let msg = pack77_free_text("JA/TK-001").unwrap();
+        assert_eq!(unpack77(&msg).unwrap(), "JA/TK-001");
+
+        // POTA references
+        let msg = pack77_free_text("JP-1001").unwrap();
+        assert_eq!(unpack77(&msg).unwrap(), "JP-1001");
+
+        // JCC number
+        let msg = pack77_free_text("JCC 100110").unwrap();
+        assert_eq!(unpack77(&msg).unwrap(), "JCC 100110");
+
+        // Max length (13 chars)
+        let msg = pack77_free_text("HELLO FT8 WLD").unwrap();
+        assert_eq!(unpack77(&msg).unwrap(), "HELLO FT8 WLD");
+
+        // Invalid: too long
+        assert!(pack77_free_text("ABCDEFGHIJKLMN").is_none()); // 14 chars
+
+        // Invalid: non-FREE_TEXT character
+        assert!(pack77_free_text("HELLO!").is_none()); // '!' not in alphabet
     }
 
     #[test]

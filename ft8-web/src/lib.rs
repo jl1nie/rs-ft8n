@@ -153,6 +153,20 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
     Ok(tones_to_f32(&tones, freq_hz, 1.0))
 }
 
+/// Encode a free-text FT8 message (Type 0, n3=0) as audio samples.
+///
+/// `text` — up to 13 characters from the FT8 free-text alphabet.
+#[wasm_bindgen]
+pub fn encode_free_text(text: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
+    use ft8_core::message::pack77_free_text;
+    use ft8_core::wave_gen::{message_to_tones, tones_to_f32};
+
+    let msg77 = pack77_free_text(text)
+        .ok_or_else(|| JsValue::from_str("Invalid free text (max 13 chars, 0-9 A-Z +-./?)"))?;
+    let tones = message_to_tones(&msg77);
+    Ok(tones_to_f32(&tones, freq_hz, 1.0))
+}
+
 /// Decode with iterative signal subtraction.
 ///
 /// `sample_rate` — input PCM sample rate in Hz. Non-12 000 Hz input is

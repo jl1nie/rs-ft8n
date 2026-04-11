@@ -1,7 +1,7 @@
 // Main thread keeps WASM init for encode_ft8 (TX waveform synthesis).
 // Decode runs in a Web Worker (decode-worker.js) so a 200-400 ms decode
 // call doesn't freeze the waterfall or the UI.
-import init, { encode_ft8 } from '../pkg/ft8_web.js';
+import init, { encode_ft8, encode_free_text } from '../pkg/ft8_web.js';
 
 // ── Decode worker (off-main-thread WASM) ───────────────────────────────────
 const decodeWorker = new Worker(
@@ -258,6 +258,21 @@ bandSelect.addEventListener('change', async () => {
 });
 deviceSelect.addEventListener('change', () => localStorage.setItem('webft8-audio-in', deviceSelect.value));
 outputDeviceSelect.addEventListener('change', () => localStorage.setItem('webft8-audio-out', outputDeviceSelect.value));
+
+// ── TX Messages ──────────────────────────────────────────────────────────────
+const tx1CqSuffix = document.getElementById('tx1-cq-suffix');
+const tx5FreeText = document.getElementById('tx5-free-text');
+const savedCqSuffix = localStorage.getItem('webft8-tx1-cq-suffix');
+const savedFreeText = localStorage.getItem('webft8-tx5-free-text');
+if (savedCqSuffix) tx1CqSuffix.value = savedCqSuffix;
+if (savedFreeText) tx5FreeText.value = savedFreeText;
+tx1CqSuffix.addEventListener('input', () => {
+  localStorage.setItem('webft8-tx1-cq-suffix', tx1CqSuffix.value);
+  updateTxActions();
+});
+tx5FreeText.addEventListener('input', () => {
+  localStorage.setItem('webft8-tx5-free-text', tx5FreeText.value);
+});
 
 // ── Audio level controls ───────────────────────────────────────────────────
 const rxGainSlider = document.getElementById('rx-gain');
@@ -580,13 +595,16 @@ function updateTxActions() {
   const state = qso.state;
 
   if (state === QSO_STATE.IDLE || !dx) {
-    // IDLE — show CQ button
+    // IDLE — show CQ button (with optional suffix like CQ POTA)
+    const suffix = tx1CqSuffix.value.trim().toUpperCase();
+    const cqLabel = suffix ? `CQ ${suffix}` : 'CQ';
     const btn = document.createElement('button');
     btn.className = 'cq';
-    btn.textContent = 'CQ';
+    btn.textContent = cqLabel;
     btn.addEventListener('click', () => {
       qso.setMyInfo(myCallInput.value, myGridInput.value);
-      const tx = qso.callCq();
+      qso.freeText = tx5FreeText.value.trim().toUpperCase();
+      const tx = qso.callCq(suffix);
       queueTxMsg(tx.call1, tx.call2, tx.report);
     });
     txActionsEl.appendChild(btn);
@@ -619,12 +637,14 @@ function updateTxActions() {
     btn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
     txActionsEl.appendChild(btn);
   }
+  const cqSfx = tx1CqSuffix.value.trim().toUpperCase();
   const cqBtn = document.createElement('button');
   cqBtn.className = 'cq';
-  cqBtn.textContent = 'CQ';
+  cqBtn.textContent = cqSfx ? `CQ ${cqSfx}` : 'CQ';
   cqBtn.addEventListener('click', () => {
     qso.setMyInfo(myCallInput.value, myGridInput.value);
-    const cqTx = qso.callCq();
+    qso.freeText = tx5FreeText.value.trim().toUpperCase();
+    const cqTx = qso.callCq(cqSfx);
     queueTxMsg(cqTx.call1, cqTx.call2, cqTx.report);
   });
   txActionsEl.appendChild(cqBtn);
@@ -758,7 +778,9 @@ async function transmit(call1, call2, report, freq) {
     const utc = new Date().toISOString().substr(11, 8);
     addChatMsg('tx sending', utc, txText, undefined);
 
-    const samples = encode_ft8(call1, call2, report, freq);
+    const samples = call1 === '__FREE__'
+      ? encode_free_text(report, freq)
+      : encode_ft8(call1, call2, report, freq);
 
     // Show TX level meter (peak of generated waveform * gain)
     const txPeak = AudioOutput.peakLevel(samples) * (txGainSlider.value / 100);
@@ -1400,7 +1422,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-11-i';
+const APP_VERSION = '2026-04-11-j';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);

@@ -287,6 +287,26 @@ export function decode_wav_subtract_f32(samples, strictness, sample_rate) {
 }
 
 /**
+ * Encode a free-text FT8 message (Type 0, n3=0) as audio samples.
+ *
+ * `text` — up to 13 characters from the FT8 free-text alphabet.
+ * @param {string} text
+ * @param {number} freq_hz
+ * @returns {Float32Array}
+ */
+export function encode_free_text(text, freq_hz) {
+    const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_free_text(ptr0, len0, freq_hz);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  * @param {string} call1
  * @param {string} call2
  * @param {string} report

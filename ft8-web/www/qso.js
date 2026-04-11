@@ -30,6 +30,8 @@ export class QsoManager {
     this.retryCount = 0;
     this.maxRetries = 15;
     this.finalMaxRetries = 3; // FINAL state needs fewer retries
+    this.cqSuffix = '';  // e.g. "POTA", "SOTA", "DX"
+    this.freeText = '';  // Tx5 free text (replaces RR73/73 in FINAL)
   }
 
   setMyInfo(call, grid) {
@@ -51,14 +53,16 @@ export class QsoManager {
     this.rxSnr = Math.round(snr);
   }
 
-  /** Start calling CQ. */
-  callCq() {
+  /** Start calling CQ, optionally with a suffix (POTA, SOTA, DX, etc.). */
+  callCq(suffix) {
+    this.cqSuffix = (suffix || '').toUpperCase();
     this.state = QSO_STATE.CALLING;
     this.dxCall = '';
     this.dxGrid = '';
     this.retryCount = 0;
     this.onStateChange(this.state);
-    return this._tx('CQ', this.myCall, this.myGrid);
+    const call1 = this.cqSuffix ? `CQ ${this.cqSuffix}` : 'CQ';
+    return this._tx(call1, this.myCall, this.myGrid);
   }
 
   /** Call a specific station. */
@@ -95,12 +99,18 @@ export class QsoManager {
   getNextTx() {
     switch (this.state) {
       case QSO_STATE.CALLING:
-        return this.dxCall
-          ? { call1: this.dxCall, call2: this.myCall, report: this.myGrid }
-          : { call1: 'CQ', call2: this.myCall, report: this.myGrid };
+        if (this.dxCall) {
+          return { call1: this.dxCall, call2: this.myCall, report: this.myGrid };
+        } else {
+          const call1 = this.cqSuffix ? `CQ ${this.cqSuffix}` : 'CQ';
+          return { call1, call2: this.myCall, report: this.myGrid };
+        }
       case QSO_STATE.REPORT:
         return { call1: this.dxCall, call2: this.myCall, report: this.txReport };
       case QSO_STATE.FINAL:
+        if (this.freeText) {
+          return { call1: '__FREE__', call2: '', report: this.freeText };
+        }
         return { call1: this.dxCall, call2: this.myCall, report: '73' };
       default:
         return null;
