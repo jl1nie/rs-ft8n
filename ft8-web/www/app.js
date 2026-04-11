@@ -1022,7 +1022,8 @@ const periodMgr = new FT8PeriodManager({
     // is preserved across phase switches. Target messages are highlighted.
     if (currentMode === 'snipe') {
       const myCall = myCallInput.value.toUpperCase();
-      const callers = [];
+      const pickedUp = [];   // who DX responded to (DX picked up)
+      const pileCallers = []; // who is calling DX, with their freq
 
       for (const m of msgs) {
         const upper = m.message.toUpperCase();
@@ -1031,8 +1032,15 @@ const periodMgr = new FT8PeriodManager({
         // Track callers of current target
         if (apCall) {
           const words = m.message.split(/\s+/);
-          if (words[0]?.toUpperCase() === apCall && words[1] && words[1].toUpperCase() !== myCall) {
-            callers.push(words[1]);
+          const w0 = words[0]?.toUpperCase();
+          const w1 = words[1]?.toUpperCase();
+          // DX responded to someone → "picked up"
+          if (w0 === apCall && w1 && w1 !== myCall) {
+            pickedUp.push(words[1]);
+          }
+          // Someone is calling DX → show their DF
+          if (w1 === apCall && w0 && !['CQ','DE','QRZ','DX'].includes(w0) && w0 !== myCall) {
+            pileCallers.push(`${words[0]}@${Math.round(m.freq_hz)}`);
           }
         }
 
@@ -1086,9 +1094,12 @@ const periodMgr = new FT8PeriodManager({
         addUnread('snipe');
       }
 
-      // Show callers summary above list
-      if (apCall && callers.length > 0) {
-        snipeCallersEl.textContent = `Calling ${apCall}: ${callers.join(', ')}`;
+      // Show pileup summary
+      if (apCall) {
+        const parts = [];
+        if (pickedUp.length > 0) parts.push(`Picked: ${pickedUp.join(' ')}`);
+        if (pileCallers.length > 0) parts.push(`Pile: ${pileCallers.join(' ')}`);
+        snipeCallersEl.textContent = parts.join('   ');
       }
     }
 
