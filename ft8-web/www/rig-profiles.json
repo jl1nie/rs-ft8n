@@ -9,6 +9,7 @@
     "modeData": "MD0C;",
     "filterNarrow": "RF04;SH0010;",
     "filterWide": "RF02;SH0014;",
+    "filterCenter": 1500,
     "note": "RF04=500Hz roofing, SH0010=500Hz DSP. MD0C=DATA-USB"
   },
   "ftdx101mp": {
@@ -21,6 +22,7 @@
     "modeData": "MD0C;",
     "filterNarrow": "RF04;SH0010;",
     "filterWide": "RF02;SH0014;",
+    "filterCenter": 1500,
     "note": "RF04=600Hz roofing (closest to 500Hz), SH0010=500Hz DSP. MD0C=DATA-USB"
   },
   "ft891": {
@@ -33,6 +35,7 @@
     "modeData": "MD0C;",
     "filterNarrow": "SH0110;",
     "filterWide": "SH0000;",
+    "filterCenter": 1500,
     "note": "DSP only (no roofing filter). SH01xx=enable, SH00xx=off. MD0C=DATA-USB"
   },
   "ic7300": {
@@ -45,6 +48,7 @@
     "modeData": "06 01 01 02",
     "filterNarrow": "06 01 01 03",
     "filterWide": "06 01 01 02",
+    "filterCenter": 1500,
     "note": "SDR — DSP filter only. FIL3=narrow(500Hz), FIL2=wide(2400Hz). Set FIL widths in radio menu."
   },
   "ic705": {
@@ -58,6 +62,7 @@
     "modeData": "06 01 01 02",
     "filterNarrow": "06 01 01 03",
     "filterWide": "06 01 01 02",
+    "filterCenter": 1500,
     "note": "SDR — DSP filter only. FIL3=narrow(500Hz), FIL2=wide(2400Hz). BLE supported."
   },
   "ic7851": {
@@ -70,6 +75,7 @@
     "modeData": "06 01 01 02",
     "filterNarrow": "06 01 01 03",
     "filterWide": "06 01 01 02",
+    "filterCenter": 1500,
     "note": "1.2kHz roofing (auto-selected). FIL3=narrow(500Hz), FIL2=wide(2400Hz)."
   }
 }
