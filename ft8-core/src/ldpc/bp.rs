@@ -17,40 +17,38 @@ fn platanh(x: f32) -> f32 {
     }
 }
 
-/// CRC-14 (polynomial 0x2757) over `data` bytes, processed MSB-first.
-/// Matches boost::augmented_crc<14, 0x2757> used in WSJT-X crc14.cpp.
-fn crc14(data: &[u8]) -> u16 {
+/// CRC-14 (polynomial 0x2757) over exactly `num_bits` bits, MSB-first.
+/// Matches WSJT-X ft8_crc() in crc14.cpp — processes 77 message bits only,
+/// not the zero-padded byte array.
+fn crc14(data: &[u8], num_bits: usize) -> u16 {
     let mut crc: u16 = 0;
-    for &byte in data {
-        for i in (0..8).rev() {
-            let bit = (byte >> i) & 1;
-            let msb = (crc >> 13) & 1;
-            crc = ((crc << 1) | bit as u16) & 0x3FFF;
-            if msb != 0 {
-                crc ^= 0x2757;
-            }
+    for i in 0..num_bits {
+        let bit = (data[i / 8] >> (7 - i % 8)) & 1;
+        let msb = (crc >> 13) & 1;
+        crc = ((crc << 1) | bit as u16) & 0x3FFF;
+        if msb != 0 {
+            crc ^= 0x2757;
         }
     }
     crc
 }
 
 /// Verify CRC-14 for a 91-bit decoded word (77 msg + 14 CRC).
-/// Packs bits into 12 bytes (big-endian, MSB first), zeros the CRC field,
-/// computes CRC-14, then compares with the stored CRC bits.
+/// Packs 77 message bits into 10 bytes, computes CRC-14 over exactly 77 bits
+/// (matching WSJT-X), then compares with the stored CRC bits.
 pub(super) fn check_crc14(decoded: &[u8; LDPC_K]) -> bool {
-    // Pack 91 bits into 12 bytes; CRC field (bits 77..91) stays zero.
-    let mut bytes = [0u8; 12];
-    for (i, &bit) in decoded[..77].iter().enumerate() {
-        let byte_idx = i / 8;
-        let bit_pos = 7 - (i % 8);
-        bytes[byte_idx] |= (bit & 1) << bit_pos;
+    use crate::params::MSG_BITS;
+    // Pack 77 message bits into 10 bytes (MSB-first, last 3 bits of byte 9 unused).
+    let mut bytes = [0u8; 10];
+    for (i, &bit) in decoded[..MSG_BITS].iter().enumerate() {
+        bytes[i / 8] |= (bit & 1) << (7 - i % 8);
     }
 
-    let computed = crc14(&bytes);
+    let computed = crc14(&bytes, MSG_BITS);
 
     // Extract received CRC from bits 77..91 (MSB first).
     let mut received: u16 = 0;
-    for &bit in &decoded[77..91] {
+    for &bit in &decoded[MSG_BITS..LDPC_K] {
         received = (received << 1) | (bit as u16 & 1);
     }
 
@@ -225,7 +223,8 @@ mod tests {
 
     #[test]
     fn crc14_known_vector() {
-        // CRC-14 of 12 zero bytes should be 0.
-        assert_eq!(crc14(&[0u8; 12]), 0);
+        // CRC-14 of 77 zero bits should be 0 (all input bits are 0,
+        // MSB of CRC is never set, polynomial is never XOR'd).
+        assert_eq!(crc14(&[0u8; 10], 77), 0);
     }
 }
