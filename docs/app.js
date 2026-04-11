@@ -892,7 +892,7 @@ const periodMgr = new FT8PeriodManager({
   onTick: (rem) => { timerEl.textContent = `${Math.ceil(rem)}s`; },
   onClockOffset: (offsetSec) => {
     const sign = offsetSec >= 0 ? '+' : '';
-    dtOffsetEl.textContent = `DT${sign}${offsetSec.toFixed(2)}`;
+    dtOffsetEl.textContent = `DT${sign}${offsetSec.toFixed(1)}`;
     dtOffsetEl.classList.toggle('correcting', Math.abs(offsetSec) > 0.3);
   },
   onPeriodEnd: async (periodIndex, isEven) => {
