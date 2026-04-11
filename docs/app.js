@@ -88,6 +88,7 @@ const scoutState = document.getElementById('scout-state');
 const scoutDxEl = document.getElementById('scout-dx');
 const scoutDecodeInfo = document.getElementById('scout-decode-info');
 const scoutTxQueue = document.getElementById('scout-tx-queue');
+const snipeDecodeInfo = document.getElementById('snipe-decode-info');
 const scoutDots = [
   document.getElementById('scout-dot-1'), document.getElementById('scout-dot-2'),
   document.getElementById('scout-dot-3'), document.getElementById('scout-dot-4'),
@@ -956,6 +957,7 @@ const periodMgr = new FT8PeriodManager({
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
     setStatus(`${n}d ${lastDecodeMs}ms${shedTag}`);
+    snipeDecodeInfo.textContent = `${n}d ${lastDecodeMs}ms${shedTag}`;
 
     // AP target: use QSO dxCall if available, or last Snipe target
     if (qso.dxCall) apCall = qso.dxCall;
