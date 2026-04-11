@@ -1278,6 +1278,16 @@ if (isTauriMode()) {
   document.addEventListener('contextmenu', e => e.preventDefault());
 }
 
+/** Apply rig initial state after any connect path (serial / BLE / auto).
+ *  Sets DATA-USB mode, band frequency, and Wide filter (Watch phase start). */
+async function rigSetup() {
+  const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
+  await cat.setModeData();
+  await new Promise(r => setTimeout(r, 200)); // settle after mode change
+  await cat.setFreq(baseHz);
+  await cat.setFilter(false); // Wide — Watch phase
+}
+
 btnCat.addEventListener('click', async () => {
   if (cat.connected) {
     await cat.disconnect();
@@ -1307,6 +1317,7 @@ btnCat.addEventListener('click', async () => {
     const profiles = getRigProfiles();
     catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
     localStorage.setItem('webft8-rig', rigId);
+    await rigSetup();
   } catch (e) {
     await cat.disconnect();
     btnCat.textContent = 'Connect Rig';
@@ -1331,6 +1342,7 @@ btnCatBle.addEventListener('click', async () => {
     btnCatBle.textContent = 'Disconnect';
     catStatusEl.textContent = 'BLE connected (IC-705)';
     localStorage.setItem('webft8-rig', rigId);
+    await rigSetup();
   } catch (e) {
     catStatusEl.textContent = `BLE error: ${e.message || e}`;
   }
@@ -1546,6 +1558,21 @@ init().then(async () => {
   }
   const savedRig = localStorage.getItem('webft8-rig');
   if (savedRig) rigSelect.value = savedRig;
+
+  // Tauri auto-connect: silently reconnect if rig + port were saved
+  if (isTauriMode() && savedRig) {
+    const savedPort = localStorage.getItem('webft8-cat-port');
+    if (savedPort) {
+      try {
+        await cat.connectTauri(savedRig, savedPort);
+        btnCat.textContent = 'Disconnect';
+        catStatusEl.textContent = `connected (${profiles[savedRig]?.label || savedRig})`;
+        await rigSetup();
+      } catch (e) {
+        catStatusEl.textContent = `auto-connect failed: ${e.message || e}`;
+      }
+    }
+  }
 
   // Show CAT / BLE buttons based on browser support
   if (CatController.isSerialSupported()) {
