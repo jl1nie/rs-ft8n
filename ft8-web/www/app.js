@@ -129,10 +129,9 @@ let lastPeriodIndex = -1; // track period changes for separator
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
 let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
 const FREQ_MIN = 100, FREQ_MAX = 3000;
-// Audio frequency (Hz) where the rig's narrow BPF is centered.
-// Read from rig profile (filterCenter); fallback 1500 Hz = standard FT8
-// DATA-USB passband center for Icom/Yaesu in 500 Hz filter mode.
-function filterCenter() { return cat?.rig?.filterCenter ?? 1500; }
+// USB passband center = 1500 Hz (ITU standard, rig-independent).
+// The 500 Hz narrow filter is centered here in DATA-USB mode.
+const FILTER_CENTER = 1500;
 
 // ── Status display ─────────────────────────────────────────────────────────
 function setStatus(text) {
@@ -253,7 +252,7 @@ bandSelect.addEventListener('change', async () => {
   localStorage.setItem('webft8-band', bandSelect.value);
   const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
   if (currentMode === 'snipe' && snipePhase === 'call') {
-    await cat.setFreq(baseHz + (snipeBpf - filterCenter()));
+    await cat.setFreq(baseHz + (snipeBpf - FILTER_CENTER));
   } else {
     await cat.setFreq(baseHz);
   }
@@ -405,7 +404,7 @@ function setMode(mode) {
   waterfall.clear();
   waterfall.dfLine = mode === 'scout' ? scoutDf : snipeDf;
   waterfall.targetLine = mode === 'snipe' ? snipeBpf : null;
-  waterfall.freqOffset = (mode === 'snipe' && snipePhase === 'call') ? (snipeBpf - filterCenter()) : 0;
+  waterfall.freqOffset = (mode === 'snipe' && snipePhase === 'call') ? (snipeBpf - FILTER_CENTER) : 0;
   updateSnipeOverlay();
 }
 
@@ -421,7 +420,7 @@ btnCall.addEventListener('click', () => setSnipePhase('call'));
 /** Compute shifted dial frequency so the physical filter covers snipeBpf. */
 function snipeDialHz() {
   const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
-  return baseHz + (snipeBpf - filterCenter());
+  return baseHz + (snipeBpf - FILTER_CENTER);
 }
 
 async function setSnipePhase(phase) {
@@ -437,7 +436,7 @@ async function setSnipePhase(phase) {
     const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
     await cat.setFreq(baseHz);
   } else {
-    waterfall.freqOffset = snipeBpf - filterCenter();
+    waterfall.freqOffset = snipeBpf - FILTER_CENTER;
     snipePhaseHint.textContent = `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
     await cat.setFilter(true);
     await cat.setFreq(snipeDialHz());
@@ -518,7 +517,7 @@ wfWrap.addEventListener('contextmenu', async (e) => {
   snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
   waterfall.targetLine = snipeBpf;
   if (snipePhase === 'call') {
-    waterfall.freqOffset = snipeBpf - filterCenter();
+    waterfall.freqOffset = snipeBpf - FILTER_CENTER;
     await cat.setFreq(snipeDialHz());
   }
   updateSnipeOverlay();
@@ -876,7 +875,7 @@ const periodMgr = new FT8PeriodManager({
       // In Snipe Call mode, decoded freq_hz is in audio space (VFO-shifted).
       // Add freqOffset to display in the original (Watch) coordinate system.
       const freqOff = (currentMode === 'snipe' && snipePhase === 'call')
-        ? (snipeBpf - filterCenter()) : 0;
+        ? (snipeBpf - FILTER_CENTER) : 0;
 
       for (const r of batch) {
         const msg = r.message;
