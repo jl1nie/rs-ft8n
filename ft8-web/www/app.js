@@ -431,12 +431,14 @@ async function setSnipePhase(phase) {
   snipeView.classList.toggle('snipe-call-phase', phase === 'call');
   if (phase === 'watch') {
     waterfall.freqOffset = 0;
+    waterfall.noiseWindow = null; // full-band noise estimation
     snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
     await cat.setFilter(false);
     const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
     await cat.setFreq(baseHz);
   } else {
     waterfall.freqOffset = snipeBpf - FILTER_CENTER;
+    waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
     snipePhaseHint.textContent = `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
     await cat.setFilter(true);
     await cat.setFreq(snipeDialHz());
@@ -518,6 +520,7 @@ wfWrap.addEventListener('contextmenu', async (e) => {
   waterfall.targetLine = snipeBpf;
   if (snipePhase === 'call') {
     waterfall.freqOffset = snipeBpf - FILTER_CENTER;
+    waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
     await cat.setFreq(snipeDialHz());
   }
   updateSnipeOverlay();
@@ -1017,95 +1020,69 @@ const periodMgr = new FT8PeriodManager({
       }
     }
 
-    // Snipe: update RX list based on phase
+    // Snipe: unified RX list — append all decoded messages every period.
+    // No Watch/Call filtering: both phases share the same list so history
+    // is preserved across phase switches. Target messages are highlighted.
     if (currentMode === 'snipe') {
       const myCall = myCallInput.value.toUpperCase();
+      const callers = [];
 
-      if (snipePhase === 'watch') {
-        // Watch: show callers of target + all band activity
-        const callers = [];
-        for (const m of msgs) {
-          const upper = m.message.toUpperCase();
-          // Track who is calling the target
-          if (apCall && upper.includes(apCall)) {
-            const words = m.message.split(/\s+/);
-            // "TARGET CALLER GRID/RPT" — caller is words[1]
-            if (words[0]?.toUpperCase() === apCall && words[1] && words[1].toUpperCase() !== myCall) {
-              callers.push(words[1]);
-            }
+      for (const m of msgs) {
+        const upper = m.message.toUpperCase();
+        const isTarget = apCall && upper.includes(apCall);
+
+        // Track callers of current target
+        if (apCall) {
+          const words = m.message.split(/\s+/);
+          if (words[0]?.toUpperCase() === apCall && words[1] && words[1].toUpperCase() !== myCall) {
+            callers.push(words[1]);
           }
-
-          const div = document.createElement('div');
-          div.className = 'chat-msg rx';
-          const isTarget = apCall && upper.includes(apCall);
-          if (isTarget) div.classList.add('qso-active');
-          const snrV = Math.round(m.snr_db);
-          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
-            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
-            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
-            <span class="text">${m.message}</span>`;
-          div.style.cursor = 'pointer';
-          div.addEventListener('click', () => {
-            const words = m.message.split(/\s+/);
-            // Extract call1 (target) and call2 (sender/alt)
-            const calls = [];
-            for (const w of words) {
-              if (['CQ','DE','QRZ','DX'].includes(w)) continue;
-              if (w.length >= 3 && /[0-9]/.test(w)) calls.push(w);
-              if (calls.length >= 2) break;
-            }
-            const isCq = /^(CQ|DE|QRZ)\b/.test(m.message);
-            const target = isCq ? (calls[0] || '') : (calls[0] || '');
-            const sender = isCq ? (calls[0] || '') : (calls[1] || '');
-            if (target) {
-              qso.setMyInfo(myCallInput.value, myGridInput.value);
-              const tx = qso.callStation(target);
-              apCall = target;
-              snipeDxCall.textContent = target;
-              clearTargetCards();
-              snipeAltCall = (sender && sender !== target) ? sender : '';
-              if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
-            }
-          });
-          div.classList.add('new');
-          div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
-          snipeRxList.appendChild(div);
         }
+
+        const div = document.createElement('div');
+        div.className = 'chat-msg rx';
+        if (isTarget) div.classList.add('qso-active');
+        const snrV = Math.round(m.snr_db);
+        div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
+          <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
+          <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
+          <span class="text">${m.message}</span>`;
+        div.style.cursor = 'pointer';
+        div.addEventListener('click', () => {
+          const words = m.message.split(/\s+/);
+          const calls = [];
+          for (const w of words) {
+            if (['CQ','DE','QRZ','DX'].includes(w)) continue;
+            if (w.length >= 3 && /[0-9]/.test(w)) calls.push(w);
+            if (calls.length >= 2) break;
+          }
+          const isCq = /^(CQ|DE|QRZ)\b/.test(m.message);
+          const target = calls[0] || '';
+          const sender = isCq ? calls[0] : (calls[1] || calls[0] || '');
+          if (target) {
+            qso.setMyInfo(myCallInput.value, myGridInput.value);
+            const tx = qso.callStation(target);
+            apCall = target;
+            snipeDxCall.textContent = target;
+            clearTargetCards();
+            snipeAltCall = (sender && sender !== target) ? sender : '';
+            if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
+          }
+        });
+        div.classList.add('new');
+        div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
+        snipeRxList.appendChild(div);
+      }
+
+      if (msgs.length > 0) {
         pruneList(snipeRxList);
         snipeRxList.scrollTop = snipeRxList.scrollHeight;
-        if (msgs.length > 0) addUnread('snipe');
-
-        // Show callers list
-        if (apCall && callers.length > 0) {
-          snipeCallersEl.textContent = `Calling ${apCall}: ${callers.join(', ')}`;
-        }
-
-      } else {
-        // Call phase: only show messages involving me and target
-        for (const m of msgs) {
-          const upper = m.message.toUpperCase();
-          if (!apCall) continue;
-          const involvesMe = upper.includes(myCall);
-          const involvesTarget = upper.includes(apCall);
-          if (!involvesMe && !involvesTarget) continue;
-
-          const div = document.createElement('div');
-          div.className = 'chat-msg rx';
-          if (involvesTarget) div.classList.add('qso-active');
-          const snrV = Math.round(m.snr_db);
-          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
-            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
-            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
-            <span class="text">${m.message}</span>`;
-          div.classList.add('new');
-          div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
-          snipeRxList.appendChild(div);
-        }
-        snipeRxList.scrollTop = snipeRxList.scrollHeight;
         addUnread('snipe');
+      }
 
-        // Auto-switch back to Watch on QSO failure (reset)
-        // (handled by retry timeout above — user can manually switch too)
+      // Show callers summary above list
+      if (apCall && callers.length > 0) {
+        snipeCallersEl.textContent = `Calling ${apCall}: ${callers.join(', ')}`;
       }
     }
 
