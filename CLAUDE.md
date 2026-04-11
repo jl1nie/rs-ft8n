@@ -149,14 +149,29 @@ git config core.hooksPath .githooks
 
 これにより `.githooks/pre-commit` が有効になり、コミット前に `deploy.sh` が自動実行されて `docs/` が更新される。
 
-## 7. ブラウザ版リリース手順
+## 7. バージョン管理とリリース手順
+
+### 7.1. セマンティックバージョニング
+
+Web版・Tauriデスクトップ版は**常に同一バージョン**を維持する。
+
+| 変更の種類 | バンプ例 |
+|-----------|---------|
+| バグ修正・UI微調整 | `0.2.0` → `0.2.1` |
+| 機能追加（後方互換あり） | `0.2.0` → `0.3.0` |
+| 破壊的変更・大規模刷新 | `0.2.0` → `1.0.0` |
+
+バージョン番号を変更する場所（3ファイルを同時に更新すること）：
+- `ft8-web/www/app.js` の `APP_VERSION` 定数
+- `ft8-desktop/src-tauri/Cargo.toml` の `version`
+- `ft8-desktop/src-tauri/tauri.conf.json` の `version`
+
+### 7.2. ブラウザ版リリース手順
 
 ブラウザ版（GitHub Pages）のリリースは以下の手順で行う。
 **手動で `wasm-pack` を実行してはいけない。** pre-commit hook が自動で処理する。
 
-### 手順
-
-1. **`APP_VERSION` を更新**（`ft8-web/www/app.js` 内の `APP_VERSION` 定数）
+1. **バージョンを更新**（上記3ファイル）
 2. **`ft8-web/www/` 配下の JS/HTML を変更・コミット**
    - pre-commit hook が `ft8-web/www/*.js` → `docs/*.js` へ自動コピー
    - import パス `'../pkg/ft8_web.js'` → `'./ft8_web.js'` も自動書き換え
@@ -166,12 +181,29 @@ git config core.hooksPath .githooks
    cp pkg/ft8_web.js ../docs/ft8_web.js
    cp pkg/ft8_web_bg.wasm ../docs/ft8_web_bg.wasm
    ```
-   - `wasm-pack` のデフォルト出力先は `ft8-web/pkg/`
-   - `docs/ft8_web.js` と `docs/ft8_web_bg.wasm` は**必ず同じビルドからペアでコピー**する（JS グルーと WASM バイナリのハッシュが一致しないと動かない）
+   - `docs/ft8_web.js` と `docs/ft8_web_bg.wasm` は**必ず同じビルドからペアでコピー**する
    - `--out-dir` で直接 docs/ に出力しない（余計なファイルが混入する）
 4. **`git add` & `git commit` & `git push`**
 
-### JS のみの変更（WASM 再ビルド不要）
+### 7.3. Tauri デスクトップ版リリース手順
+
+```bash
+cd ft8-desktop && cargo tauri build
+```
+
+GitHub リリースは既存の `vX.Y.Z` タグに対してアセットを差し替える：
+
+```bash
+gh release delete-asset vX.Y.Z WebFT8_X.Y.Z_x64-setup.exe --yes
+gh release delete-asset vX.Y.Z WebFT8_X.Y.Z_x64_en-US.msi --yes
+gh release upload vX.Y.Z \
+  "src-tauri/target/release/bundle/nsis/WebFT8_X.Y.Z_x64-setup.exe" \
+  "src-tauri/target/release/bundle/msi/WebFT8_X.Y.Z_x64_en-US.msi"
+```
+
+新バージョンの場合は `gh release create vX.Y.Z` で新規作成。
+
+### 7.4. JS のみの変更（WASM 再ビルド不要）
 
 `ft8-core/` や `ft8-web/src/` に変更がない場合、WASM 再ビルドは不要。
 `ft8-web/www/` の変更をコミットするだけで pre-commit hook が docs/ を更新する。
