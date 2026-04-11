@@ -371,4 +371,47 @@ mod tests {
         // The all-zero codeword may or may not pass CRC; just check no panic.
         let _ = osd_decode(&llr);
     }
+
+    /// Verify that ldpc_encode produces codewords that satisfy ALL 83 parity
+    /// check equations stored in the NM/NRW tables.
+    ///
+    /// If this test fails, GEN_PARITY is inconsistent with the check matrix —
+    /// confirmed encoder bug.
+    #[test]
+    fn verify_ldpc_encode_parity() {
+        use super::super::tables::{NM, NRW};
+        use crate::params::LDPC_M;
+
+        // Test with several different info vectors to catch row-specific bugs.
+        let test_infos: &[[u8; LDPC_K]] = &[
+            [1u8; LDPC_K],   // all ones
+            {
+                let mut v = [0u8; LDPC_K];
+                for i in (0..LDPC_K).step_by(2) { v[i] = 1; }
+                v
+            }, // alternating
+            {
+                let mut v = [0u8; LDPC_K];
+                // first 77 bits = 1 (message), last 14 = 0 (CRC placeholder)
+                for i in 0..77 { v[i] = 1; }
+                v
+            },
+        ];
+
+        for (t, info) in test_infos.iter().enumerate() {
+            let cw = ldpc_encode(info);
+            for j in 0..LDPC_M {
+                let n = NRW[j] as usize;
+                let check: u8 = NM[j][..n]
+                    .iter()
+                    .map(|&i| cw[i as usize])
+                    .fold(0u8, |acc, b| acc ^ b);
+                assert_eq!(
+                    check, 0,
+                    "GEN_PARITY inconsistency: parity check row {} failed for test info #{} — encoder bug confirmed",
+                    j, t
+                );
+            }
+        }
+    }
 }

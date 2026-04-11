@@ -20,16 +20,19 @@ use crate::{
 // ────────────────────────────────────────────────────────────────────────────
 // CRC-14
 
-/// CRC-14 (polynomial 0x2757) over exactly `num_bits` bits, MSB-first.
-/// Matches WSJT-X ft8_crc() in crc14.cpp — processes 77 message bits only.
-fn crc14(data: &[u8], num_bits: usize) -> u16 {
+/// CRC-14 (polynomial 0x2757) over `data` bytes, MSB-first.
+/// Matches boost::augmented_crc<14, 0x2757> used in WSJT-X crc14.cpp:
+/// 77 message bits are packed into 12 bytes (96 bits total, last 19 bits = 0).
+fn crc14(data: &[u8]) -> u16 {
     let mut crc: u16 = 0;
-    for i in 0..num_bits {
-        let bit = (data[i / 8] >> (7 - i % 8)) & 1;
-        let msb = (crc >> 13) & 1;
-        crc = ((crc << 1) | bit as u16) & 0x3FFF;
-        if msb != 0 {
-            crc ^= 0x2757;
+    for &byte in data {
+        for i in (0..8).rev() {
+            let bit = (byte >> i) & 1;
+            let msb = (crc >> 13) & 1;
+            crc = ((crc << 1) | bit as u16) & 0x3FFF;
+            if msb != 0 {
+                crc ^= 0x2757;
+            }
         }
     }
     crc
@@ -37,12 +40,13 @@ fn crc14(data: &[u8], num_bits: usize) -> u16 {
 
 /// Append 14 CRC bits to a 77-bit message, producing 91 info bits.
 fn append_crc14(message77: &[u8; MSG_BITS]) -> [u8; LDPC_K] {
-    // Pack 77 message bits into 10 bytes (MSB-first; last 3 bits of byte 9 unused).
-    let mut bytes = [0u8; 10];
+    // Pack 77 message bits into 12 bytes (big-endian, MSB-first).
+    // Bytes 10-11 are zero; this 96-bit layout matches WSJT-X's CRC computation.
+    let mut bytes = [0u8; 12];
     for (i, &bit) in message77.iter().enumerate() {
         bytes[i / 8] |= (bit & 1) << (7 - i % 8);
     }
-    let crc = crc14(&bytes, MSG_BITS);
+    let crc = crc14(&bytes);
 
     let mut info = [0u8; LDPC_K];
     info[..MSG_BITS].copy_from_slice(message77);

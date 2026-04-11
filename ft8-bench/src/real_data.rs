@@ -137,3 +137,96 @@ pub fn evaluate_real_data(wav_path: &Path) -> Result<RealDataReport, String> {
         messages_subtract,
     })
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use ft8_core::message::unpack77;
+
+    /// Verify the decoder against a real WSJT-X recording.
+    ///
+    /// WAV source: https://github.com/jl1nie/RustFT8/tree/main/data
+    ///   191111_110200.wav  — mono 12 kHz 16-bit PCM, typical busy 40m band
+    ///
+    /// To run: place the WAV in ft8-bench/testdata/ then:
+    ///   cargo test -p ft8-bench real_wav -- --ignored --nocapture
+    ///
+    /// WSJT-X reference decode list for 191111_110200.wav (from WSJT-X 2.2):
+    ///   CQ LZ1JZ KN22, JA4HXF JH1HHC PM95, K5RHR JA8LN PM74, etc.
+    ///   Any run producing ≥ 8 messages with LZ1JZ and JH1HHC is correct.
+    #[test]
+    #[ignore = "requires 191111_110200.wav in testdata/ (download from jl1nie/RustFT8)"]
+    fn real_wav_110200_decodes_known_callsigns() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata")
+            .join("191111_110200.wav");
+
+        assert!(
+            path.exists(),
+            "WAV not found: {}  —  place 191111_110200.wav from jl1nie/RustFT8 data/ in testdata/",
+            path.display()
+        );
+
+        let report = evaluate_real_data(&path).expect("decode failed");
+
+        // Collect all decoded text messages (single-pass + subtract).
+        let all_msgs: Vec<String> = report
+            .messages_subtract
+            .iter()
+            .filter_map(|r| unpack77(&r.message77))
+            .collect();
+
+        println!("Decoded {} messages:", all_msgs.len());
+        for m in &all_msgs {
+            println!("  {m}");
+        }
+
+        // Must decode a reasonable number of messages from a busy band.
+        assert!(
+            all_msgs.len() >= 8,
+            "too few messages decoded ({}) — decoder may not be WSJT-X compatible",
+            all_msgs.len()
+        );
+
+        // Verify at least one message contains LZ1JZ (CQ from KN22).
+        // This callsign appears clearly in the band and WSJT-X always decodes it.
+        let has_lz1jz = all_msgs.iter().any(|m| m.contains("LZ1JZ"));
+        assert!(
+            has_lz1jz,
+            "LZ1JZ not found in decoded messages — decoder is not WSJT-X compatible\n\
+             All messages: {all_msgs:?}"
+        );
+    }
+
+    /// Same check on 191111_110130.wav.
+    #[test]
+    #[ignore = "requires 191111_110130.wav in testdata/ (download from jl1nie/RustFT8)"]
+    fn real_wav_110130_decodes_messages() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("testdata")
+            .join("191111_110130.wav");
+
+        assert!(path.exists(), "WAV not found: {}", path.display());
+
+        let report = evaluate_real_data(&path).expect("decode failed");
+
+        let all_msgs: Vec<String> = report
+            .messages_subtract
+            .iter()
+            .filter_map(|r| unpack77(&r.message77))
+            .collect();
+
+        println!("Decoded {} messages:", all_msgs.len());
+        for m in &all_msgs {
+            println!("  {m}");
+        }
+
+        assert!(
+            all_msgs.len() >= 5,
+            "too few messages decoded ({}) — decoder may not be WSJT-X compatible",
+            all_msgs.len()
+        );
+    }
+}

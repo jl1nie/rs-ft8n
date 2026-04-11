@@ -93,24 +93,14 @@ export class FT8PeriodManager {
       const endedPeriod = periodIndex - 1;
       const endedIsEven = endedPeriod % 2 === 0;
 
-      // Fire period END (await decode to complete before TX check)
-      if (this.callbacks.onPeriodEnd) {
-        try {
-          await this.callbacks.onPeriodEnd(endedPeriod, endedIsEven);
-        } catch (e) {
-          console.error('Decode error:', e);
-        }
-      }
-
-      // Fire period START
-      if (this.callbacks.onPeriodStart) {
-        this.callbacks.onPeriodStart(periodIndex, isEven);
-      }
-
-      // Check TX queue — fire if this is the right slot.
+      // ── Fire TX FIRST, at the period boundary, before decode ──────────────
+      // TX must start within ~2.4 s of the boundary (FT8 signal = 12.64 s;
+      // must fit inside the 15 s receive window).  Decode can take 1–3 s,
+      // so we fire TX immediately and decode concurrently.
+      //
       // Skip if TX was queued during this same boundary's onPeriodEnd
-      // callback (the slot parity coincidentally matches the period that
-      // just started, but we need to wait for the NEXT matching slot).
+      // callback (parity match against the period that just started —
+      // wait for the NEXT matching slot).
       if (this.txQueue) {
         const { txEven } = this.txQueue;
         const slotMatch = txEven === null || txEven === isEven;
@@ -119,8 +109,22 @@ export class FT8PeriodManager {
           const tx = this.txQueue;
           this.txQueue = null;
           if (this.callbacks.onTxFire) {
-            this.callbacks.onTxFire(tx);
+            this.callbacks.onTxFire(tx);  // fire-and-forget (async TX)
           }
+        }
+      }
+
+      // ── Period START callback ─────────────────────────────────────────────
+      if (this.callbacks.onPeriodStart) {
+        this.callbacks.onPeriodStart(periodIndex, isEven);
+      }
+
+      // ── Decode previous period (concurrently with TX) ─────────────────────
+      if (this.callbacks.onPeriodEnd) {
+        try {
+          await this.callbacks.onPeriodEnd(endedPeriod, endedIsEven);
+        } catch (e) {
+          console.error('Decode error:', e);
         }
       }
 
