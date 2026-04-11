@@ -136,7 +136,8 @@ function setStatus(text) {
     scoutDecodeInfo.textContent = text;
     if (!periodMgr.hasTxQueued()) scoutTxQueue.textContent = '';
   }
-  snipeTxLine.textContent = text;
+  // Decode counts (e.g. "10d 1783ms") go to snipe-decode-info only — not here
+  if (!/^\d+d \d+ms/.test(text)) snipeTxLine.textContent = text;
   // Show Halt/Reset when TX is queued, active, or halted
   btnHalt.style.display = (periodMgr.hasTxQueued() || isTx || halted) ? '' : 'none';
 }
@@ -1497,7 +1498,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-11-l';
+const APP_VERSION = '2026-04-11-m';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
