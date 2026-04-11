@@ -574,7 +574,7 @@ function addChatMsg(type, time, text, snr, actionCb, freq, dt) {
   });
 
   const freqStr = freq != null ? `${Math.round(freq)}` : '';
-  const dtStr = dt != null ? `${dt >= 0 ? '+' : ''}${dt.toFixed(1)}` : '';
+  const dtStr = dt != null ? `${dt >= 0 ? '+' : ''}${Math.round(dt)}` : '';
   const snrStr = snr != null && type === 'rx' ? `${snr >= 0 ? '+' : ''}${Math.round(snr)}` : '';
 
   div.innerHTML = `
@@ -1148,7 +1148,7 @@ const periodMgr = new FT8PeriodManager({
         // Escape HTML special chars so FT8 hash messages like "R065Z <...> RR73"
         // are not parsed as HTML tags (critical for EdgeWebView2 / Tauri)
         const safeMsg = m.message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const dtStr = m.dt_sec != null ? `${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}` : '';
+        const dtStr = m.dt_sec != null ? `${m.dt_sec >= 0 ? '+' : ''}${Math.round(m.dt_sec)}` : '';
         div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
           <span class="col-dt">${dtStr}</span>
           <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
