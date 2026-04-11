@@ -1,8 +1,8 @@
-# rs-ft8n PWA User Manual
+# WebFT8 PWA User Manual
 
-**[Japanese version](manual.md)** | **[Open App](https://jl1nie.github.io/rs-ft8n/)**
+**[Japanese version](manual.md)** | **[Open App](https://jl1nie.github.io/webft8/)**
 
-rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control, and log management in a single PWA. No installation required -- works on Chrome, Edge, and Safari (WebKit).
+WebFT8 is a browser-based FT8 QSO application -- decode, transmit, CAT control, and log management in a single PWA. No installation required -- works on Chrome, Edge, and Safari (WebKit).
 
 ---
 
@@ -10,7 +10,7 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
 
 ```
 +--------------------------------------+
-| rs-ft8n [Scout][Snipe] 14.074  12s * | <- Header (mode/band/secs/settings)
+| WebFT8 [Scout][Snipe] 14.074  12s * | <- Header (mode/band/secs/settings)
 |--------------------------------------|
 | ::::::::: Waterfall ::::::::::::::::: | <- Waterfall (tap to set DF)
 | ::::::::|::::::::::::::::::::::::::::: |    Red dashed line = current DF
@@ -29,7 +29,7 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
 
 ## Initial Setup
 
-1. Open the [app](https://jl1nie.github.io/rs-ft8n/)
+1. Open the [app](https://jl1nie.github.io/webft8/)
 2. The settings panel (gear icon) opens automatically (first time only)
 3. Enter the following:
    - **My Callsign** -- your callsign (e.g., `W1AW`). Auto-converted to uppercase
@@ -38,7 +38,7 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
    - **Audio Output** -- select TX audio output device (transmit side)
    - **RX / TX Gain** -- adjust input/output levels with sliders (see below)
 4. Select operating band from the **Band** selector in the header (e.g., `14.074 (20m)`)
-5. **Tap the logo (rs-ft8n)** to start live decoding (logo turns blue)
+5. **Tap the logo (WebFT8)** to start live decoding (logo turns blue)
 
 > Audio device selections are saved in localStorage and automatically restored on next visit. After initial setup, just tap the logo to start.
 
@@ -47,12 +47,12 @@ rs-ft8n is a browser-based FT8 QSO application -- decode, transmit, CAT control,
 ## Header
 
 ```
-rs-ft8n [Scout][Snipe]  14.074(20m)  12s  *
+WebFT8 [Scout][Snipe]  14.074(20m)  12s  *
 ```
 
 | Element | Description |
 |---------|-------------|
-| **rs-ft8n logo** | Tap to toggle Audio Start/Stop. Dimmed = stopped, blue = live |
+| **WebFT8 logo** | Tap to toggle Audio Start/Stop. Dimmed = stopped, blue = live |
 | **Mode tabs** | Scout / Snipe toggle |
 | **Band selector** | Operating band. On change, sets rig VFO frequency and mode (DATA-USB) when CAT is connected |
 | **Seconds remaining** | Integer seconds until next period boundary |
@@ -184,7 +184,7 @@ Real-time spectrogram covering 100-3000 Hz. Scout: responsive height (min(25vh, 
 
 FT8 signals appear as ~50 Hz wide vertical bands that **smoothly snake between 8 tone positions, hopping every 160 ms (one symbol)**. This is the natural per-symbol visualization of 8-GFSK modulation — it is **normal**, not a glitch.
 
-WSJT-X uses a much longer FFT integration window (~2.7 s ≈ 17 symbols), so the per-symbol tone hops are averaged out into uniform 50 Hz wide bars. rs-ft8n renders per-symbol ("honest"), WSJT-X renders per-frame ("tidied up"). The display difference does not affect decode quality.
+WSJT-X uses a much longer FFT integration window (~2.7 s ≈ 17 symbols), so the per-symbol tone hops are averaged out into uniform 50 Hz wide bars. WebFT8 renders per-symbol ("honest"), WSJT-X renders per-frame ("tidied up"). The display difference does not affect decode quality.
 
 ---
 
@@ -245,7 +245,7 @@ Snipe mode always runs both features (narrow band = fast enough).
 
 ## Callsign Hash Resolution
 
-Some FT8 message types (Type 4 non-standard calls, DXpedition messages, etc.) transmit callsigns as 10/12/22-bit hashes. Normally displayed as `<...>`, rs-ft8n automatically builds a **hash table from decoded callsigns** and resolves hashes to actual calls like `<JA1ABC>` in subsequent messages.
+Some FT8 message types (Type 4 non-standard calls, DXpedition messages, etc.) transmit callsigns as 10/12/22-bit hashes. Normally displayed as `<...>`, WebFT8 automatically builds a **hash table from decoded callsigns** and resolves hashes to actual calls like `<JA1ABC>` in subsequent messages.
 
 The table accumulates during the WASM session (max 1000 entries, LRU eviction) and clears on page reload.
 
@@ -286,7 +286,7 @@ Gain settings are saved to localStorage and restored on next launch.
 
 ## Settings Panel
 
-Open/close with the gear icon. Organized as an accordion with 4 sections.
+Open/close with the gear icon. Organized as an accordion with 5 sections (ordered by importance).
 
 ### Station
 
@@ -294,27 +294,19 @@ Open/close with the gear icon. Organized as an accordion with 4 sections.
 |------|-------------|
 | **My Callsign** | Your callsign (auto-uppercase on input) |
 | **My Grid** | Grid locator (4 characters, auto-uppercase) |
+
+### Rig
+
+| Item | Description |
+|------|-------------|
 | **Audio Input** | Receive audio device (selection auto-saved) |
 | **Audio Output** | TX audio output device (selection auto-saved) |
-| **RX / TX Gain** | Input/output level sliders + level meters + CLIP indicators |
+| **RX / TX Gain** | Input/output level sliders + level meters |
+| **Test Tone** | Continuous carrier for ALC adjustment (CAT PTT auto) |
 | **Start Audio** | Start or stop live decoding (also via logo tap) |
-
-### CAT
-
-| Item | Description |
-|------|-------------|
-| **Rig Model** | Rig selector dropdown (dynamically populated from rig-profiles.json) |
-| **Connect CAT** | Connect to rig via Web Serial. Desktop Chrome / Edge only |
+| **Rig Model** | Rig selector dropdown (from rig-profiles.json) |
+| **Connect Rig** | Connect via Web Serial. Desktop Chrome / Edge |
 | **Connect BLE** | Connect to IC-705 via Web Bluetooth. Mobile supported (see below) |
-
-### Decode
-
-| Item | Description |
-|------|-------------|
-| **Multi-pass subtract** | Successive interference cancellation (3-pass SIC). Default ON. Auto-paused over budget |
-| **A Priori (AP)** | AP decoding. Default ON. Auto-paused over budget |
-| **CQ response: first decoded** | ON: respond to the first decoded CQ. OFF (default): respond to the strongest SNR CQ |
-| **Open WAV File** | Select a WAV file for offline analysis |
 
 ### Log
 
@@ -323,7 +315,36 @@ Open/close with the gear icon. Organized as an accordion with 4 sections.
 | **Export ZIP (ADIF + RX)** | Download QSO and RX logs as ZIP |
 | **Clear All Logs** | Delete all logs (confirmation dialog shown) |
 
+### TX Messages
+
+| Item | Description |
+|------|-------------|
+| **Tx1 CQ suffix** | CQ suffix (POTA / SOTA / DX, max 4 chars) |
+| **Tx5 Free text** | Free text (SOTA ref, POTA ref, JCC, max 13 chars). Replaces RR73 |
+
+### Decode
+
+| Item | Description |
+|------|-------------|
+| **Strictness** | Decode sensitivity vs false-positive (Strict / Normal / Deep) |
+| **Equalizer** | Adaptive equalizer (Off / Adaptive). BPF edge correction |
+| **Retry limit** | QSO retry count limit (default 15) |
+| **Multi-pass subtract** | Successive interference cancellation (3-pass SIC). Default ON |
+| **A Priori (AP)** | AP decoding. Default ON |
+| **CQ reply: best SNR** | ON: respond to strongest CQ. OFF: first decoded |
+| **Waterfall FFT** | Toggle waterfall display |
+| **Open WAV File** | Select a WAV file for offline analysis |
+
 > AP target is set automatically -- from the QSO partner in Scout mode, or from the tapped target in Snipe mode. No manual input needed.
+
+### Pipelined Decode
+
+When Subtract is ON, decoding runs in two phases:
+
+1. **Phase 1** (~200ms): fast decode of strong signals → shown in chat immediately
+2. **Phase 2** (~300-800ms): 3-pass subtract for weaker signals → appended to chat
+
+Phase 1's FFT cache is reused by Phase 2, reducing computation. If budget is exceeded, Phase 2 is skipped (strong signals are already captured in Phase 1).
 
 ---
 
@@ -381,26 +402,56 @@ Uses the Web Serial API to control rig PTT, filter, frequency, and mode via USB.
 3. **Connect CAT** -- browser serial port selection dialog opens
 4. Select the port -- connected
 
-### Web Bluetooth / IC-705 BLE (Mobile)
+### IC-705 BLE Connection (Mobile / Wireless)
 
-Mobile browsers do not support Web Serial, but the IC-705 supports BLE (Bluetooth Low Energy) for CI-V commands. Web Bluetooth API enables CAT control of the IC-705 from a smartphone.
+The IC-705 supports BLE (Bluetooth Low Energy) for CI-V CAT commands. This lets you control PTT and frequency from a smartphone without cables. Audio still needs a separate path (USB audio cable or 3.5mm).
 
-**IC-705 BLE connection steps:**
+> **BLE = CAT control only.** Audio (RX/TX) does not go through BLE. Connect audio via USB OTG cable or the ACC/SP jacks.
 
-1. **Pair IC-705 in your phone's OS Bluetooth settings** (standard Bluetooth pairing)
-2. On IC-705: MENU -> Set -> Connectors -> Bluetooth -> **Pairing Reception = ON** (put radio in pairing-wait state)
-3. **Turn on Location (GPS)** on your phone (required for Android BLE scanning)
-4. In the app settings, tap **Connect BLE**
-5. Select IC-705 from the browser's device selection dialog
-6. The app connects via BLE GATT and automatically performs the application-level pairing sequence
-7. IC-705 grants CI-V bus access -- connected
+#### First-time Setup
 
-**Notes:**
+**On the IC-705:**
 
-- The Connect BLE button only appears in browsers that support Web Bluetooth
-- Tested on Android Chrome. iOS Safari does not support Web Bluetooth (use Bluefy or similar)
-- BLE connection auto-selects IC-705 as the rig model
-- If already paired, skip step 1 (start from step 2 on subsequent connections)
+1. **MENU** → **SET** → **Bluetooth** → **Bluetooth** = **ON**
+2. In the same menu: **Pairing Reception** = **ON**
+3. The IC-705 is now waiting for a BLE connection
+
+**On your phone:**
+
+4. Open your phone's **Bluetooth settings** and pair with "ICOM BT(IC-705)"
+   - Enter the pairing PIN shown on the IC-705 display
+5. After pairing succeeds, go back to WebFT8
+6. Open Settings (gear icon) → **Rig** section
+7. Tap **Connect BLE**
+8. Select "ICOM BT(IC-705)" from the browser's device dialog
+9. WebFT8 performs the BLE GATT application-level pairing automatically
+10. Status shows "connected" — done!
+
+#### Subsequent Connections
+
+Once paired, the IC-705 remembers the device. On the next session:
+
+1. Ensure IC-705 Bluetooth is ON (it usually stays on)
+2. In WebFT8, tap the logo (or **Connect BLE** in settings)
+3. Select the IC-705 from the dialog — connects in seconds
+
+#### Requirements
+
+| Item | Details |
+|------|---------|
+| **Browser** | Chrome on Android (Web Bluetooth required) |
+| **iOS** | Safari does not support Web Bluetooth. Use [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) browser |
+| **Location** | Android requires Location (GPS) to be ON for BLE scanning |
+| **Audio** | Separate USB audio cable or 3.5mm cable required |
+
+#### Troubleshooting
+
+| Problem | Solution |
+|---------|----------|
+| IC-705 not found in dialog | Turn on phone Location (GPS). Confirm IC-705 Pairing Reception = ON |
+| Pairing fails | Delete old pairing on both devices, retry from step 1 |
+| Connected but no PTT | Check IC-705 CI-V address (default 0xA4). Ensure DATA mode |
+| Audio not working | BLE is CAT only. Connect USB audio cable separately |
 
 ### Automatic CAT Functions
 
@@ -445,7 +496,7 @@ Setup: MENU -> Set -> Filter -> DATA-USB -> adjust FIL2 / FIL3 widths
 
 ## PWA Installation (Offline Support)
 
-rs-ft8n can be installed as a PWA on your device and works offline.
+WebFT8 can be installed as a PWA on your device and works offline.
 
 **How to install:**
 
