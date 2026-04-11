@@ -472,11 +472,11 @@ dtAutoCorrectCheck.addEventListener('change', () => {
 });
 
 btnNtp.addEventListener('click', async () => {
-  btnNtp.classList.add('syncing');
-  btnNtp.textContent = '...';
+  btnNtp.disabled = true;
+  btnNtp.textContent = 'Syncing...';
   await syncNtpOffset();
-  btnNtp.classList.remove('syncing');
-  btnNtp.textContent = 'NTP';
+  btnNtp.disabled = false;
+  btnNtp.textContent = 'NTP Sync';
 });
 settingsOverlay.addEventListener('click', closeSettings);
 document.getElementById('btn-close-settings').addEventListener('click', closeSettings);

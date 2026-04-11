@@ -65,11 +65,6 @@
   .dt-offset { font-size: var(--fs-xs); color: var(--c-text2); flex-shrink: 0;
     font-variant-numeric: tabular-nums; min-width: 4em; text-align: center; }
   .dt-offset.correcting { color: var(--c-warn, #f90); }
-  .ntp-btn { font-size: var(--fs-xs); color: var(--c-text2); background: none;
-    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    padding: 2px 6px; cursor: pointer; flex-shrink: 0; }
-  .ntp-btn:hover { color: var(--c-accent); border-color: var(--c-accent); }
-  .ntp-btn.syncing { color: var(--c-warn, #f90); }
   .header .gear { font-size: var(--fs-lg); color: var(--c-text2); cursor: pointer;
     padding: var(--sp-xs); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     line-height: 1; flex-shrink: 0; }
@@ -337,7 +332,6 @@
   </select>
   <span class="timer" id="period-timer">--</span>
   <span class="dt-offset" id="dt-offset-display" title="Estimated clock offset (DT auto-correction)"></span>
-  <button class="ntp-btn" id="btn-ntp" title="Sync clock offset via NTP (HTTP)">NTP</button>
   <span class="gear" id="btn-settings">&#9881;</span>
 </div>
 
@@ -522,6 +516,7 @@
     <label><input type="checkbox" id="subtract-mode" checked> Multi-pass subtract</label>
     <label><input type="checkbox" id="ap-mode" checked> A Priori (AP)</label>
     <label><input type="checkbox" id="dt-auto-correct" checked> DT auto-correct (FT8 signals)</label>
+    <button id="btn-ntp" style="margin-top:4px">NTP Sync</button>
     <label class="toggle"><input type="checkbox" id="cq-best-snr" checked><span class="toggle-track"></span><span id="cq-reply-label">CQ reply: best SNR</span></label>
     <label class="toggle"><input type="checkbox" id="waterfall-enable" checked><span class="toggle-track"></span><span>Waterfall FFT</span></label>
     <button id="btn-open-wav">Open WAV File</button>
