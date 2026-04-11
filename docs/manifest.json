@@ -1,7 +1,7 @@
 {
-  "name": "rs-ft8n — FT8 QSO",
-  "short_name": "rs-ft8n",
-  "description": "Browser-based FT8 QSO application with sniper mode",
+  "name": "WebFT8 — Browser FT8 Station",
+  "short_name": "WebFT8",
+  "description": "Browser-based FT8 QSO application powered by Rust/WASM",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0a0a0a",

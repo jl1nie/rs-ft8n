@@ -1,7 +1,7 @@
 {
-  "name": "ft8-desktop",
+  "name": "webft8-desktop",
   "version": "0.1.1",
-  "description": "rs-ft8n Desktop - FT8 Sniper Decoder",
+  "description": "WebFT8 Desktop — Browser FT8 Station (native wrapper)",
   "type": "module",
   "scripts": {
     "tauri": "tauri",

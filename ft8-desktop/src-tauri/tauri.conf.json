@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "rs-ft8n",
+  "productName": "WebFT8",
   "version": "0.1.1",
-  "identifier": "com.rs-ft8n.desktop",
+  "identifier": "io.github.jl1nie.webft8",
   "build": {
     "frontendDist": "../../docs",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "rs-ft8n",
+        "title": "WebFT8",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

@@ -208,46 +208,46 @@ waterfall.dfLine = scoutDf; // show DF line on startup
 
 // ── Core modules ────────────────────────────────────────────────────────────
 const audioOut = new AudioOutput();
-audioOut.setGain((localStorage.getItem('rs-ft8n-tx-gain') || 100) / 100);
+audioOut.setGain((localStorage.getItem('webft8-tx-gain') || 100) / 100);
 const cat = new CatController();
 const qsoLog = new QsoLog();
 
 // Restore settings
-myCallInput.value = localStorage.getItem('rs-ft8n-mycall') || '';
-myGridInput.value = localStorage.getItem('rs-ft8n-mygrid') || '';
+myCallInput.value = localStorage.getItem('webft8-mycall') || '';
+myGridInput.value = localStorage.getItem('webft8-mygrid') || '';
 myCallInput.addEventListener('change', () => {
   myCallInput.value = myCallInput.value.toUpperCase();
-  localStorage.setItem('rs-ft8n-mycall', myCallInput.value);
+  localStorage.setItem('webft8-mycall', myCallInput.value);
 });
 myGridInput.addEventListener('change', () => {
   myGridInput.value = myGridInput.value.toUpperCase();
-  localStorage.setItem('rs-ft8n-mygrid', myGridInput.value);
+  localStorage.setItem('webft8-mygrid', myGridInput.value);
 });
-const savedStrictness = localStorage.getItem('rs-ft8n-strictness');
+const savedStrictness = localStorage.getItem('webft8-strictness');
 if (savedStrictness !== null) strictnessSelect.value = savedStrictness;
-strictnessSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-strictness', strictnessSelect.value));
+strictnessSelect.addEventListener('change', () => localStorage.setItem('webft8-strictness', strictnessSelect.value));
 const cqBestSnrCheck = document.getElementById('cq-best-snr');
 const cqReplyLabel = document.getElementById('cq-reply-label');
 const updateCqLabel = () => { cqReplyLabel.textContent = cqBestSnrCheck.checked ? 'CQ reply: best SNR' : 'CQ reply: first decoded'; };
 cqBestSnrCheck.addEventListener('change', updateCqLabel);
 updateCqLabel();
 const eqModeSelect = document.getElementById('eq-mode');
-const savedEq = localStorage.getItem('rs-ft8n-eq-mode');
+const savedEq = localStorage.getItem('webft8-eq-mode');
 if (savedEq) eqModeSelect.value = savedEq;
-eqModeSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-eq-mode', eqModeSelect.value));
+eqModeSelect.addEventListener('change', () => localStorage.setItem('webft8-eq-mode', eqModeSelect.value));
 const retryLimitInput = document.getElementById('retry-limit');
-const savedRetry = localStorage.getItem('rs-ft8n-retry-limit');
+const savedRetry = localStorage.getItem('webft8-retry-limit');
 if (savedRetry) retryLimitInput.value = savedRetry;
 retryLimitInput.addEventListener('change', () => {
   const v = Math.max(1, Math.min(30, parseInt(retryLimitInput.value, 10) || 15));
   retryLimitInput.value = v;
-  localStorage.setItem('rs-ft8n-retry-limit', v);
+  localStorage.setItem('webft8-retry-limit', v);
   qso.maxRetries = v;
 });
-const savedBand = localStorage.getItem('rs-ft8n-band');
+const savedBand = localStorage.getItem('webft8-band');
 if (savedBand) bandSelect.value = savedBand;
 bandSelect.addEventListener('change', async () => {
-  localStorage.setItem('rs-ft8n-band', bandSelect.value);
+  localStorage.setItem('webft8-band', bandSelect.value);
   const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
   if (currentMode === 'snipe' && snipePhase === 'call') {
     await cat.setFreq(baseHz + (snipeBpf - FILTER_CENTER));
@@ -256,8 +256,8 @@ bandSelect.addEventListener('change', async () => {
   }
   await cat.setModeData();
 });
-deviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-in', deviceSelect.value));
-outputDeviceSelect.addEventListener('change', () => localStorage.setItem('rs-ft8n-audio-out', outputDeviceSelect.value));
+deviceSelect.addEventListener('change', () => localStorage.setItem('webft8-audio-in', deviceSelect.value));
+outputDeviceSelect.addEventListener('change', () => localStorage.setItem('webft8-audio-out', outputDeviceSelect.value));
 
 // ── Audio level controls ───────────────────────────────────────────────────
 const rxGainSlider = document.getElementById('rx-gain');
@@ -269,8 +269,8 @@ const txGainVal = document.getElementById('tx-gain-val');
 const txMeter = document.getElementById('tx-meter');
 const txClip = document.getElementById('tx-clip');
 
-const savedRxGain = localStorage.getItem('rs-ft8n-rx-gain');
-const savedTxGain = localStorage.getItem('rs-ft8n-tx-gain');
+const savedRxGain = localStorage.getItem('webft8-rx-gain');
+const savedTxGain = localStorage.getItem('webft8-tx-gain');
 if (savedRxGain) { rxGainSlider.value = savedRxGain; }
 if (savedTxGain) { txGainSlider.value = savedTxGain; }
 rxGainVal.textContent = rxGainSlider.value + '%';
@@ -280,13 +280,13 @@ rxGainSlider.addEventListener('input', () => {
   const pct = rxGainSlider.value;
   rxGainVal.textContent = pct + '%';
   capture.setGain(pct / 100);
-  localStorage.setItem('rs-ft8n-rx-gain', pct);
+  localStorage.setItem('webft8-rx-gain', pct);
 });
 txGainSlider.addEventListener('input', () => {
   const pct = txGainSlider.value;
   txGainVal.textContent = pct + '%';
   audioOut.setGain(pct / 100);
-  localStorage.setItem('rs-ft8n-tx-gain', pct);
+  localStorage.setItem('webft8-tx-gain', pct);
   updateTxMeter();
 });
 
@@ -337,12 +337,12 @@ myGridInput.addEventListener('input', () => {
 // Waterfall FFT can be disabled at runtime via Settings → Decode → "Waterfall FFT".
 // Useful for isolating whether the main-thread FFT load affects audio decode quality.
 const wfEnableEl = document.getElementById('waterfall-enable');
-let waterfallEnabled = (localStorage.getItem('rs-ft8n-wf-enable') ?? '1') === '1';
+let waterfallEnabled = (localStorage.getItem('webft8-wf-enable') ?? '1') === '1';
 if (wfEnableEl) {
   wfEnableEl.checked = waterfallEnabled;
   wfEnableEl.addEventListener('change', () => {
     waterfallEnabled = wfEnableEl.checked;
-    localStorage.setItem('rs-ft8n-wf-enable', waterfallEnabled ? '1' : '0');
+    localStorage.setItem('webft8-wf-enable', waterfallEnabled ? '1' : '0');
     if (!waterfallEnabled) waterfall.clear();
   });
 }
@@ -1156,7 +1156,7 @@ async function toggleAudio() {
     try {
       await capture.start(deviceId);
       capture.setGain(rxGainSlider.value / 100);
-      localStorage.setItem('rs-ft8n-audio-in', deviceId);
+      localStorage.setItem('webft8-audio-in', deviceId);
       periodMgr.start();
       liveMode = true;
       updateLiveUI();
@@ -1218,7 +1218,7 @@ async function refreshCatPorts() {
     catPortSelect.appendChild(opt);
   }
   // Restore last used port
-  const last = localStorage.getItem('rs-ft8n-cat-port');
+  const last = localStorage.getItem('webft8-cat-port');
   if (last) catPortSelect.value = last;
 }
 
@@ -1247,7 +1247,7 @@ btnCat.addEventListener('click', async () => {
       const portName = catPortSelect.value;
       if (!portName) { catStatusEl.textContent = 'Select a COM port'; return; }
       await cat.connectTauri(rigId, portName);
-      localStorage.setItem('rs-ft8n-cat-port', portName);
+      localStorage.setItem('webft8-cat-port', portName);
     } else {
       await cat.requestPort();
       await cat.connect(rigId);
@@ -1256,7 +1256,7 @@ btnCat.addEventListener('click', async () => {
     btnCat.textContent = 'Disconnect';
     const profiles = getRigProfiles();
     catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
-    localStorage.setItem('rs-ft8n-rig', rigId);
+    localStorage.setItem('webft8-rig', rigId);
   } catch (e) {
     await cat.disconnect();
     btnCat.textContent = 'Connect CAT';
@@ -1280,7 +1280,7 @@ btnCatBle.addEventListener('click', async () => {
     await cat.connectBle(rigId);
     btnCatBle.textContent = 'Disconnect';
     catStatusEl.textContent = 'BLE connected (IC-705)';
-    localStorage.setItem('rs-ft8n-rig', rigId);
+    localStorage.setItem('webft8-rig', rigId);
   } catch (e) {
     catStatusEl.textContent = `BLE error: ${e.message || e}`;
   }
@@ -1494,7 +1494,7 @@ init().then(async () => {
     opt.textContent = rig.label;
     rigSelect.appendChild(opt);
   }
-  const savedRig = localStorage.getItem('rs-ft8n-rig');
+  const savedRig = localStorage.getItem('webft8-rig');
   if (savedRig) rigSelect.value = savedRig;
 
   // Show CAT / BLE buttons based on browser support
@@ -1526,7 +1526,7 @@ init().then(async () => {
       outputDeviceSelect.appendChild(opt);
     }
     // Restore saved device selections
-    const savedIn = localStorage.getItem('rs-ft8n-audio-in');
+    const savedIn = localStorage.getItem('webft8-audio-in');
     if (savedIn) {
       // Try exact match first; fall back to matching by label substring
       deviceSelect.value = savedIn;
@@ -1539,7 +1539,7 @@ init().then(async () => {
         }
       }
     }
-    const savedOut = localStorage.getItem('rs-ft8n-audio-out');
+    const savedOut = localStorage.getItem('webft8-audio-out');
     if (savedOut) outputDeviceSelect.value = savedOut;
 
     // Ready — tap logo to start

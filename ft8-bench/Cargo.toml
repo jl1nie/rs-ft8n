@@ -3,6 +3,7 @@ name = "ft8-bench"
 version = "0.1.0"
 edition = "2024"
 license = "GPL-3.0-or-later"
+description = "WebFT8 benchmark and FT8 simulation suite"
 
 [dependencies]
 ft8-core = { path = "../ft8-core" }

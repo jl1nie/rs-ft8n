@@ -2,7 +2,7 @@
 name = "ft8-desktop"
 version = "0.1.1"
 edition = "2021"
-description = "rs-ft8n Desktop - FT8 Sniper Decoder"
+description = "WebFT8 Desktop — Browser FT8 Station (native wrapper)"
 
 [build-dependencies]
 tauri-build = { version = "2.0", features = [] }
