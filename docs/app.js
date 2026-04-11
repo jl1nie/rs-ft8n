@@ -505,9 +505,11 @@ wfWrap.addEventListener('click', async (e) => {
 });
 
 // Right-click: set target frequency (BPF center, green line) — Snipe only
+// preventDefault() must come before the mode guard so Tauri WebView never
+// shows the "Save image" system context menu on the canvas element.
 wfWrap.addEventListener('contextmenu', async (e) => {
-  if (currentMode !== 'snipe') return;
   e.preventDefault();
+  if (currentMode !== 'snipe') return;
   const rect = wfCanvas.getBoundingClientRect();
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
@@ -1269,6 +1271,9 @@ if (isTauriMode()) {
   catPortField.style.display = '';
   refreshCatPorts();
   btnCatRefresh.addEventListener('click', refreshCatPorts);
+  // Tauri WebView shows a native "Save image" context menu on canvas right-clicks.
+  // Suppress it globally — custom right-click handlers use e.preventDefault() anyway.
+  document.addEventListener('contextmenu', e => e.preventDefault());
 }
 
 btnCat.addEventListener('click', async () => {
