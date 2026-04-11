@@ -1088,15 +1088,15 @@ const periodMgr = new FT8PeriodManager({
             if (calls.length >= 2) break;
           }
           const isCq = /^(CQ|DE|QRZ)\b/.test(m.message);
-          const target = calls[0] || '';
-          const sender = isCq ? calls[0] : (calls[1] || calls[0] || '');
+          const target = isCq ? calls[0] : (calls[1] || calls[0] || '');
+          const other  = isCq ? '' : calls[0];
           if (target) {
             qso.setMyInfo(myCallInput.value, myGridInput.value);
             const tx = qso.callStation(target);
             apCall = target;
             snipeDxCall.textContent = target;
             clearTargetCards();
-            snipeAltCall = (sender && sender !== target) ? sender : '';
+            snipeAltCall = (other && other !== target) ? other : '';
             if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
             // Set BPF center to clicked station's frequency
             snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, Math.round(m.freq_hz)));
@@ -1498,7 +1498,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-11-m';
+const APP_VERSION = '2026-04-11-n';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
