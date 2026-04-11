@@ -17,6 +17,8 @@ export class FT8PeriodManager {
 
     // TX queue: { call1, call2, report, freq, txEven }
     this.txQueue = null;
+    // Period index when TX was queued — skip firing on the same boundary.
+    this._txQueuedPeriod = -1;
   }
 
   start() {
@@ -50,6 +52,11 @@ export class FT8PeriodManager {
    */
   queueTx(tx, txEven) {
     this.txQueue = { ...tx, txEven };
+    // Remember current period so _scheduleBoundary won't fire TX at the
+    // same boundary where it was queued (the slot parity matches the
+    // *current* period, which is the one that just started — TX should
+    // wait for the *next* matching slot, i.e. the next boundary).
+    this._txQueuedPeriod = this.getCurrentPeriod().periodIndex;
   }
 
   /** Cancel queued TX. */
@@ -100,10 +107,15 @@ export class FT8PeriodManager {
         this.callbacks.onPeriodStart(periodIndex, isEven);
       }
 
-      // Check TX queue — fire if this is the right slot
+      // Check TX queue — fire if this is the right slot.
+      // Skip if TX was queued during this same boundary's onPeriodEnd
+      // callback (the slot parity coincidentally matches the period that
+      // just started, but we need to wait for the NEXT matching slot).
       if (this.txQueue) {
         const { txEven } = this.txQueue;
-        if (txEven === null || txEven === isEven) {
+        const slotMatch = txEven === null || txEven === isEven;
+        const queuedThisBoundary = this._txQueuedPeriod === periodIndex;
+        if (slotMatch && !queuedThisBoundary) {
           const tx = this.txQueue;
           this.txQueue = null;
           if (this.callbacks.onTxFire) {
