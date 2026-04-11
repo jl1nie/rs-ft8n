@@ -179,8 +179,8 @@ function updateScoutStatus() {
   scoutState.textContent = state === 'IDLE' ? '' : state;
   scoutDxEl.textContent = (state !== 'IDLE' && qso.dxCall) ? qso.dxCall : '';
 
-  // Scout target card: show during active QSO
-  const active = state !== 'IDLE' && qso.dxCall;
+  // Scout target card: show during active QSO in Scout mode only
+  const active = currentMode === 'scout' && state !== 'IDLE' && qso.dxCall;
   scoutTargetEl.style.display = active ? '' : 'none';
   if (active) {
     scoutTargetCall.textContent = qso.dxCall;
