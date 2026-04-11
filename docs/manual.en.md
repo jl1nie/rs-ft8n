@@ -128,41 +128,42 @@ Find the target and choose the **transmit frequency (DF)**. Receive is full-band
 | Action | Effect |
 |--------|--------|
 | **Tap waterfall** | Set **DF (TX frequency)** (shown as red dashed line) |
-| **Tap an RX message** | Set call1 as target (AP auto-enabled). A secondary "Call call2" button also appears in TX actions |
+| **Tap an RX message** | Set that station as target (AP auto-enabled) and set **BPF center** to that station's frequency. TX actions show a "Call" button for the sender |
 
-**Phase hint:** Status shows `full-band  DF 1200 Hz`
+**Phase hint:** Status shows `full-band  DF 1200 Hz` (small text, top-right of Watch/Call tabs)
 
 **Watch display:**
 
 - **Top**: Target station's latest message (call / frequency / SNR)
 - **Callers**: List of other stations calling the target
-- **Message list**: DF / DT / SNR / Message in unified format (with period separators)
+- **Message list**: DF / DT / SNR / Message in unified format with period separators. Watch and Call share the same list — it is preserved when switching phases
 - **QSO progress dots**: filled-circle empty-circle empty-circle empty-circle -> all filled
 
 #### Call Phase (Narrow-Filter Receive)
 
-Once you've set the DF in Watch, switch to **Call**. When CAT is connected, the rig's DSP narrow filter (FIL3) is automatically engaged, and the VFO frequency shifts to track the BPF window center.
+Once you've set the DF in Watch, switch to **Call**. When CAT is connected, the rig's DSP narrow filter (FIL3) is automatically engaged, and the VFO shifts so the BPF center (1500 Hz audio, USB passband standard) covers the target.
 
 | Action | Effect |
 |--------|--------|
-| **Tap waterfall** | Set **BPF (RX window center)**. DF (TX frequency) remains as set in Watch. VFO tracks BPF when CAT is connected |
+| **Tap waterfall** | Set **BPF (RX window center)**. DF (TX frequency) stays as set in Watch. VFO tracks BPF when CAT is connected |
+| **Tap an RX message** | Set BPF center to that station's frequency and update VFO accordingly |
 
 **Phase hint:** Status shows `BPF 1050 Hz  DF 1200 Hz`
 
 - 500 Hz BPF window shown as a cyan band on the waterfall
 - Only messages involving you and the target are displayed (noise reduction)
-- If you tapped a target in Watch, Auto mode continues the QSO state progression automatically
-- Switching to Call alone does not start TX -- tap a target in Watch first to initiate the QSO
-- QSO failure (retry limit reached) -- auto-reverts to Watch, rig filter restored to wide
+- If you tapped a target in Watch, Auto mode continues the QSO automatically in Call
+- Switching to Call alone does not start TX — tap a target in Watch first to initiate the QSO
+- QSO failure (retry limit reached) → auto-reverts to Watch, rig filter restored to wide
 - You can manually switch back to Watch to change DF
 
 **VFO tracking (when CAT is connected):**
 
-Moving the BPF window automatically shifts the rig's VFO frequency so the physical filter covers the target signal. Returning to Watch restores the VFO to the original band frequency.
+Moving the BPF window shifts the rig VFO so the physical filter always covers the target. The BPF center is always 1500 Hz in audio (the USB passband center per ITU standard), so `dial_freq = band_freq + (BPF_target − 1500)`. Returning to Watch restores the VFO to the original band frequency.
 
 **Switching Watch / Call:**
 
-Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is preserved when switching. Returning to Watch automatically restores the CAT filter to wide (FIL2).
+Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is shared and preserved across phase switches. Returning to Watch automatically restores the CAT filter to wide (FIL2).
 
 ---
 
@@ -447,6 +448,8 @@ Once paired, the IC-705 remembers the device. On the next session:
 
 | Function | Trigger |
 |----------|---------|
+| **Auto-connect** | On app launch, if a rig and port are saved in settings, connects automatically |
+| **Rig setup** | After connect: sets DATA-USB mode → 200 ms delay → band frequency → wide filter (FIL2) |
 | **PTT ON/OFF** | Automatic on TX start/end |
 | **Mode setting** | Sets DATA-USB (FIL2) on band change |
 | **Narrow filter** | FIL3 (500 Hz) auto-engaged on Snipe Call phase |
