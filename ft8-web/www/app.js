@@ -765,12 +765,47 @@ const periodMgr = new FT8PeriodManager({
     const float32 = await capture.snapshot();
     if (float32.length < 12000) return;
 
+    // JS-side peak-normalize before decode. This is cache-safe: works even
+    // if the browser serves a stale WASM build without Rust-side normalization.
+    // Signals from USB radio adapters are typically at < 0.01 full-scale;
+    // without this, i16 conversion wastes 6-7 bits of dynamic range.
+    {
+      let peak = 0;
+      for (let i = 0; i < float32.length; i++) { const a = Math.abs(float32[i]); if (a > peak) peak = a; }
+      if (peak > 1e-6) { const s = 0.8 / peak; for (let i = 0; i < float32.length; i++) float32[i] *= s; }
+    }
+
     // Pass Float32Array directly — runDecode dispatches to the f32 WASM
     // entry points which fold scaling + i16 conversion + (no-op) resample
     // into a single Rust pass. The decode runs in a Web Worker so the
     // main thread (waterfall, UI) stays responsive throughout.
     const results = await runDecode(float32);
     const n = results.length;
+
+    // ── DT auto-calibration ─────────────────────────────────────────────────
+    // The PC clock may drift or jump (e.g. after NTP sync), making Date.now()
+    // run ahead or behind real UTC. This shifts the period-end timestamp and
+    // causes all decoded DTs to be offset by the same amount.
+    //
+    // Recovery: take the minimum decoded DT each period as a proxy for the
+    // "fastest" station's true DT (expected ≈ 0.1 s for a punctual station).
+    // Any excess above the expected floor is our estimated clock lead.
+    // Smooth-update clockOffsetMs so the period timer converges over ~5 periods.
+    if (n >= 2) {
+      const minDt = results.reduce((m, r) => Math.min(m, r.dt_sec), Infinity);
+      const EXPECTED_MIN_DT = 0.1; // typical punctual-station DT
+      const drift = minDt - EXPECTED_MIN_DT;
+      if (drift > 0.05) {
+        // Exponential moving average — converges in ~5 periods (α=0.2)
+        const newOffset = 0.8 * periodMgr.clockOffsetMs + 0.2 * drift * 1000;
+        periodMgr.clockOffsetMs = Math.max(0, Math.min(5000, newOffset));
+      } else if (drift < -0.05) {
+        // Clock appears to be behind — reduce offset gently
+        periodMgr.clockOffsetMs = Math.max(0, periodMgr.clockOffsetMs + drift * 200);
+      }
+    }
+    // ── end DT calibration ──────────────────────────────────────────────────
+
     const utc = new Date(periodIndex * 15000).toISOString().substr(11, 5);
     // Period separator with UTC (skip if no decodes)
     if (n > 0) {
@@ -784,7 +819,9 @@ const periodMgr = new FT8PeriodManager({
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
-    setStatus(`${n}d ${lastDecodeMs}ms${shedTag}`);
+    const dtOffSec = periodMgr.clockOffsetMs / 1000;
+    const dtOffTag = dtOffSec > 0.1 ? ` DT-cal:${dtOffSec.toFixed(1)}s` : '';
+    setStatus(`${n}d ${lastDecodeMs}ms${shedTag}${dtOffTag}`);
 
     // AP target: use QSO dxCall if available, or last Snipe target
     if (qso.dxCall) apCall = qso.dxCall;
@@ -798,7 +835,9 @@ const periodMgr = new FT8PeriodManager({
       const msg = r.message;
       const freq = r.freq_hz;
       const snr = r.snr_db;
-      const dt = r.dt_sec;
+      // Subtract estimated clock offset so displayed DT reflects real station
+      // timing rather than our PC clock error (e.g. after NTP jump).
+      const dt = r.dt_sec - periodMgr.clockOffsetMs / 1000;
       // Quality gating now happens in ft8-core via DecodeStrictness; the
       // legacy `suspect` flag is gone. Keep the references neutral.
       const suspect = false;
