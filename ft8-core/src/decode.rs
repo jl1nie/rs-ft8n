@@ -796,4 +796,33 @@ mod tests {
         let results = decode_sniper(&audio, 1000.0, DecodeDepth::Bp, 10);
         assert!(results.is_empty());
     }
+
+    /// Verify DT accuracy: a signal placed at exactly dt=0 (0.5s into buffer)
+    /// should decode with DT close to 0.
+    #[test]
+    fn dt_accuracy_at_nominal_start() {
+        use crate::message::pack77_type1;
+        use crate::wave_gen::{message_to_tones, tones_to_f32};
+
+        let msg = pack77_type1("CQ", "JA1ABC", "PM95").unwrap();
+        let itone = message_to_tones(&msg);
+        let pcm = tones_to_f32(&itone, 1000.0, 1.0);
+
+        let mut audio_f32 = vec![0.0f32; 180_000];
+        let start = (0.5 * 12000.0) as usize; // 6000 samples
+        for (i, &s) in pcm.iter().enumerate() {
+            if start + i < audio_f32.len() {
+                audio_f32[start + i] = s;
+            }
+        }
+        let audio: Vec<i16> = audio_f32.iter()
+            .map(|&s| (s * 20000.0).clamp(-32767.0, 32767.0) as i16)
+            .collect();
+
+        let results = decode_frame(&audio, 100.0, 3000.0, 1.0, None, DecodeDepth::BpAllOsd, 200);
+        assert!(!results.is_empty(), "should decode the signal");
+        let dt = results[0].dt_sec;
+        eprintln!("DT = {dt:+.3} s (expected ≈ 0.0)");
+        assert!(dt.abs() < 0.5, "DT={dt} is too far from 0");
+    }
 }
