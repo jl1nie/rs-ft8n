@@ -734,7 +734,7 @@ function updateTxActions() {
     return;
   }
 
-  // QSO active — CQ + direct state buttons only (DX callsign shown in target field)
+  // QSO active: [CQ] [相手コール] [73]
   const cqSfx = tx1CqSuffix.value.trim().toUpperCase();
   const cqBtn = document.createElement('button');
   cqBtn.className = 'cq';
@@ -747,23 +747,27 @@ function updateTxActions() {
   });
   txActionsEl.appendChild(cqBtn);
 
-  // ── State nav: direct-jump to any QSO state (full desync recovery) ──────
-  // Show CALL / REPORT / 73 buttons — current state is highlighted.
-  const stateButtons = [
-    { label: 'CALL',   target: QSO_STATE.CALLING },
-    { label: 'REPORT', target: QSO_STATE.REPORT  },
-    { label: '73',     target: QSO_STATE.FINAL   },
-  ];
-  for (const { label, target } of stateButtons) {
-    const btn = document.createElement('button');
-    btn.className = 'state-nav-btn' + (state === target ? ' current-state' : '');
-    btn.textContent = label;
-    btn.addEventListener('click', () => {
-      const t = qso.forceState(target);
+  // 相手コール — queues the appropriate TX for the current state
+  const tx = qso.getNextTx();
+  if (tx) {
+    const dxBtn = document.createElement('button');
+    dxBtn.className = 'state-nav-btn current-state';
+    dxBtn.textContent = dx;
+    dxBtn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
+    txActionsEl.appendChild(dxBtn);
+  }
+
+  // 73 — force FINAL and queue
+  if (state !== QSO_STATE.FINAL) {
+    const btn73 = document.createElement('button');
+    btn73.className = 'state-nav-btn';
+    btn73.textContent = '73';
+    btn73.addEventListener('click', () => {
+      const t = qso.forceState(QSO_STATE.FINAL);
       if (t) queueTxMsg(t.call1, t.call2, t.report);
       updateTxActions(); updateQsoDisplay();
     });
-    txActionsEl.appendChild(btn);
+    txActionsEl.appendChild(btn73);
   }
 }
 
