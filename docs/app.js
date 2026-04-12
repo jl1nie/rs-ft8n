@@ -913,11 +913,12 @@ async function syncNtpOffset() {
 
       periodMgr.setClockOffset(best.offsetSec);
       const sign = best.offsetSec >= 0 ? '+' : '';
-      setStatus(`NTP: ${sign}${best.offsetSec.toFixed(2)} s (RTT ${best.rttMs} ms)`);
+      const msg = `NTP: DT ${sign}${best.offsetSec.toFixed(2)} s`;
+      showToast(msg);
       return best.offsetSec;
     } catch (_) { /* try next API */ }
   }
-  setStatus('NTP sync failed');
+  showToast('NTP sync failed');
   return null;
 }
 
