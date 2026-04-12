@@ -115,23 +115,47 @@ pub fn decode_wav(samples: &[i16], strictness: u8, sample_rate: u32) -> Vec<Deco
 ///
 /// AP passes are handled internally by ft8-core (pass 6-11).
 /// The deepest applicable pass is tried first based on available info:
+/// Build an ApHint from the supplied AP target fields.
+///
+/// | callsign | grid | mycall | Hint built                            |
+/// |----------|------|--------|---------------------------------------|
+/// | empty    | empty| any    | None                                  |
+/// | empty    | set  | any    | grid only                             |
+/// | set      | any  | empty  | CQ + call2 [+ grid] (Watch phase)     |
+/// | set      | any  | set    | mycall + call2       (Call phase)      |
+fn build_ap_hint(callsign: &str, grid: &str, mycall: &str) -> Option<ft8_core::decode::ApHint> {
+    use ft8_core::decode::ApHint;
+    if callsign.is_empty() && grid.is_empty() {
+        None
+    } else if callsign.is_empty() {
+        // grid only (no call known yet)
+        Some(ApHint::new().with_grid(grid))
+    } else if mycall.is_empty() {
+        // Watch phase: CQ-style hint; add grid for stronger lock
+        let mut h = ApHint::new().with_call1("CQ").with_call2(callsign);
+        if !grid.is_empty() { h = h.with_grid(grid); }
+        Some(h)
+    } else {
+        // Call phase: QSO hint (grid ignored — bits overlap with report field)
+        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
+    }
+}
+
 ///   mycall + dxcall + RRR/RR73/73 → 77-bit lock (passes 9-11)
-///   CQ + dxcall → 61-bit lock (pass 7)
+///   CQ + dxcall + grid → up to 76-bit lock (passes 7/8)
 ///   mycall + dxcall → 61-bit lock (pass 8)
 ///   dxcall only → 33-bit lock (pass 6)
+///   grid only → 15-bit lock (pass 6 fallback)
+///
+/// Pass `mycall = ""` for Watch phase (CQ-style hint + grid).
+/// Pass `mycall = <own_call>` for Call phase (QSO hint, grid ignored).
 #[wasm_bindgen]
-pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
-    use ft8_core::decode::{decode_sniper_sic, EqMode, ApHint};
+pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, grid: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
+    use ft8_core::decode::{decode_sniper_sic, EqMode};
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
 
-    let ap = if callsign.is_empty() {
-        None
-    } else if mycall.is_empty() {
-        Some(ApHint::new().with_call1("CQ").with_call2(callsign))
-    } else {
-        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
-    };
+    let ap = build_ap_hint(callsign, grid, mycall);
 
     let audio = if sample_rate != 12000 { resample_to_12k(samples, sample_rate) } else { samples.to_vec() };
     decode_and_register(
@@ -207,18 +231,12 @@ pub fn decode_wav_subtract_f32(samples: &[f32], strictness: u8, sample_rate: u32
 
 /// f32 variant of `decode_sniper`. See `decode_sniper` for parameters.
 #[wasm_bindgen]
-pub fn decode_sniper_f32(samples: &[f32], target_freq: f32, callsign: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
-    use ft8_core::decode::{decode_sniper_sic, EqMode, ApHint};
+pub fn decode_sniper_f32(samples: &[f32], target_freq: f32, callsign: &str, grid: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
+    use ft8_core::decode::{decode_sniper_sic, EqMode};
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
 
-    let ap = if callsign.is_empty() {
-        None
-    } else if mycall.is_empty() {
-        Some(ApHint::new().with_call1("CQ").with_call2(callsign))
-    } else {
-        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
-    };
+    let ap = build_ap_hint(callsign, grid, mycall);
 
     let audio = resample_f32_to_12k(samples, sample_rate);
     decode_and_register(

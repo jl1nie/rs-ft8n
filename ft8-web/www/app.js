@@ -77,6 +77,7 @@ const snipeOverlay = document.getElementById('snipe-overlay');
 const snipeFreqLabel = document.getElementById('snipe-freq-label');
 const chatList = document.getElementById('chat-list');
 const snipeDxCall = document.getElementById('snipe-dx-call');
+const snipeDxGridInput = document.getElementById('snipe-dx-grid');
 const snipeDxInfo = document.getElementById('snipe-dx-info');
 const snipeTxLine = document.getElementById('snipe-tx-line');
 const snipeBand = document.getElementById('snipe-band');
@@ -117,6 +118,7 @@ let snipeBpf = 1000;  // Snipe BPF window center (receive)
 let snipeDf = 1000;   // Snipe TX frequency
 let scoutDf = 1500;   // Scout TX frequency
 let apCall = '';
+let apGrid = '';
 let snipePhase = 'watch'; // 'watch' | 'call'
 let rxSlotEven = null; // even/odd of the period where DX was last heard
 let lastDecodeMs = 0; // last decode duration for timer display
@@ -168,6 +170,11 @@ function clearTargetCards() {
   scoutTargetInfo.textContent = '';
   snipeDxInfo.textContent = '';
 }
+
+snipeDxGridInput.addEventListener('input', () => {
+  apGrid = snipeDxGridInput.value.trim().toUpperCase();
+  snipeDxGridInput.value = apGrid;
+});
 
 function updateScoutStatus() {
   const state = qso.state;
@@ -795,15 +802,20 @@ async function runDecode(samples, sampleRate, onPartial) {
     ? (apCall || (currentMode === 'scout' && qso.dxCall ? qso.dxCall : ''))
     : '';
 
-  if (apTarget) {
-    const found = results.some(r => r.message.toUpperCase().includes(apTarget));
+  const apGridActive = useAp ? apGrid : '';
+  if (apTarget || apGridActive) {
+    const found = apTarget && results.some(r => r.message.toUpperCase().includes(apTarget));
     if (!found) {
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const myCall = myCallInput.value.trim().toUpperCase();
       const eqOn = eqModeSelect.value === 'adaptive';
+      // Watch phase: CQ-style AP (pass empty mycall + grid).
+      // Call phase: QSO AP (pass real mycall, no grid — grid bits overlap report).
+      const apMyCall = (currentMode === 'snipe' && snipePhase === 'call') ? myCall : '';
+      const apGridVal = (currentMode === 'snipe' && snipePhase === 'call') ? '' : apGridActive;
       const ap = await workerDecode(
         fnSniperName,
-        [samples, freq, apTarget, myCall, eqOn, sr],
+        [samples, freq, apTarget, apGridVal, apMyCall, eqOn, sr],
       );
       for (const r of ap) {
         if (!results.some(x => Math.abs(x.freq_hz - r.freq_hz) < 10)) {
@@ -1015,10 +1027,15 @@ const periodMgr = new FT8PeriodManager({
         }
         const isCq = /^(CQ|DE|QRZ)\b/.test(msg);
         const clickCall = isCq ? (calls[0] || '') : (calls[1] || calls[0] || '');
+        // Extract grid from CQ messages: "CQ DXCALL GRID" — words[2] if Maidenhead
+        const clickGrid = (isCq && words.length >= 3 && /^[A-R]{2}[0-9]{2}/i.test(words[2]))
+          ? words[2].toUpperCase() : '';
         addChatMsg('rx', utc, msg, snr, clickCall ? () => {
           qso.setMyInfo(myCallInput.value, myGridInput.value);
           const tx = qso.callStation(clickCall);
           apCall = clickCall;
+          apGrid = clickGrid;
+          snipeDxGridInput.value = clickGrid;
           snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, Math.round(freq)));
           if (snipePhase !== 'call') snipeDf = snipeBpf;
           clearTargetCards();
