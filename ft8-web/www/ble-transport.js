@@ -56,6 +56,10 @@ export class BleTransport {
 
     // Run pairing sequence
     await this._pair();
+    // IC-705 needs a moment after the CI-V bus access grant (0x64) before it
+    // is ready to accept CI-V commands.  Without this delay, the first write
+    // in rigSetup() can fail with a transient GATT error.
+    await delay(300);
     this.connected = true;
 
     // Start periodic GPS UTC query (IC-705 CI-V command 0x23 0x00)
