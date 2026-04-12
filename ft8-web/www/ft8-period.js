@@ -33,7 +33,7 @@ export class FT8PeriodManager {
     this._nextFireMs = 0;          // absolute ms when next boundary will fire (set by _scheduleBoundary)
     this._dtSamples = [];          // DT values collected this period
     this._dtHistory  = [];         // smoothed estimates, capped at HIST_LEN
-    this._MIN_SAMPLES = 3;         // minimum decoded signals per period
+    this._MIN_SAMPLES = 1;         // minimum decoded signals per period
     this._HIST_LEN   = 6;          // rolling history length (≈ 90 s)
     this._EMA_ALPHA  = 0.4;        // EMA smoothing factor
     this._dtAutoCorrect = true;    // FT8-signal-based correction enabled by default

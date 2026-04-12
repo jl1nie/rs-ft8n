@@ -1180,11 +1180,11 @@ const periodMgr = new FT8PeriodManager({
     // Feed DT values to clock-offset estimator.
     // Only use BP/OSD results with clean sync (dt_sec is reliable);
     // skip AP-assisted passes which may be anchored to a known signal.
-    if (results.length >= 3) {
+    {
       const dtVals = results
         .filter(r => (r.pass ?? 0) <= 5 && r.dt_sec != null)
         .map(r => r.dt_sec);
-      if (dtVals.length >= 3) periodMgr.addDtSamples(dtVals);
+      if (dtVals.length >= 1) periodMgr.addDtSamples(dtVals);
     }
 
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
