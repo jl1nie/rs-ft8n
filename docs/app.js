@@ -453,6 +453,11 @@ const snipeCallersEl = document.getElementById('snipe-callers');
 btnBpf.addEventListener('click', () => setSnipePhase(snipePhase === 'watch' ? 'call' : 'watch'));
 
 // Allow manual callsign entry in the Snipe target field
+snipeDxCall.addEventListener('input', () => {
+  const pos = snipeDxCall.selectionStart;
+  snipeDxCall.value = snipeDxCall.value.toUpperCase();
+  snipeDxCall.setSelectionRange(pos, pos);
+});
 snipeDxCall.addEventListener('change', () => {
   const call = snipeDxCall.value.trim().toUpperCase();
   snipeDxCall.value = call;
