@@ -748,11 +748,13 @@ function updateTxActions() {
   txActionsEl.appendChild(cqBtn);
 
   // 相手コール — queues the appropriate TX for the current state
+  // Label: "3Y0Z ▸ PM95" / "3Y0Z ▸ R-05" / "3Y0Z ▸ 73" so operator sees what will be sent
   const tx = qso.getNextTx();
   if (tx) {
+    const hint = tx.report || '';
     const dxBtn = document.createElement('button');
     dxBtn.className = 'state-nav-btn current-state';
-    dxBtn.textContent = dx;
+    dxBtn.textContent = hint ? `${dx} \u25b8 ${hint}` : dx;
     dxBtn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
     txActionsEl.appendChild(dxBtn);
   }
