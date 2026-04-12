@@ -1207,21 +1207,40 @@ const periodMgr = new FT8PeriodManager({
     }
 
     // Auto TX / retry (skip if halted — user must explicitly resume)
-    const txSlot = !isEven;
+    //
+    // Timing problem: onPeriodEnd(N) runs inside the period-N+1 boundary
+    // callback.  When decode finds a response needed in the odd slot and we
+    // are already IN the odd period N+1, simply queuing puts the TX in N+3
+    // (30 s later) because the next matching slot after N+1 is N+3.
+    //
+    // Fix: if the current period is already the right TX slot AND decode
+    // finished within the 2.4 s TX window, fire immediately (fire-and-forget,
+    // same as onTxFire).  Otherwise fall back to queuing for the next slot.
+    const txSlot = !isEven;   // false=odd when DX used even, true=even when DX used odd
+    // Helper: fire TX immediately if decode finished within the 2.4 s TX window
+    // and the current period is already the correct slot.  Otherwise queue.
+    const _fireTx = (tx, label) => {
+      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
+      const { isEven: curIsEven, elapsed } = periodMgr.getCurrentPeriod();
+      rxSlotEven = isEven; // remember which slot DX used
+      if (txSlot === curIsEven && elapsed < 2.4) {
+        // Fire-and-forget: do NOT await — same as onTxFire behaviour
+        transmit(tx.call1, tx.call2, tx.report, tx.freq ?? freq);
+      } else {
+        periodMgr.queueTx({ ...tx, freq }, txSlot);
+        setStatus(label ?? `TX queued: ${qso.formatTx(tx)}`);
+      }
+    };
+
     if (halted) { /* user halted, don't auto-queue */ }
     else if (txMsg && autoCheck.checked) {
-      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
-      rxSlotEven = isEven; // remember DX's slot
-      periodMgr.queueTx({ ...txMsg, freq }, txSlot);
-      setStatus(`TX queued: ${qso.formatTx(txMsg)}`);
+      _fireTx(txMsg);
     } else if (!txMsg && qso.state !== QSO_STATE.IDLE && autoCheck.checked) {
       const prevState = qso.state;
       const prevDx = qso.dxCall;
       const retryTx = qso.retry();
       if (retryTx) {
-        const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
-        periodMgr.queueTx({ ...retryTx, freq }, txSlot);
-        setStatus(`Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`);
+        _fireTx(retryTx, `Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`);
       } else if (prevDx) {
         // Max retries exceeded — log incomplete QSO
         qsoLog.add({
