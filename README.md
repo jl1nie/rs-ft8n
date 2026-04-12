@@ -61,8 +61,9 @@ WebFT8's sniper mode uses the transceiver's **500 Hz hardware narrow filter** to
 | crowd +40 dB, target −14 dB (54 dB gap) | 0% | **100% with 500 Hz HW BPF** |
 | BPF edge −18 dB, no AP | — | **45% (EQ)** |
 | BPF edge −18 dB, EQ + AP | — | **100%** |
+| Butterworth vs Elliptic 4-pole (center, −18 dB) | — | **95% both** |
 
-Full benchmark data (all scenarios, SNR sweeps, speed): **[docs/bench.md](docs/bench.md)**
+Full benchmark data (all scenarios, SNR sweeps, filter comparison): **[docs/bench.md](docs/bench.md)**
 
 ## For Developers
 

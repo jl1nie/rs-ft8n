@@ -354,51 +354,58 @@ fn run_busy_band_hard_scenario() {
 ///
 /// Three configurations, same 15-station crowd at +20 dB, 20 noise seeds:
 ///   1. **No-BPF**:     full i16 mix  -> ADC saturated, SIC/AP helpless
-///   2. **BPF-edge**:   500 Hz BPF, target at -3 dB passband edge
-///   3. **BPF-center**: 500 Hz BPF, target at 0 dB centre -> minimal distortion
+///   2. **BPF-edge**:        500 Hz Butterworth BPF, target at -3 dB edge
+///   3. **BPF-center**:      500 Hz Butterworth BPF, target at 0 dB centre
+///   4. **Elliptic-edge**:   500 Hz Elliptic BPF,    target at -3 dB edge
+///   5. **Elliptic-center**: 500 Hz Elliptic BPF,    target at 0 dB centre
 fn run_sniper_story_scenario() {
     use ft8_core::decode::{decode_sniper, decode_sniper_sic, DecodeDepth, ApHint};
     use ft8_core::decode::EqMode;
-    use ft8_core::message::pack77_type1;
-    use bpf::ButterworthBpf;
+    use bpf::{ButterworthBpf, EllipticBpf};
 
     const TARGET_FREQ: f32 = 1000.0;
-    const CROWD_SNR:   f32 = 40.0;   // same extreme gap as run_busy_band_hard_scenario
+    const CROWD_SNR:   f32 = 40.0;
     const N_POLES: usize = 4;
     const FS: f64 = 12_000.0;
     const N_SEEDS: u64 = 20;
 
-    let target_msg = pack77_type1("CQ", "3Y0Z", "JD34")
-        .expect("failed to pack target message");
+    let target_msg = pack77_test_type1("CQ", "3Y0Z", "JD34");
 
     let crowd = crowd_calls_grids();
     let crowd_msgs = build_cq_messages(&crowd);
     let num_crowd = crowd_msgs.len();
 
-    // AP hint: call2 = "3Y0Z" known (user has DX station locked in the UI)
     let ap = ApHint::new().with_call2("3Y0Z");
 
-    println!("=== Sniper Story: no-BPF vs BPF-edge vs BPF-center x SIC/AP ===");
-    println!("  crowd: {num_crowd} stations @ {CROWD_SNR:+.0} dB (ADC-saturating) | BPF: {N_POLES}-pole Butterworth 500 Hz");
-    println!("  AP hint: call2 = '3Y0Z' known  (SIC = successive interference cancellation)");
+    println!("=== Sniper Story: Butterworth vs Elliptic (4-pole, 500 Hz BW) ===");
+    println!("  crowd: {num_crowd} stations @ {CROWD_SNR:+.0} dB (ADC-saturating)");
+    println!("  AP hint: call2 = '3Y0Z' | EQ+AP applied to all BPF columns");
     println!();
-    // Column headers: no-BPF uses crowd-AGC mix; BPF columns use target+AWGN only
-    // (the hardware BPF removes the crowd before the ADC — the filter only adds
-    // position-dependent distortion to the in-band target signal).
-    // AP hint (call2 = "3Y0Z") applied to BPF columns to show SNR-extension gain.
-    // All hit counts require message77 == target_msg (no false positives counted).
-    println!("  {:>6}  {:>18}  {:>20}  {:>20}",
-        "SNR", "no-BPF (ADC sat.)", "BPF-edge + EQ+AP", "BPF-center + EQ+AP");
+    println!("  {:>6}  {:>14}  {:>16}  {:>16}  {:>16}  {:>16}",
+        "SNR", "no-BPF",
+        "BW-edge+EQ+AP", "BW-center+EQ+AP",
+        "EL-edge+EQ+AP", "EL-center+EQ+AP");
+
+    // Print Elliptic filter response for reference
+    {
+        let el = EllipticBpf::design(N_POLES, 1000.0, 1500.0, FS);
+        println!("  Elliptic edge BPF 1000–1500 Hz response:");
+        for &f in &[800.0, 900.0, 1000.0, 1100.0, 1200.0, 1300.0, 1500.0, 1800.0] {
+            println!("    {:>6.0} Hz: {:>6.1} dB", f, el.response_db(f, FS));
+        }
+        println!();
+    }
 
     for snr in [-10i32, -12, -14, -16, -18, -20, -22] {
         let target_snr = snr as f32;
-        let mut ok_noisy   = 0usize;  // no BPF, crowd-AGC quantised, sniper sw
-        let mut ok_edge_ap = 0usize;  // BPF edge, target+AWGN, EQ+AP
-        let mut ok_ctr_ap  = 0usize;  // BPF center, target+AWGN, EQ+AP
+        let mut ok_noisy     = 0usize;
+        let mut ok_bw_edge   = 0usize;
+        let mut ok_bw_ctr    = 0usize;
+        let mut ok_el_edge   = 0usize;
+        let mut ok_el_ctr    = 0usize;
 
         for seed in 0..N_SEEDS {
-            // --- 1. No-BPF: full crowd mix, crowd-AGC quantised ---------------
-            //   ADC gain set by +40 dB crowd → target buried in LSB noise
+            // --- 1. No-BPF ---------------------------------------------------
             let cfg_full = simulator::make_busy_band_scenario(
                 target_msg, TARGET_FREQ, target_snr, &crowd_msgs, CROWD_SNR, Some(seed),
             );
@@ -407,10 +414,7 @@ fn run_sniper_story_scenario() {
             if decode_sniper(&audio_noisy, TARGET_FREQ, DecodeDepth::BpAllOsd, 20)
                 .iter().any(|r| r.message77 == target_msg) { ok_noisy += 1; }
 
-            // --- BPF cases: target + AWGN only (crowd physically removed) -----
-            //   Hardware BPF eliminates the crowd before the ADC.
-            //   ADC gain now set by target+noise → full 16-bit dynamic range.
-            //   Software Butterworth models the filter's in-band distortion only.
+            // Target-only mix (hardware BPF removes crowd before ADC)
             let cfg_bpf = simulator::SimConfig {
                 signals: vec![simulator::SimSignal {
                     message77: target_msg,
@@ -422,39 +426,53 @@ fn run_sniper_story_scenario() {
             };
             let mix_bpf = simulator::generate_frame_f32(&cfg_bpf);
 
-            // --- 2. BPF-edge: target at -3 dB passband edge -------------------
-            //   BPF 1000-1500 Hz, target at 1000 Hz (low edge)
-            let mut bpf_e = ButterworthBpf::design(N_POLES, 1000.0, 1500.0, FS);
-            let filt_e = bpf_e.filter(&mix_bpf);
-            let peak_e = filt_e.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
-            let scale_e = if peak_e > 1e-6 { 29_000.0 / peak_e } else { 1.0 };
-            let audio_edge: Vec<i16> = filt_e.iter()
-                .map(|&s| (s * scale_e).clamp(-32_768.0, 32_767.0) as i16).collect();
-            if decode_sniper_sic(&audio_edge, TARGET_FREQ, DecodeDepth::BpAllOsd, 20,
-                    EqMode::Adaptive, Some(&ap))
-                .iter().any(|r| r.message77 == target_msg) { ok_edge_ap += 1; }
+            // helper: filter → normalise → i16 → decode
+            macro_rules! try_bpf {
+                ($filtered:expr, $ok:ident) => {{
+                    let filt = $filtered;
+                    let peak = filt.iter().map(|s: &f32| s.abs()).fold(0.0_f32, f32::max);
+                    let scale = if peak > 1e-6 { 29_000.0 / peak } else { 1.0 };
+                    let audio: Vec<i16> = filt.iter()
+                        .map(|&s| (s * scale).clamp(-32_768.0, 32_767.0) as i16).collect();
+                    if decode_sniper_sic(&audio, TARGET_FREQ, DecodeDepth::BpAllOsd, 20,
+                            EqMode::Adaptive, Some(&ap))
+                        .iter().any(|r| r.message77 == target_msg) { $ok += 1; }
+                }};
+            }
 
-            // --- 3. BPF-center: target at BPF centre --------------------------
-            //   BPF 750-1250 Hz, target at 1000 Hz (centre, ~0 dB atten)
-            let mut bpf_c = ButterworthBpf::design(N_POLES, 750.0, 1250.0, FS);
-            let filt_c = bpf_c.filter(&mix_bpf);
-            let peak_c = filt_c.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
-            let scale_c = if peak_c > 1e-6 { 29_000.0 / peak_c } else { 1.0 };
-            let audio_ctr: Vec<i16> = filt_c.iter()
-                .map(|&s| (s * scale_c).clamp(-32_768.0, 32_767.0) as i16).collect();
-            if decode_sniper_sic(&audio_ctr, TARGET_FREQ, DecodeDepth::BpAllOsd, 20,
-                    EqMode::Adaptive, Some(&ap))
-                .iter().any(|r| r.message77 == target_msg) { ok_ctr_ap += 1; }
+            // --- 2. Butterworth-edge -----------------------------------------
+            let mut bpf = ButterworthBpf::design(N_POLES, 1000.0, 1500.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_bw_edge);
+
+            // --- 3. Butterworth-center ----------------------------------------
+            let mut bpf = ButterworthBpf::design(N_POLES, 750.0, 1250.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_bw_ctr);
+
+            // --- 4. Elliptic-edge ---------------------------------------------
+            let mut bpf = EllipticBpf::design(N_POLES, 1000.0, 1500.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_el_edge);
+
+            // --- 5. Elliptic-center -------------------------------------------
+            let mut bpf = EllipticBpf::design(N_POLES, 750.0, 1250.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_el_ctr);
         }
 
-        println!("  {:+4} dB  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)",
+        let pct = |ok: usize| 100.0 * ok as f64 / N_SEEDS as f64;
+        println!("  {:+4} dB  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)",
             snr,
-            ok_noisy,   100.0 * ok_noisy   as f64 / N_SEEDS as f64,
-            ok_edge_ap, 100.0 * ok_edge_ap  as f64 / N_SEEDS as f64,
-            ok_ctr_ap,  100.0 * ok_ctr_ap   as f64 / N_SEEDS as f64,
+            ok_noisy,   pct(ok_noisy),
+            ok_bw_edge, pct(ok_bw_edge),
+            ok_bw_ctr,  pct(ok_bw_ctr),
+            ok_el_edge, pct(ok_el_edge),
+            ok_el_ctr,  pct(ok_el_ctr),
         );
     }
     println!();
+}
+
+fn pack77_test_type1(cq: &str, call: &str, grid: &str) -> [u8; 77] {
+    use ft8_core::message::pack77_type1;
+    pack77_type1(cq, call, grid).expect("failed to pack message")
 }
 // ────────────────────────────────────────────────────────────────────────────
 

@@ -190,29 +190,39 @@ RR73 and directed messages (77-bit AP, passes 9–11) consistently outperform th
 
 ---
 
-## Scenario 8 — Extreme Limit Sweep
+## Scenario 8 — Filter Comparison: Butterworth vs Elliptic (4-pole, 500 Hz BW)
 
-### Hard-mixed: 15 crowd @ +40 dB, target SNR sweep (20 seeds)
+15 crowd @ +40 dB (hardware BPF removes crowd before ADC; target + AWGN only after BPF).  
+EQ + AP (call2 = `3Y0Z`) applied to all BPF columns. 20 seeds per cell.
 
-Software-only decode at extreme ADC saturation.
+| SNR | no-BPF | BW-edge+EQ+AP | BW-center+EQ+AP | EL-edge+EQ+AP | EL-center+EQ+AP |
+|-----|--------|---------------|-----------------|---------------|-----------------|
+| −10 dB | 0% | **100%** | **100%** | **100%** | **100%** |
+| −12 dB | 0% | **100%** | **100%** | **100%** | **100%** |
+| −14 dB | 0% | **100%** | **100%** | **100%** | **100%** |
+| −16 dB | 0% | **100%** | **100%** | **100%** | **100%** |
+| −18 dB | 0% | **100%** | 95% | 95% | 95% |
+| −20 dB | 0% | 20% | **40%** | 20% | 35% |
+| −22 dB | 0% | 0% | **10%** | 0% | **10%** |
 
-| Target SNR | full-band subtract | sniper + AP |
-|------------|-------------------|-------------|
-| −14 dB | 0/20 (0%) | 0/20 (0%) |
-| −16 dB | 0/20 (0%) | 0/20 (0%) |
-| −18 dB | 0/20 (0%) | 0/20 (0%) |
-| −20 dB | 0/20 (0%) | 0/20 (0%) |
+Elliptic edge BPF (1000–1500 Hz) frequency response:
 
-At +40 dB crowd level, clipping distortion overwhelms the decoder entirely — regardless of algorithm. **Hardware BPF is mandatory** at this dynamic range.
+| Freq (Hz) | Attenuation |
+|-----------|-------------|
+| 800 | −38.0 dB (notch) |
+| 900 | −33.8 dB (notch) |
+| 1000 | −8.2 dB ← target at edge |
+| 1100 | −1.6 dB |
+| 1200 | 0.0 dB |
+| 1500 | −8.2 dB |
+| 1800 | −35.9 dB (notch) |
 
-### BPF edge: target SNR sweep (20 seeds, target+AWGN only)
+**Key results:**
+- **BW vs EL (center):** ほぼ同等。Elliptic のパスバンドリップルが −20 dB 以下で 5% 程度不利。
+- **BW vs EL (edge):** Elliptic のエッジ減衰が −8.2 dB (Butterworth は −3.0 dB) のため、ターゲットがエッジに乗る配置では Butterworth が有利。EQ でも 5 dB 差は回収困難。
+- **実運用への示唆:** IC-705 CW フィルタ (Elliptic 特性) でも VFO を合わせてターゲットを BPF センター付近に配置すれば Butterworth と同等の性能が得られる。
 
-| Target SNR | EQ OFF | EQ | CQ+call2 AP | full 77-bit AP |
-|------------|--------|----|-------------|----------------|
-| −18 dB | 12/20 (60%) | 14/20 (70%) | 19/20 (95%) | 14/20 (70%) |
-| −20 dB | 0/20 (0%) | 0/20 (0%) | 8/20 (40%) | 0/20 (0%) |
-| −22 dB | 0/20 (0%) | 0/20 (0%) | 2/20 (10%) | 0/20 (0%) |
-| −24 dB | 0/20 (0%) | 0/20 (0%) | 0/20 (0%) | 0/20 (0%) |
+Raw data: [`ft8-bench/results/elliptic_vs_butterworth_4pole.txt`](../ft8-bench/results/elliptic_vs_butterworth_4pole.txt)
 
 ---
 
@@ -267,6 +277,8 @@ The benchmark writes synthetic WAV files to `ft8-bench/testdata/` for WSJT-X cro
 | `sim_extreme_edge_24.wav` | BPF edge, target −24 dB (beyond decoder limit) |
 
 All WAVs are 12 000 Hz, 16-bit mono, ~14.6 s (FT8 frame).
+
+---
 
 ---
 

@@ -1,0 +1,52 @@
+date: 2026-04-12
+filter: Butterworth 4-pole (8th-order), 500 Hz BW
+ft8-bench commit: see git log
+
+=== Sniper Story: no-BPF vs BPF-edge vs BPF-center x SIC/AP ===
+  crowd: 15 stations @ +40 dB (ADC-saturating) | BPF: 4-pole Butterworth 500 Hz
+  AP hint: call2 = '3Y0Z' known  (SIC = successive interference cancellation)
+
+     SNR   no-BPF (ADC sat.)      BPF-edge + EQ+AP    BPF-center + EQ+AP
+   -10 dB      0/20 (  0%)     20/20 (100%)     20/20 (100%)
+   -12 dB      0/20 (  0%)     20/20 (100%)     20/20 (100%)
+   -14 dB      0/20 (  0%)     20/20 (100%)     20/20 (100%)
+   -16 dB      0/20 (  0%)     20/20 (100%)     20/20 (100%)
+   -18 dB      0/20 (  0%)     20/20 (100%)     19/20 ( 95%)
+   -20 dB      0/20 (  0%)      4/20 ( 20%)      8/20 ( 40%)
+   -22 dB      0/20 (  0%)      0/20 (  0%)      2/20 ( 10%)
+
+=== BPF edge-effect scenarios: 4-pole Butterworth (500 Hz BW), target @ -18 dB ===
+  (target + AWGN only — isolates filter distortion from crowd interference)
+  Filter response (example: centre=1000 Hz):
+        750 Hz:   -3.0 dB
+        800 Hz:   -0.4 dB
+        900 Hz:   -0.0 dB
+       1000 Hz:   -0.0 dB
+       1100 Hz:   -0.0 dB
+       1200 Hz:   -0.9 dB
+       1250 Hz:   -3.0 dB
+       1300 Hz:   -6.4 dB
+       1500 Hz:  -20.2 dB
+  [center  ] BPF 750–1250 Hz  atten=-0.0 dB  EQ OFF: 12/20 (60%)  EQ ON: 14/20 (70%)
+  [shoulder] BPF 950–1450 Hz  atten=-0.5 dB  EQ OFF: 6/20 (30%)  EQ ON: 10/20 (50%)
+  [edge    ] BPF 1000–1500 Hz  atten=-3.0 dB  EQ OFF: 4/20 (20%)  EQ ON: 9/20 (45%)
+  [no-BPF  ] reference (target+noise only)  8/20 decoded (40%)
+
+=== EXTREME LIMIT SWEEP ===
+
+--- BPF edge (500 Hz, 4-pole): target SNR sweep (20 seeds) ---
+     SNR      EQ OFF          EQ    CQ+call2  full 77bit
+   -18 dB    12/20      14/20      19/20      14/20
+   -20 dB     0/20       0/20       8/20       0/20
+   -22 dB     0/20       0/20       2/20       0/20
+   -24 dB     0/20       0/20       0/20       0/20
+   -26 dB     0/20       0/20       0/20       0/20
+   -28 dB     0/20       0/20       0/20       0/20
+
+--- QSO scenario: BPF edge, EQ+AP (20 seeds) ---
+     SNR     CQ(61bit)   REPORT(61b)   RR73(77bit)
+   -18 dB    19/20      18/20   FP:1    20/20
+   -20 dB     8/20       8/20      15/20
+   -22 dB     2/20       1/20       4/20
+   -24 dB     0/20       0/20       0/20
+   -26 dB     0/20       0/20       0/20

@@ -1,0 +1,33 @@
+date: 2026-04-12
+filter: Butterworth 4-pole vs Elliptic 4-pole (8th-order each), 500 Hz BW
+crowd: 15 stations @ +40 dB (ADC-saturating), AP hint: call2 = '3Y0Z', EQ+AP applied to all BPF columns
+
+=== Elliptic edge BPF 1000–1500 Hz response ===
+     800 Hz:  -38.0 dB   (notch)
+     900 Hz:  -33.8 dB   (notch)
+    1000 Hz:   -8.2 dB   (passband edge, -3 dB Butterworth vs -8.2 dB Elliptic)
+    1100 Hz:   -1.6 dB
+    1200 Hz:    0.0 dB
+    1300 Hz:   -0.1 dB
+    1500 Hz:   -8.2 dB
+    1800 Hz:  -35.9 dB   (notch)
+
+=== Sniper Story: Butterworth vs Elliptic (4-pole, 500 Hz BW) ===
+
+     SNR      no-BPF   BW-edge+EQ+AP  BW-center+EQ+AP  EL-edge+EQ+AP  EL-center+EQ+AP
+   -10 dB    0/20(  0%)  20/20(100%)    20/20(100%)    20/20(100%)    20/20(100%)
+   -12 dB    0/20(  0%)  20/20(100%)    20/20(100%)    20/20(100%)    20/20(100%)
+   -14 dB    0/20(  0%)  20/20(100%)    20/20(100%)    20/20(100%)    20/20(100%)
+   -16 dB    0/20(  0%)  20/20(100%)    20/20(100%)    20/20(100%)    20/20(100%)
+   -18 dB    0/20(  0%)  20/20(100%)    19/20( 95%)    19/20( 95%)    19/20( 95%)
+   -20 dB    0/20(  0%)   4/20( 20%)     8/20( 40%)     4/20( 20%)     7/20( 35%)
+   -22 dB    0/20(  0%)   0/20(  0%)     2/20( 10%)     0/20(  0%)     2/20( 10%)
+
+=== 観察 ===
+- BW-edge (-3 dB at 1000 Hz) vs EL-edge (-8.2 dB at 1000 Hz): Ellipticはエッジで大きく減衰するため
+  SNR -20 dB で Butterworth 20% に対し Elliptic 20% と同等。帯域外減衰の急峻さはEQで
+  補正されるが、エッジでの8 dB損失はEQでは完全に回復できない。
+- BW-center vs EL-center: ほぼ同等 (-18 dBまで95%, -20 dBで Butterworth 40% vs Elliptic 35%)
+  Ellipticのパスバンド内リップルが若干不利。
+- 実ハードウェア(IC-705 CWフィルタ)はElliptic特性に近いが、ターゲットをBPFセンターに
+  配置することでButterworthとの差は実用上無視できる。
