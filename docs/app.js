@@ -1289,12 +1289,12 @@ periodMgr.callbacks.onTxFire = async (tx) => {
 let halted = false;
 
 function updateHaltBtn() {
-  const txBusy = periodMgr.hasTxQueued() || halted;
-  btnHalt.textContent = txBusy ? '■' : '↺';
+  // ■ only when TX is actively queued — halted state shows ↺ (ready to reset)
+  btnHalt.textContent = periodMgr.hasTxQueued() ? '■' : '↺';
 }
 
 btnHalt.addEventListener('click', async () => {
-  if (periodMgr.hasTxQueued() || !halted) {
+  if (periodMgr.hasTxQueued()) {
     // Cancel TX, stop audio, keep QSO state
     periodMgr.cancelTx();
     audioOut.stop();
