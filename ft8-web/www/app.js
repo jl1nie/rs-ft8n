@@ -419,14 +419,12 @@ function setMode(mode) {
   updateSnipeOverlay();
 }
 
-// ── Snipe Watch/Call phase ──────────────────────────────────────────────────
-const btnWatch = document.getElementById('btn-watch');
-const btnCall = document.getElementById('btn-call');
+// ── Snipe BPF toggle ────────────────────────────────────────────────────────
+const btnBpf = document.getElementById('btn-bpf');
 const snipePhaseHint = document.getElementById('snipe-phase-hint');
 const snipeCallersEl = document.getElementById('snipe-callers');
 
-btnWatch.addEventListener('click', () => setSnipePhase('watch'));
-btnCall.addEventListener('click', () => setSnipePhase('call'));
+btnBpf.addEventListener('click', () => setSnipePhase(snipePhase === 'watch' ? 'call' : 'watch'));
 
 // Allow manual callsign entry in the Snipe target field
 snipeDxCall.addEventListener('change', () => {
@@ -445,8 +443,7 @@ function snipeDialHz() {
 
 async function setSnipePhase(phase) {
   snipePhase = phase;
-  btnWatch.classList.toggle('active', phase === 'watch');
-  btnCall.classList.toggle('active', phase === 'call');
+  btnBpf.classList.toggle('active', phase === 'call');
   const snipeView = document.getElementById('snipe-view');
   snipeView.classList.toggle('snipe-call-phase', phase === 'call');
   if (phase === 'watch') {
@@ -754,12 +751,9 @@ function updateTxActions() {
   });
   txActionsEl.appendChild(cqBtn);
 
-  // ── State nav: manual desync recovery ───────────────────────────────────
-  const nav = document.createElement('div');
-  nav.className = 'state-nav';
-
-  const fwdLabel = { [QSO_STATE.CALLING]: '→ REPORT', [QSO_STATE.REPORT]: '→ FINAL' };
-  const bwdLabel = { [QSO_STATE.REPORT]: '← CALLING', [QSO_STATE.FINAL]: '← REPORT' };
+  // ── State nav: manual desync recovery — same row as CQ ─────────────────
+  const fwdLabel = { [QSO_STATE.CALLING]: 'REPORT', [QSO_STATE.REPORT]: 'FINAL' };
+  const bwdLabel = { [QSO_STATE.REPORT]: '← Back', [QSO_STATE.FINAL]: '← Back' };
 
   if (bwdLabel[state]) {
     const bwd = document.createElement('button');
@@ -771,7 +765,7 @@ function updateTxActions() {
       if (t) queueTxMsg(t.call1, t.call2, t.report);
       updateTxActions(); updateQsoDisplay();
     });
-    nav.appendChild(bwd);
+    txActionsEl.appendChild(bwd);
   }
 
   if (fwdLabel[state]) {
@@ -784,13 +778,13 @@ function updateTxActions() {
       if (t) queueTxMsg(t.call1, t.call2, t.report);
       updateTxActions(); updateQsoDisplay();
     });
-    nav.appendChild(fwd);
+    txActionsEl.appendChild(fwd);
   }
 
   if (state === QSO_STATE.FINAL) {
     const done = document.createElement('button');
     done.className = 'state-nav-btn complete';
-    done.textContent = '✓ Complete';
+    done.textContent = '✓ Done';
     done.addEventListener('click', () => {
       if (qso.dxCall) {
         qsoLog.add({ dxCall: qso.dxCall, dxGrid: qso.dxGrid,
@@ -801,7 +795,7 @@ function updateTxActions() {
       qso.reset(); periodMgr.cancelTx(); rxSlotEven = null;
       updateTxActions(); updateQsoDisplay(); setStatus('QSO complete');
     });
-    nav.appendChild(done);
+    txActionsEl.appendChild(done);
   }
 
   const rst = document.createElement('button');
@@ -811,9 +805,7 @@ function updateTxActions() {
     qso.reset(); periodMgr.cancelTx(); rxSlotEven = null;
     updateTxActions(); updateQsoDisplay(); setStatus('QSO reset');
   });
-  nav.appendChild(rst);
-
-  txActionsEl.appendChild(nav);
+  txActionsEl.appendChild(rst);
 }
 
 autoCheck.addEventListener('change', updateTxActions);

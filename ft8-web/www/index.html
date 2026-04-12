@@ -148,13 +148,10 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
   .snipe-band { font-size: var(--fs-sm); color: var(--c-text2); margin-top: var(--sp-xs); }
   .snipe-band span { margin-right: var(--sp-sm); }
-  .snipe-phase-tabs { display: flex; gap: 0; }
-  .snipe-phase-tabs button { font-size: var(--fs-sm); padding: var(--sp-xs) 0.6rem;
+  .bpf-btn { font-size: var(--fs-sm); padding: var(--sp-xs) 0.8rem;
     border: 1px solid var(--c-border); background: var(--c-surface2); color: var(--c-text2);
-    cursor: pointer; min-height: 32px; }
-  .snipe-phase-tabs button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .snipe-phase-tabs button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-  .snipe-phase-tabs button.active { background: #1b5e20; color: var(--c-success); border-color: var(--c-success); }
+    border-radius: var(--radius-sm); cursor: pointer; min-height: 32px; font-weight: bold; }
+  .bpf-btn.active { background: #b71c1c; border-color: var(--c-danger); color: #fff; }
   .snipe-call-phase #snipe-callers { display: none; }
   .snipe-call-phase #snipe-band { display: none; }
 
@@ -249,15 +246,13 @@
   /* ── Waterfall drop highlight ──────────────────────────────────────── */
   #waterfall-wrap.drop-over { outline: 2px dashed var(--c-accent); outline-offset: -2px; }
 
-  /* ── QSO state nav (desync recovery) ────────────────────────────────── */
-  .state-nav { display: flex; gap: var(--sp-xs); flex-wrap: wrap; width: 100%;
-    margin-top: var(--sp-xs); padding-top: var(--sp-xs); border-top: 1px solid var(--c-border); }
-  .state-nav-btn { font-size: var(--fs-xs); padding: 3px 10px; min-height: 28px;
-    border: 1px solid var(--c-border); border-radius: var(--radius-sm);
-    background: transparent; color: var(--c-text2); cursor: pointer; }
-  .state-nav-btn:hover { border-color: var(--c-text); color: var(--c-text); }
-  .state-nav-btn.reset  { color: var(--c-danger); border-color: var(--c-danger); margin-left: auto; }
-  .state-nav-btn.complete { color: var(--c-success); border-color: var(--c-success); }
+  /* ── QSO state nav (desync recovery) — inline with CQ row ───────────── */
+  #tx-actions button.state-nav-btn { font-size: var(--fs-base); padding: var(--sp-sm) 0.8rem;
+    min-height: 44px; border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    background: transparent; color: var(--c-text2); cursor: pointer; font-weight: bold; }
+  #tx-actions button.state-nav-btn:hover { border-color: var(--c-text); color: var(--c-text); }
+  #tx-actions button.state-nav-btn.reset { color: var(--c-danger); border-color: var(--c-danger); }
+  #tx-actions button.state-nav-btn.complete { color: var(--c-success); border-color: var(--c-success); }
 
   /* ── Responsive: mobile ────────────────────────────────────────────── */
   @media (max-width: 600px) {
@@ -388,10 +383,7 @@
 <!-- Snipe view: target header only (list is shared below) -->
 <div id="snipe-view">
   <div style="display:flex;align-items:center;gap:var(--sp-xs);margin-bottom:var(--sp-xs)">
-    <div class="snipe-phase-tabs">
-      <button id="btn-watch" class="active">Watch</button>
-      <button id="btn-call">Call</button>
-    </div>
+    <button id="btn-bpf" class="bpf-btn">BPF</button>
     <span id="snipe-phase-hint" class="decode-info">full-band</span>
   </div>
   <div class="snipe-target" id="snipe-target">
