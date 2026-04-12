@@ -120,6 +120,8 @@ let snipeDf = 1000;   // Snipe TX frequency
 let scoutDf = 1500;   // Scout TX frequency
 let apCall = '';
 let apGrid = '';
+let snipeBpfSet = false; // true once user has explicitly right-clicked to set BPF target
+let lastDecodedMsgs = []; // msgs from last completed period (for GL reactive search)
 let snipePhase = 'watch'; // 'watch' | 'call'
 let rxSlotEven = null; // even/odd of the period where DX was last heard
 let lastDecodeMs = 0; // last decode duration for timer display
@@ -174,9 +176,31 @@ function clearTargetCards() {
   snipeDxInfo.textContent = '';
 }
 
+let _glSearchTimer = null;
 snipeDxGridInput.addEventListener('input', () => {
-  apGrid = snipeDxGridInput.value.trim().toUpperCase();
-  snipeDxGridInput.value = apGrid;
+  const val = snipeDxGridInput.value.trim().toUpperCase();
+  snipeDxGridInput.value = val;
+  apGrid = val;
+  if (_glSearchTimer) clearTimeout(_glSearchTimer);
+  if (val.length < 4) { snipeDxInfo.textContent = ''; return; }
+  _glSearchTimer = setTimeout(() => {
+    // Search last decoded CQ messages for matching grid prefix
+    const match = lastDecodedMsgs.find(m => {
+      const w = m.message.toUpperCase().split(/\s+/);
+      return /^(CQ|DE|QRZ)/.test(w[0]) && w.length >= 3 && w[2].startsWith(val);
+    });
+    if (match) {
+      const fullGrid = match.message.toUpperCase().split(/\s+/)[2];
+      snipeDxGridInput.value = fullGrid;
+      apGrid = fullGrid;
+      const snrStr = `${match.snr_db >= 0 ? '+' : ''}${Math.round(match.snr_db)} dB`;
+      snipeDxInfo.textContent = `${Math.round(match.freq_hz)} Hz ${snrStr}`;
+    } else {
+      snipeDxGridInput.value = '';
+      apGrid = '';
+      snipeDxInfo.textContent = '';
+    }
+  }, 600);
 });
 
 function updateScoutStatus() {
@@ -410,14 +434,15 @@ function setMode(mode) {
   if (mode === 'snipe') { unreadSnipe = 0; badgeSnipe.style.display = 'none'; }
   resizeCanvas();
   waterfall.dfLine = mode === 'scout' ? scoutDf : snipeDf;
-  waterfall.targetLine = (mode === 'snipe' && snipePhase === 'call') ? snipeBpf : null;
+  waterfall.targetLine = (mode === 'snipe' && snipeBpfSet) ? snipeBpf : null;
   waterfall.freqOffset = (mode === 'snipe' && snipePhase === 'call') ? (snipeBpf - FILTER_CENTER) : 0;
   if (mode === 'snipe') {
     snipePhaseHint.textContent = snipePhase === 'watch'
-      ? `full-band  DF ${snipeDf} Hz  Target ${snipeBpf} Hz`
+      ? (snipeBpfSet ? `full-band  BPF ${snipeBpf} Hz  DF ${snipeDf} Hz` : `full-band  DF ${snipeDf} Hz`)
       : `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
   }
   updateSnipeOverlay();
+  waterfall.drawFreqAxis();
 }
 
 // ── Snipe BPF toggle ────────────────────────────────────────────────────────
@@ -450,8 +475,10 @@ async function setSnipePhase(phase) {
   if (phase === 'watch') {
     waterfall.freqOffset = 0;
     waterfall.noiseWindow = null;
-    waterfall.targetLine = null;
-    snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
+    waterfall.targetLine = snipeBpfSet ? snipeBpf : null;
+    snipePhaseHint.textContent = snipeBpfSet
+      ? `full-band  BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`
+      : `full-band  DF ${snipeDf} Hz`;
     await cat.setFilter(false);
     const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
     await cat.setFreq(baseHz);
@@ -464,6 +491,7 @@ async function setSnipePhase(phase) {
     await cat.setFreq(snipeDialHz());
   }
   updateSnipeOverlay();
+  waterfall.drawFreqAxis();
 }
 
 // ── Settings panel ──────────────────────────────────────────────────────────
@@ -565,7 +593,7 @@ if (!myCallInput.value) setTimeout(openSettings, 500);
 
 // ── Snipe overlay on waterfall ──────────────────────────────────────────────
 function updateSnipeOverlay() {
-  if (currentMode !== 'snipe' || snipePhase === 'watch') {
+  if (currentMode !== 'snipe' || !snipeBpfSet) {
     snipeOverlay.style.display = 'none';
     snipeFreqLabel.style.display = 'none';
     return;
@@ -609,6 +637,7 @@ wfWrap.addEventListener('contextmenu', async (e) => {
   const rect = wfCanvas.getBoundingClientRect();
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
+  snipeBpfSet = true;
   // Show BPF target overlay in both Watch and Call modes
   waterfall.targetLine = snipeBpf;
   waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
@@ -1080,6 +1109,7 @@ const periodMgr = new FT8PeriodManager({
           apGrid = clickGrid;
           snipeDxGridInput.value = clickGrid;
           snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, Math.round(freq)));
+          snipeBpfSet = true;
           if (snipePhase !== 'call') snipeDf = snipeBpf;
           clearTargetCards();
           if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
@@ -1280,6 +1310,7 @@ const periodMgr = new FT8PeriodManager({
       addUnread('snipe');
     }
 
+    lastDecodedMsgs = msgs;
     waterfall.drawLabels(msgs);
     waterfall.drawFreqAxis();
 

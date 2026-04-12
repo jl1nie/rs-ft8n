@@ -140,7 +140,7 @@
   .snipe-target { background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: var(--radius-md); padding: var(--sp-sm); margin-bottom: var(--sp-xs); }
   .snipe-target .dx-call { font-size: var(--fs-lg); color: var(--c-success); font-weight: bold; }
-  #snipe-dx-grid { font-size: var(--fs-lg); font-weight: bold; color: var(--c-text2); }
+  #snipe-dx-grid { font-size: var(--fs-lg); font-weight: bold; color: var(--c-success); }
   .snipe-target .dx-msg { font-size: var(--fs-base); color: var(--c-warn); margin-top: var(--sp-xs); }
   .snipe-target .dx-info { font-size: var(--fs-sm); color: var(--c-text2); }
   .qso-progress { display: flex; align-items: center; gap: var(--sp-xs); margin: var(--sp-xs) 0;
@@ -392,7 +392,8 @@
         style="background:transparent;border:none;border-bottom:1px solid var(--c-border);outline:none;width:8em;cursor:text;"
         autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
       <input type="text" id="snipe-dx-grid" placeholder="GL" maxlength="6"
-        style="width:4.2em;background:var(--c-surface);color:var(--c-text);border:1px solid var(--c-border);border-radius:4px;padding:1px 4px;text-transform:uppercase">
+        autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false"
+        style="width:4.2em;background:var(--c-surface);border:1px solid var(--c-border);border-radius:4px;padding:1px 4px;text-transform:uppercase">
       <div class="dx-info" id="snipe-dx-info"></div>
     </div>
     <div id="snipe-callers" style="margin-top:var(--sp-xs);font-size:var(--fs-sm);color:var(--c-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>

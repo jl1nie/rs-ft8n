@@ -129,6 +129,17 @@ export class Waterfall {
 
     // Residual buffer for streaming
     this.residual = new Float32Array(0);
+
+    // ── Overlay canvas for axis/lines (non-scrolling) ────────────────────
+    // Axis labels and DF/target lines are drawn on a separate canvas that
+    // sits on top of the spectrogram canvas.  Because this canvas is never
+    // scrolled (only fully cleared + redrawn each frame), moving a line
+    // leaves no trace in the spectrogram history.
+    const ov = document.createElement('canvas');
+    ov.style.cssText = 'position:absolute;bottom:0;left:0;width:100%;height:280px;pointer-events:none;';
+    canvas.parentNode?.insertBefore(ov, canvas.nextSibling);
+    this._overlayCanvas = ov;
+    this._overlayCtx = ov.getContext('2d');
   }
 
   /** Update sample rate and recompute frequency bin mapping. */
@@ -239,10 +250,9 @@ export class Waterfall {
     ctx.setLineDash([]);
   }
 
-  /** Draw frequency axis labels at the top of the canvas. */
+  /** Redraw the overlay (axis labels + DF/target lines) on top of the spectrogram. */
   drawFreqAxis() {
-    this._drawFreqAxisInternal();
-    this._drawDfLine();
+    this._refreshOverlay();
   }
 
   // ── Internal ────────────────────────────────────────────────────────────
@@ -327,15 +337,34 @@ export class Waterfall {
 
     ctx.putImageData(imgData, 0, h - 1);
 
-    // Redraw overlays on top (survives scrolling)
-    this._drawFreqAxisInternal();
-    this._drawDfLine();
-    this._drawTargetLine();
+    // Refresh non-scrolling overlay (axis labels + DF/target lines).
+    // These are drawn on a separate canvas so they never leave traces
+    // in the scrolling spectrogram history when moved.
+    this._refreshOverlay();
   }
 
-  _drawFreqAxisInternal() {
-    const ctx = this.ctx;
-    const w = this.canvas.width;
+  // ── Overlay canvas helpers ───────────────────────────────────────────────
+
+  /** Sync overlay canvas pixel dimensions to the main canvas. */
+  _syncOverlaySize() {
+    const ov = this._overlayCanvas;
+    if (ov.width !== this.canvas.width) ov.width = this.canvas.width;
+    if (ov.height !== this.canvas.height) ov.height = this.canvas.height;
+  }
+
+  /** Clear and redraw all overlay elements (axis, DF line, target line). */
+  _refreshOverlay() {
+    this._syncOverlaySize();
+    const ctx = this._overlayCtx;
+    const w = this._overlayCanvas.width;
+    const h = this._overlayCanvas.height;
+    ctx.clearRect(0, 0, w, h);
+    this._drawFreqAxisInternal(ctx, w);
+    this._drawDfLine(ctx, w, h);
+    this._drawTargetLine(ctx, w, h);
+  }
+
+  _drawFreqAxisInternal(ctx, w) {
     const freqRange = this.freqMax - this.freqMin;
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
@@ -355,11 +384,8 @@ export class Waterfall {
   }
 
   /** Draw a vertical DF line if set. */
-  _drawDfLine() {
+  _drawDfLine(ctx, w, h) {
     if (this.dfLine == null) return;
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
     const x = ((this.dfLine - this.freqMin) / (this.freqMax - this.freqMin)) * w;
     if (x < 0 || x > w) return;
 
@@ -380,11 +406,8 @@ export class Waterfall {
   }
 
   /** Draw a vertical target line (green) for Snipe mode BPF center. */
-  _drawTargetLine() {
+  _drawTargetLine(ctx, w, h) {
     if (this.targetLine == null) return;
-    const ctx = this.ctx;
-    const w = this.canvas.width;
-    const h = this.canvas.height;
     const x = ((this.targetLine - this.freqMin) / (this.freqMax - this.freqMin)) * w;
     if (x < 0 || x > w) return;
 
