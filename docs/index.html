@@ -46,7 +46,9 @@
 
   /* ── Header ─────────────────────────────────────────────────────────── */
   .header { display: flex; align-items: center; gap: var(--sp-sm); padding: var(--sp-xs) var(--sp-sm);
-            background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
+            background: var(--c-surface); border-bottom: 2px solid var(--c-border); flex-shrink: 0;
+            transition: border-bottom-color .3s, background .3s; }
+  .header.dt-warn { border-bottom-color: var(--c-warn, #f90); background: rgba(255,153,0,0.06); }
   .header h1 { font-size: var(--fs-lg); color: var(--c-text2); cursor: pointer; transition: color .2s;
     user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   .header h1.live { color: var(--c-accent); }
