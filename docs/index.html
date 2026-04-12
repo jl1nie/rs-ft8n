@@ -65,11 +65,8 @@
   .timer { font-size: var(--fs-base); color: var(--c-snr); font-variant-numeric: tabular-nums;
     min-width: 2.5em; text-align: right; transition: color .2s; }
   .timer.dt-corrected { color: var(--c-warn, #f90); }
-  #dt-ann-display { font-size: 0.7em; opacity: 0.75; font-variant-numeric: normal; letter-spacing: 0; line-height: 1; }
   .timer.tx-on { color: var(--c-danger); font-weight: bold; }
-  .dt-offset { font-size: var(--fs-xs); color: var(--c-text2); flex-shrink: 0;
-    min-width: 4em; text-align: center; }
-  .dt-offset.correcting { color: var(--c-warn, #f90); }
+  #dt-status { font-size: var(--fs-xs); color: var(--c-text2); margin-top: 4px; display: none; }
   .header .gear { font-size: var(--fs-lg); color: var(--c-text2); cursor: pointer;
     padding: var(--sp-xs); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     line-height: 1; flex-shrink: 0; }
@@ -350,11 +347,7 @@
     <option value="432.065">432.065</option>
     <option value="1296.065">1296.065</option>
   </select>
-  <span class="timer-wrap">
-    <span class="timer" id="period-timer">--</span>
-    <span id="dt-ann-display"></span>
-  </span>
-  <span class="dt-offset" id="dt-offset-display" title="Estimated clock offset (DT auto-correction)"></span>
+  <span class="timer" id="period-timer">--</span>
   <span class="gear" id="btn-settings">&#9881;</span>
 </div>
 
@@ -509,6 +502,7 @@
     <span class="cat-status" id="cat-status" style="font-size:var(--fs-xs);color:var(--c-text2);display:block;margin-bottom:var(--sp-sm)">not connected</span>
     <button id="btn-gps-sync" style="margin-top:4px">GPS Sync</button>
     <button id="btn-ntp" style="margin-top:4px">NTP Sync</button>
+    <span id="dt-status"></span>
   </details>
   <details class="accordion">
     <summary>Log</summary>

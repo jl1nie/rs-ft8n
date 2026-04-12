@@ -67,11 +67,10 @@ function addUnread(mode) {
   badgeSnipe.style.display = '';
 }
 const timerEl = document.getElementById('period-timer');
-const dtAnnEl = document.getElementById('dt-ann-display');
-const dtOffsetEl = document.getElementById('dt-offset-display');
 const headerEl = document.querySelector('.header');
 const btnSettings = document.getElementById('btn-settings');
 const btnNtp = document.getElementById('btn-ntp');
+const dtStatusEl = document.getElementById('dt-status');
 const settingsPanel = document.getElementById('settings-panel');
 const settingsOverlay = document.getElementById('settings-overlay');
 const wfCanvas = document.getElementById('waterfall');
@@ -495,12 +494,10 @@ const isMobile = !isTauriMode() && ('ontouchstart' in window || navigator.maxTou
 function applyDtAutoCorrectUi() {
   const on = dtAutoCorrectCheck.checked;
   periodMgr.setDtAutoCorrect(on);
-  // Only show offset display when live AND auto-correct is on AND offset is small
-  dtOffsetEl.style.display = (on && liveMode) ? '' : 'none';
   // NTP button is independent of FT8 auto-correct — always enabled
   if (!on) {
-    dtOffsetEl.textContent = '';
-    dtOffsetEl.classList.remove('correcting');
+    dtStatusEl.textContent = '';
+    dtStatusEl.style.display = 'none';
   }
 }
 dtAutoCorrectCheck.addEventListener('change', applyDtAutoCorrectUi);
@@ -995,31 +992,22 @@ const periodMgr = new FT8PeriodManager({
       capture.audioCtx.resume().catch(() => {});
     }
     // rem is already time-until-next-boundary-fire (from _nextFireMs in ft8-period.js).
-    // Show small annotation when abs(offset) > 0.3 s; colour yellow when >= 1.0 s.
-    const offset = periodMgr.clockOffsetSec;
-    if (Math.abs(offset) > 0.3) {
-      const ann = -offset;   // (-1.9) when clock is +1.9s fast
-      const annSign = ann >= 0 ? '+' : '';
-      timerEl.textContent = `${Math.ceil(rem)}s`;
-      dtAnnEl.textContent = `(${annSign}${ann.toFixed(1)})`;
-      const dtWarn = Math.abs(offset) >= 1.0;
-      timerEl.classList.toggle('dt-corrected', dtWarn);
-      headerEl.classList.toggle('dt-warn', dtWarn);
-      dtOffsetEl.style.display = 'none';
-    } else {
-      timerEl.textContent = `${Math.ceil(rem)}s`;
-      dtAnnEl.textContent = '';
-      timerEl.classList.remove('dt-corrected');
-      headerEl.classList.remove('dt-warn');
-      dtOffsetEl.style.display = liveMode && dtAutoCorrectCheck.checked ? '' : 'none';
-    }
+    // Timer turns yellow when |DT offset| >= 1.0 s.
+    timerEl.textContent = `${Math.ceil(rem)}s`;
+    const dtWarn = Math.abs(periodMgr.clockOffsetSec) >= 1.0;
+    timerEl.classList.toggle('dt-corrected', dtWarn);
+    headerEl.classList.toggle('dt-warn', dtWarn);
   },
   onClockOffset: (offsetSec) => {
-    const sign = offsetSec >= 0 ? '+' : '';
-    dtOffsetEl.textContent = `DT${sign}${offsetSec.toFixed(1)}`;
-    dtOffsetEl.classList.toggle('correcting', Math.abs(offsetSec) > 0.3);
-    // Don't touch display here — onTick controls visibility when live,
-    // updateLiveUI hides it when stopped.
+    // Show DT correction value below the NTP button.
+    if (Math.abs(offsetSec) > 0.1) {
+      const sign = offsetSec >= 0 ? '+' : '';
+      dtStatusEl.textContent = `DT ${sign}${offsetSec.toFixed(2)} s`;
+      dtStatusEl.style.display = '';
+    } else {
+      dtStatusEl.textContent = '';
+      dtStatusEl.style.display = 'none';
+    }
   },
   onPeriodEnd: async (periodIndex, isEven) => {
     if (!capture.running || !wasmReady) return;
@@ -1349,8 +1337,6 @@ function updateLiveUI() {
   if (!liveMode) {
     timerEl.textContent = '--';
     timerEl.classList.remove('dt-corrected');
-    // Hide DT offset display when not live — it has no meaning before decoding starts
-    if (dtAutoCorrectCheck.checked) dtOffsetEl.style.display = 'none';
   }
 }
 
