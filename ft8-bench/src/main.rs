@@ -649,12 +649,71 @@ fn run_bpf_subtract_scenario() {
         }
     }
 
-    // Write WAV
+    // Write WAV (seed=1234 example)
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("testdata")
         .join("sim_bpf_subtract.wav");
     if simulator::write_wav(&out, &audio).is_ok() {
         println!("  WAV: {}", out.display());
+    }
+
+    // ── Statistical sweep: 20 seeds × target SNR ────────────────────────────
+    // Same BPF + 4 in-band crowd setup, vary target SNR and noise seed.
+    // AP = target callsign known (call2 = "3Y0Z"), matching real GUI behaviour
+    // where the user has locked the DX station before calling.
+    use ft8_core::decode::ApHint;
+    let ap = ApHint::new().with_call2("3Y0Z");
+    const N_SEEDS: u64 = 20;
+    println!("  SNR sweep ({N_SEEDS} seeds each, AP = call2 '3Y0Z' known):");
+    println!("  {:>6}  {:>14}  {:>14}  {:>18}  {:>22}",
+        "SNR", "single-pass", "subtract", "sniper-SIC", "sniper-SIC+AP");
+    for snr in [-10, -12, -14, -16, -18, -20] {
+        let mut ok_single  = 0usize;
+        let mut ok_sub     = 0usize;
+        let mut ok_sic     = 0usize;
+        let mut ok_sic_ap  = 0usize;
+        for seed in 0..N_SEEDS {
+            let mut sigs = vec![simulator::SimSignal {
+                message77: target_msg,
+                freq_hz: TARGET_FREQ,
+                snr_db: snr as f32,
+                dt_sec: 0.0,
+            }];
+            for &(freq, ref msg) in &in_band_crowd {
+                sigs.push(simulator::SimSignal {
+                    message77: *msg,
+                    freq_hz: freq,
+                    snr_db: crowd_snr,
+                    dt_sec: 0.0,
+                });
+            }
+            let cfg = simulator::SimConfig { signals: sigs, noise_seed: Some(seed) };
+            let mix = simulator::generate_frame_f32(&cfg);
+            let mut bpf_s = ButterworthBpf::design(N_POLES, BPF_LO, BPF_HI, FS);
+            let filt = bpf_s.filter(&mix);
+            let peak = filt.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+            let scale = if peak > 1e-6 { 29_000.0 / peak } else { 1.0 };
+            let au: Vec<i16> = filt.iter()
+                .map(|&s| (s * scale).clamp(-32_768.0, 32_767.0) as i16)
+                .collect();
+
+            if decode_sniper(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20)
+                .iter().any(|r| r.message77 == target_msg) { ok_single += 1; }
+            if decode_frame_subtract(&au, BPF_LO as f32, BPF_HI as f32, 0.8, None,
+                    DecodeDepth::BpAllOsd, 20, DecodeStrictness::Normal)
+                .iter().any(|r| r.message77 == target_msg) { ok_sub += 1; }
+            if decode_sniper_sic(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, None)
+                .iter().any(|r| r.message77 == target_msg) { ok_sic += 1; }
+            if decode_sniper_sic(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap))
+                .iter().any(|r| r.message77 == target_msg) { ok_sic_ap += 1; }
+        }
+        println!("  {:+4} dB  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)",
+            snr,
+            ok_single, 100.0 * ok_single  as f64 / N_SEEDS as f64,
+            ok_sub,    100.0 * ok_sub     as f64 / N_SEEDS as f64,
+            ok_sic,    100.0 * ok_sic     as f64 / N_SEEDS as f64,
+            ok_sic_ap, 100.0 * ok_sic_ap  as f64 / N_SEEDS as f64,
+        );
     }
     println!();
 }

@@ -57,9 +57,12 @@ WebFT8's sniper mode uses the transceiver's **500 Hz hardware narrow filter** to
 
 | Scenario | WSJT-X | WebFT8 |
 |----------|--------|--------|
-| crowd +5 dB, target -12 dB | 7 decoded | **16 decoded** |
-| crowd +20 dB, target -18 dB | 11 (3Y0Z: AP) | **15** |
-| target -18 dB, BPF edge | 1 (AP) | **1 (sniper+EQ+AP)** |
+| crowd +5 dB, target −12 dB | 7 decoded | **16 decoded** |
+| crowd +40 dB, target −14 dB (54 dB gap) | 0% | **100% with 500 Hz HW BPF** |
+| BPF edge −18 dB, no AP | — | **45% (EQ)** |
+| BPF edge −18 dB, EQ + AP | — | **100%** |
+
+Full benchmark data (all scenarios, SNR sweeps, speed): **[docs/bench.md](docs/bench.md)**
 
 ## For Developers
 

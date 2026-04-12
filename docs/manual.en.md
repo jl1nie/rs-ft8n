@@ -120,7 +120,7 @@ During an active QSO, A Priori (AP) decoding is automatically enabled using the 
 
 A dedicated mode for hunting target stations. The waterfall is larger.
 
-The core of Snipe mode is the **separation of DF (TX frequency) and BPF (RX window center)**. Set the transmit frequency in Watch phase, then in Call phase only the receive window moves to track the target. This enables "off-frequency calling" where you transmit on a different frequency than the DX station.
+The core of Snipe mode is the **independent control of DF (TX frequency) and BPF (RX window center)**. Your transmit frequency (DF) is chosen once in Watch phase and stays fixed throughout the QSO. Meanwhile, the 500 Hz hardware BPF center continuously tracks the target station's frequency. This means you can **transmit from a clean, uncrowded slot while the pre-ADC filter stays precisely aimed at the DX station** — maximising SNR exactly where it matters. If the DX station drifts slightly during a pileup, only the BPF follows; there is no need to retune your TX frequency.
 
 #### Watch Phase (Full-Band Receive)
 
@@ -136,9 +136,7 @@ Find the target and choose the **transmit frequency (DF)**. Receive is full-band
 **Watch display:**
 
 - **Top card**: `TARGET_CALL  1234 Hz  -18 dB` — target callsign and latest heard freq/SNR on one line
-- **Pileup line** (single line, truncated with …):
-  - `Picked: YB2AYA@1234` — who the DX responded to this period and their DF
-  - `Pile: JA1ABC@1567 VK2XX@890` — who is calling the DX and their transmit frequency
+- **Picked line**: `Picked: YB2AYA@1234` — who the DX responded to this period and their DF. Decoded from the DX's own transmit period, so always visible. Shows who is getting through — if it's not you, the slot is in play
 - **Message list**: DF / DT / SNR / Message unified format with period separators. Shared between Watch and Call — preserved across phase switches
 - **QSO progress dots**: filled → → → all filled
 

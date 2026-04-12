@@ -1180,7 +1180,6 @@ const periodMgr = new FT8PeriodManager({
     if (currentMode === 'snipe') {
       const myCall = myCallInput.value.toUpperCase();
       const pickedUp = [];   // who DX responded to (DX picked up)
-      const pileCallers = []; // who is calling DX, with their freq
 
       for (const m of msgs) {
         try {
@@ -1195,10 +1194,6 @@ const periodMgr = new FT8PeriodManager({
           // DX responded to someone → "picked up"
           if (w0 === apCall && w1 && w1 !== myCall) {
             pickedUp.push({ call: words[1], freq: Math.round(m.freq_hz) });
-          }
-          // Someone is calling DX → track their DF
-          if (w1 === apCall && w0 && !['CQ','DE','QRZ','DX'].includes(w0) && w0 !== myCall) {
-            pileCallers.push({ call: words[0], freq: Math.round(m.freq_hz) });
           }
         }
 
@@ -1257,17 +1252,12 @@ const periodMgr = new FT8PeriodManager({
         addUnread('snipe');
       }
 
-      // Show pileup summary (single line, truncated)
-      if (apCall) {
-        const freqMap = Object.fromEntries(pileCallers.map(c => [c.call.toUpperCase(), c.freq]));
-        const fmt = ({ call, freq }) => {
-          const f = freqMap[call.toUpperCase()] ?? freq;
-          return `${call}@${f}`;
-        };
-        const parts = [];
-        if (pickedUp.length > 0) parts.push(`Picked: ${pickedUp.map(fmt).join(' ')}`);
-        if (pileCallers.length > 0) parts.push(`Pile: ${pileCallers.map(fmt).join(' ')}`);
-        snipeCallersEl.textContent = parts.join('   ');
+      // Show picked-up summary (DX responded to someone in this period)
+      if (apCall && pickedUp.length > 0) {
+        const fmt = ({ call, freq }) => `${call}@${freq}`;
+        snipeCallersEl.textContent = `Picked: ${pickedUp.map(fmt).join(' ')}`;
+      } else if (apCall) {
+        snipeCallersEl.textContent = '';
       }
     }
 
