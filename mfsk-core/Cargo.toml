@@ -1,0 +1,10 @@
+[package]
+name = "mfsk-core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Generic MFSK primitives: protocol traits, DSP, sync, LLR for WSJT-family modes"
+
+[dependencies]
+num-complex = "0.4"
+rustfft = "6"

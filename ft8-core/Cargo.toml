@@ -10,6 +10,9 @@ default = ["parallel"]
 parallel = ["rayon"]
 
 [dependencies]
+mfsk-core = { path = "../mfsk-core" }
+mfsk-fec = { path = "../mfsk-fec" }
+mfsk-msg = { path = "../mfsk-msg" }
 rustfft = "6"
 num-complex = "0.4"
 crc = "3"

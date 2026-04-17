@@ -1,7 +1,8 @@
-/// Belief-Propagation (log-domain) decoder for the LDPC (174, 91) code.
-/// Ported from WSJT-X bpdecode174_91.f90.
+//! Belief-Propagation (log-domain) decoder for the LDPC (174, 91) code.
+//! Ported from WSJT-X bpdecode174_91.f90.
+
 use super::tables::{MN, NM, NRW};
-use crate::params::{LDPC_K, LDPC_M, LDPC_N};
+use super::{LDPC_K, LDPC_M, LDPC_N};
 
 /// Number of check nodes per bit (constant in this code).
 const NCW: usize = 3;
@@ -19,7 +20,7 @@ fn platanh(x: f32) -> f32 {
 
 /// CRC-14 (polynomial 0x2757) over `data` bytes, processed MSB-first.
 /// Matches boost::augmented_crc<14, 0x2757> used in WSJT-X crc14.cpp.
-fn crc14(data: &[u8]) -> u16 {
+pub fn crc14(data: &[u8]) -> u16 {
     let mut crc: u16 = 0;
     for &byte in data {
         for i in (0..8).rev() {
@@ -37,8 +38,7 @@ fn crc14(data: &[u8]) -> u16 {
 /// Verify CRC-14 for a 91-bit decoded word (77 msg + 14 CRC).
 /// Packs bits into 12 bytes (big-endian, MSB first), zeros the CRC field,
 /// computes CRC-14, then compares with the stored CRC bits.
-pub(super) fn check_crc14(decoded: &[u8; LDPC_K]) -> bool {
-    // Pack 91 bits into 12 bytes; CRC field (bits 77..91) stays zero.
+pub fn check_crc14(decoded: &[u8; LDPC_K]) -> bool {
     let mut bytes = [0u8; 12];
     for (i, &bit) in decoded[..77].iter().enumerate() {
         let byte_idx = i / 8;
@@ -48,7 +48,6 @@ pub(super) fn check_crc14(decoded: &[u8; LDPC_K]) -> bool {
 
     let computed = crc14(&bytes);
 
-    // Extract received CRC from bits 77..91 (MSB first).
     let mut received: u16 = 0;
     for &bit in &decoded[77..91] {
         received = (received << 1) | (bit as u16 & 1);
@@ -81,18 +80,12 @@ pub fn bp_decode(
     ap_mask: Option<&[bool; LDPC_N]>,
     max_iter: u32,
 ) -> Option<BpResult> {
-    // Messages: check→bit.  tov[bit][local_check_idx]
     let mut tov = [[0f32; NCW]; LDPC_N];
-    // Messages: bit→check.  toc[check][local_bit_idx]
     let mut toc = [[0f32; 7]; LDPC_M];
-    // tanh of toc.         tanhtoc[check][local_bit_idx]
     let mut tanhtoc = [[0f32; 7]; LDPC_M];
-    // Extrinsic LLR per bit.
     let mut zn = [0f32; LDPC_N];
-    // Hard decisions.
     let mut cw = [0u8; LDPC_N];
 
-    // Initialise bit→check messages from channel LLRs.
     for j in 0..LDPC_M {
         for i in 0..NRW[j] as usize {
             toc[j][i] = llr[NM[j][i] as usize];
@@ -103,7 +96,6 @@ pub fn bp_decode(
     let mut nclast = 0u32;
 
     for iter in 0..=max_iter {
-        // --- Update extrinsic LLRs ---
         for i in 0..LDPC_N {
             let ap = ap_mask.is_some_and(|m| m[i]);
             if !ap {
@@ -114,7 +106,6 @@ pub fn bp_decode(
             }
         }
 
-        // --- Hard decisions and parity check ---
         for i in 0..LDPC_N {
             cw[i] = if zn[i] > 0.0 { 1 } else { 0 };
         }
@@ -129,7 +120,6 @@ pub fn bp_decode(
         }
 
         if ncheck == 0 {
-            // All parity checks satisfied — verify CRC.
             let mut decoded = [0u8; LDPC_K];
             decoded.copy_from_slice(&cw[..LDPC_K]);
             if check_crc14(&decoded) {
@@ -149,10 +139,9 @@ pub fn bp_decode(
             }
         }
 
-        // --- Early stopping ---
         if iter > 0 {
             if ncheck < nclast {
-                ncnt = 0; // improvement: reset counter
+                ncnt = 0;
             } else {
                 ncnt += 1;
             }
@@ -162,12 +151,10 @@ pub fn bp_decode(
         }
         nclast = ncheck;
 
-        // --- Bit → check messages ---
         for j in 0..LDPC_M {
             for i in 0..NRW[j] as usize {
                 let ibj = NM[j][i] as usize;
                 let mut msg = zn[ibj];
-                // Subtract the contribution that check j sent to bit ibj.
                 for kk in 0..NCW {
                     if MN[ibj][kk] as usize == j {
                         msg -= tov[ibj][kk];
@@ -177,19 +164,16 @@ pub fn bp_decode(
             }
         }
 
-        // --- tanh of toc ---
         for i in 0..LDPC_M {
             for k in 0..NRW[i] as usize {
                 tanhtoc[i][k] = (-toc[i][k] / 2.0).tanh();
             }
         }
 
-        // --- Check → bit messages ---
         for j in 0..LDPC_N {
             for k in 0..NCW {
                 let ichk = MN[j][k] as usize;
                 let n = NRW[ichk] as usize;
-                // Product of tanhtoc for all bits in check `ichk` except bit j.
                 let tmn: f32 = NM[ichk][..n]
                     .iter()
                     .zip(tanhtoc[ichk][..n].iter())
@@ -208,24 +192,14 @@ pub fn bp_decode(
 mod tests {
     use super::*;
 
-    /// Verify that a known-good LLR vector (perfect channel) decodes correctly.
-    /// We construct a simple codeword from a known message and feed +/-10 LLRs.
     #[test]
     fn decode_perfect_llr_all_zeros() {
-        // The all-zeros codeword is always a valid LDPC codeword.
-        // Set LLR[i] = +10.0 for all bits (strongly favouring 0) — should decode to all zeros.
-        // CRC won't match (all-zero payload is unlikely valid), but we can still test
-        // that parity checks are satisfied.
         let llr = [10.0f32; 174];
-        // With 30 iterations, all-zero should satisfy parity but CRC may fail.
-        // This just checks the decoder runs without panic.
         let _result = bp_decode(&llr, None, 30);
-        // No assertion on result — CRC of all-zero payload is not expected to pass.
     }
 
     #[test]
     fn crc14_known_vector() {
-        // CRC-14 of 12 zero bytes should be 0.
         assert_eq!(crc14(&[0u8; 12]), 0);
     }
 }

@@ -3,8 +3,8 @@
 /// Ported from WSJT-X osd174_91.f90.  Uses ndeep=1: tests the order-0
 /// hard-decision candidate plus all 91 single-bit flips of the most
 /// reliable basis (MRB), returning the minimum-weight CRC-passing codeword.
-use crate::params::{LDPC_K, LDPC_N};
 use super::bp::check_crc14;
+use super::{LDPC_K, LDPC_N};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Generator parity sub-matrix

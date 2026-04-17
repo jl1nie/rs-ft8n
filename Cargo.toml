@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "mfsk-core",
+    "mfsk-fec",
+    "mfsk-msg",
     "ft8-core",
     "ft8-bench",
     "ft8-web",

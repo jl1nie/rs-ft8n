@@ -1,0 +1,9 @@
+[package]
+name = "mfsk-msg"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Message codecs (WSJT 77-bit, JT 72-bit, WSPR 50-bit) and callsign hash tables"
+
+[dependencies]
+mfsk-core = { path = "../mfsk-core" }
