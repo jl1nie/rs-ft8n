@@ -130,18 +130,22 @@ pub trait FrameLayout: Copy + Default + 'static {
 /// *how* to decode, not *what* code to use. Codecs ignore fields that don't
 /// apply (e.g. convolutional decoders ignore `osd_depth`).
 #[derive(Copy, Clone, Debug)]
-pub struct FecOpts {
+pub struct FecOpts<'a> {
     /// Maximum belief-propagation iterations (LDPC).
     pub bp_max_iter: u32,
     /// Ordered-statistics-decoding search depth (0 disables OSD fallback).
     pub osd_depth: u32,
     /// Optional a-priori hint: bits whose LLR should be clamped to a strong
     /// known value before decoding. `Some((mask, values))` where `mask[i] == 1`
-    /// means `values[i]` is locked.
-    pub ap_mask: Option<(&'static [u8], &'static [u8])>,
+    /// means `values[i]` is locked to `values[i]`.
+    ///
+    /// Lifetime is per-call: the caller allocates the AP vectors for the
+    /// duration of this decode — typical usage builds a `Vec<u8>` from an
+    /// `ApHint` and borrows into `FecOpts` for a single `decode_soft` call.
+    pub ap_mask: Option<(&'a [u8], &'a [u8])>,
 }
 
-impl Default for FecOpts {
+impl<'a> Default for FecOpts<'a> {
     fn default() -> Self {
         Self {
             bp_max_iter: 30,

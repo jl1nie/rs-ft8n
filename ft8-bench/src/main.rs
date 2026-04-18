@@ -80,11 +80,16 @@ fn main() {
 }
 
 fn run_ft4_snr_sweep() {
-    use ft4_core::decode::decode_frame;
+    use ft4_core::decode::{ApHint, decode_frame, decode_sniper_ap};
+    use mfsk_core::equalize::EqMode;
     use mfsk_core::{MessageCodec, MessageFields};
 
     println!("\n=== FT4 synthetic SNR sweep (20 seeds/SNR) ===");
-    println!("  {:>6}   {:>10}", "SNR", "decoded/20");
+    println!("  Columns: basic = decode_frame, AP = decode_sniper_ap(EQ=Adaptive, CQ+JA1ABC)");
+    println!(
+        "  {:>6}   {:>10}   {:>10}",
+        "SNR", "basic/20", "AP/20"
+    );
 
     let codec = mfsk_msg::Wsjt77Message::default();
     let msg77: [u8; 77] = {
@@ -101,8 +106,11 @@ fn run_ft4_snr_sweep() {
         out
     };
 
-    for snr in [-4, -6, -8, -10, -12, -14, -16, -18] {
-        let mut ok = 0usize;
+    let ap = ApHint::new().with_call1("CQ").with_call2("JA1ABC");
+
+    for snr in [-4, -6, -8, -10, -12, -14, -16, -18, -20] {
+        let mut ok_basic = 0usize;
+        let mut ok_ap = 0usize;
         for seed in 0..20u64 {
             let cfg = ft4_sim::SimConfig {
                 signals: vec![ft4_sim::SimSignal {
@@ -114,12 +122,20 @@ fn run_ft4_snr_sweep() {
                 noise_seed: Some(0xF70000 + seed),
             };
             let audio = ft4_sim::generate_slot(&cfg);
-            let results = decode_frame(&audio, 800.0, 1200.0, 1.2, 50);
-            if results.iter().any(|r| r.message77 == msg77) {
-                ok += 1;
+            if decode_frame(&audio, 800.0, 1200.0, 1.2, 50)
+                .iter()
+                .any(|r| r.message77 == msg77)
+            {
+                ok_basic += 1;
+            }
+            if decode_sniper_ap(&audio, 1000.0, 30, EqMode::Adaptive, Some(&ap))
+                .iter()
+                .any(|r| r.message77 == msg77)
+            {
+                ok_ap += 1;
             }
         }
-        println!("  {:>4} dB    {:>5}/20", snr, ok);
+        println!("  {:>4} dB    {:>5}/20    {:>5}/20", snr, ok_basic, ok_ap);
     }
 }
 

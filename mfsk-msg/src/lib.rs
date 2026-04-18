@@ -12,9 +12,12 @@
 //! typically a single instance lives in the decoder's side-channel state and
 //! is shared by every message unpack invocation.
 
+pub mod ap;
 pub mod hash_table;
+pub mod pipeline_ap;
 pub mod wsjt77;
 
+pub use ap::ApHint;
 pub use hash_table::CallsignHashTable;
 
 use mfsk_core::{DecodeContext, MessageCodec, MessageFields};

@@ -56,20 +56,31 @@ impl FecCodec for Ldpc174_91 {
         codeword.copy_from_slice(&cw);
     }
 
-    fn decode_soft(&self, llr: &[f32], opts: &FecOpts) -> Option<FecResult> {
+    fn decode_soft(&self, llr: &[f32], opts: &FecOpts<'_>) -> Option<FecResult> {
         assert_eq!(llr.len(), LDPC_N, "llr must be {} values", LDPC_N);
         let mut llr_arr = [0f32; LDPC_N];
         llr_arr.copy_from_slice(llr);
 
-        // Build an AP mask if the caller supplied one.  The mask's first field
-        // holds 1 where a bit is clamped, 0 otherwise.
+        // Apply AP hint: for every `mask[i] == 1`, clamp LLR to ±apmag
+        // according to `values[i]` (1 → +apmag, 0 → −apmag).
+        // `apmag = max(|llr|) · 1.01` gives the AP bits a stronger vote than
+        // any channel observation, matching WSJT-X convention.
         let ap_storage;
         let ap_mask: Option<&[bool; LDPC_N]> = match opts.ap_mask {
-            Some((mask, _)) => {
+            Some((mask, values)) => {
                 assert_eq!(mask.len(), LDPC_N, "ap mask must be {} bits", LDPC_N);
+                assert_eq!(values.len(), LDPC_N, "ap values must be {} bits", LDPC_N);
+                let apmag = llr_arr
+                    .iter()
+                    .map(|x| x.abs())
+                    .fold(0.0f32, f32::max)
+                    * 1.01;
                 let mut a = [false; LDPC_N];
-                for (dst, &src) in a.iter_mut().zip(mask) {
-                    *dst = src != 0;
+                for i in 0..LDPC_N {
+                    if mask[i] != 0 {
+                        a[i] = true;
+                        llr_arr[i] = if values[i] != 0 { apmag } else { -apmag };
+                    }
                 }
                 ap_storage = a;
                 Some(&ap_storage)

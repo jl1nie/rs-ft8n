@@ -11,8 +11,10 @@ use mfsk_core::dsp::downsample::DownsampleCfg;
 use mfsk_core::dsp::subtract::SubtractCfg;
 use mfsk_core::equalize::EqMode;
 use mfsk_core::pipeline::{self, FftCache};
+use mfsk_msg::pipeline_ap;
 
 pub use mfsk_core::pipeline::{DecodeDepth, DecodeResult, DecodeStrictness};
+pub use mfsk_msg::ApHint;
 
 /// FT4 downsample configuration: 12 kHz → ~666.7 Hz baseband, covering four
 /// tones spaced 20.833 Hz apart plus headroom.
@@ -115,5 +117,31 @@ pub fn decode_frame_subtract(
         DecodeStrictness::Normal,
         REFINE_STEPS,
         SYNC_Q_MIN,
+    )
+}
+
+/// Sniper-mode decode with optional AP hints — searches ±250 Hz of
+/// `target_freq` and, if `ap_hint` is supplied, clamps the known parts of
+/// the expected message to high-confidence LLRs before BP/OSD.
+pub fn decode_sniper_ap(
+    audio: &[i16],
+    target_freq: f32,
+    max_cand: usize,
+    eq_mode: EqMode,
+    ap_hint: Option<&ApHint>,
+) -> Vec<DecodeResult> {
+    pipeline_ap::decode_sniper_ap::<Ft4>(
+        audio,
+        &FT4_DOWNSAMPLE,
+        target_freq,
+        250.0,
+        0.8,
+        DecodeDepth::BpAllOsd,
+        max_cand,
+        DecodeStrictness::Normal,
+        eq_mode,
+        REFINE_STEPS,
+        SYNC_Q_MIN,
+        ap_hint,
     )
 }

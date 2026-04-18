@@ -7,3 +7,4 @@ description = "Message codecs (WSJT 77-bit, JT 72-bit, WSPR 50-bit) and callsign
 
 [dependencies]
 mfsk-core = { path = "../mfsk-core" }
+num-complex = "0.4"
