@@ -28,7 +28,8 @@ pub struct LlrSet {
     pub llrd: Vec<f32>,
 }
 
-/// Empirical LLR scale factor from WSJT-X ft8b.f90.
+/// Default LLR scale factor from WSJT-X ft8b.f90. Individual protocols may
+/// override via `ModulationParams::LLR_SCALE`.
 pub const LLR_SCALE: f32 = 2.83;
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -198,7 +199,8 @@ pub fn compute_llr<P: Protocol>(cs: &[Complex<f32>]) -> LlrSet {
     normalize_bmet(&mut bmetc);
     normalize_bmet(&mut bmetd);
 
-    let scale = |v: Vec<f32>| -> Vec<f32> { v.into_iter().map(|x| x * LLR_SCALE).collect() };
+    let s = P::LLR_SCALE;
+    let scale = |v: Vec<f32>| -> Vec<f32> { v.into_iter().map(|x| x * s).collect() };
 
     LlrSet {
         llra: scale(bmeta),

@@ -72,6 +72,12 @@ pub trait ModulationParams: Copy + Default + 'static {
     /// Downsample decimation factor: baseband rate = `12 000 / NDOWN` Hz.
     /// FT8 = 60 (→200 Hz), FT4 = 18 (→667 Hz). Proportional to tone spacing.
     const NDOWN: u32;
+
+    /// LLR scale factor applied after standard-deviation normalisation.
+    /// FT8 uses 2.83 (empirical, from WSJT-X ft8b.f90). Different
+    /// bits-per-symbol counts may shift the optimum — FT4's 2-bit LLR
+    /// dynamics are not identical to FT8's 3-bit case.
+    const LLR_SCALE: f32 = 2.83;
 }
 
 /// One Costas / pilot block: a contiguous run of tones starting at a specific

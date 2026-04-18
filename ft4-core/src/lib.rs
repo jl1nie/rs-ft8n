@@ -33,6 +33,9 @@ impl ModulationParams for Ft4 {
     const NFFT_PER_SYMBOL_FACTOR: u32 = 4; // NFFT1 = 4 × NSPS = 2304
     const NSTEP_PER_SYMBOL: u32 = 2; // half-symbol coarse-sync step (24 ms)
     const NDOWN: u32 = 18; // 12 000 / 18 ≈ 666.7 Hz baseband
+    // LLR_SCALE tuning (2.0 / 2.83 / 3.5) was measured to give identical
+    // threshold curves — BP already converges within that range. Keeping
+    // the WSJT-X default.
 }
 
 impl FrameLayout for Ft4 {
