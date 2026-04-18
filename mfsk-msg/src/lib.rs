@@ -5,8 +5,8 @@
 //! | Module       | Payload bits | Used by                   |
 //! |--------------|--------------|---------------------------|
 //! | [`wsjt77`]   | 77           | FT8, FT4, FT2, FST4       |
+//! | [`wspr`]     | 50           | WSPR                      |
 //! | (future) `jt72` | 72        | JT9, JT65                 |
-//! | (future) `wspr` | 50        | WSPR                      |
 //!
 //! [`hash_table::CallsignHashTable`] tracks hashed callsigns across decodes;
 //! typically a single instance lives in the decoder's side-channel state and
@@ -16,9 +16,11 @@ pub mod ap;
 pub mod hash_table;
 pub mod pipeline_ap;
 pub mod wsjt77;
+pub mod wspr;
 
 pub use ap::ApHint;
 pub use hash_table::CallsignHashTable;
+pub use wspr::{Wspr50Message, WsprMessage};
 
 use mfsk_core::{DecodeContext, MessageCodec, MessageFields};
 
