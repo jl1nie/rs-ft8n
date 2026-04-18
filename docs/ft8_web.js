@@ -102,6 +102,117 @@ export class DecodedMessage {
 if (Symbol.dispose) DecodedMessage.prototype[Symbol.dispose] = DecodedMessage.prototype.free;
 
 /**
+ * FT4 sniper-mode decode at a target frequency with optional AP hints.
+ * @param {Int16Array} samples
+ * @param {number} target_freq
+ * @param {string} callsign
+ * @param {string} mycall
+ * @param {boolean} eq_on
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_sniper(samples, target_freq, callsign, mycall, eq_on, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(callsign, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_sniper(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, eq_on, sample_rate);
+    var v4 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v4;
+}
+
+/**
+ * f32 variant of [`decode_ft4_sniper`].
+ * @param {Float32Array} samples
+ * @param {number} target_freq
+ * @param {string} callsign
+ * @param {string} mycall
+ * @param {boolean} eq_on
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_sniper_f32(samples, target_freq, callsign, mycall, eq_on, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(callsign, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_sniper_f32(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, eq_on, sample_rate);
+    var v4 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v4;
+}
+
+/**
+ * Decode a 7.5-second FT4 slot (wide-band scan). Non-12 kHz input is
+ * resampled automatically.
+ * @param {Int16Array} samples
+ * @param {number} _strictness
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_wav(samples, _strictness, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_wav(ptr0, len0, _strictness, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * f32 variant of [`decode_ft4_wav`].
+ * @param {Float32Array} samples
+ * @param {number} _strictness
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_wav_f32(samples, _strictness, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_wav_f32(ptr0, len0, _strictness, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * FT4 multi-pass subtract decode (SIC) for crowded slots.
+ * @param {Int16Array} samples
+ * @param {number} _strictness
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_wav_subtract(samples, _strictness, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_wav_subtract(ptr0, len0, _strictness, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * f32 variant of [`decode_ft4_wav_subtract`].
+ * @param {Float32Array} samples
+ * @param {number} _strictness
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_ft4_wav_subtract_f32(samples, _strictness, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_ft4_wav_subtract_f32(ptr0, len0, _strictness, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  * Phase 1 decode (i16): fast single-pass decode.
  *
  * Caches the resampled audio and FFT for a subsequent `decode_phase2` call.
@@ -298,6 +409,48 @@ export function encode_free_text(text, freq_hz) {
     const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.encode_free_text(ptr0, len0, freq_hz);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Encode an FT4 standard message (CALL1 CALL2 GRID/REPORT) as 12 kHz PCM.
+ * @param {string} call1
+ * @param {string} call2
+ * @param {string} report
+ * @param {number} freq_hz
+ * @returns {Float32Array}
+ */
+export function encode_ft4(call1, call2, report, freq_hz) {
+    const ptr0 = passStringToWasm0(call1, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(call2, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(report, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_ft4(ptr0, len0, ptr1, len1, ptr2, len2, freq_hz);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v4 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v4;
+}
+
+/**
+ * Encode a free-text FT4 message (up to 13 chars from the FT8 alphabet).
+ * @param {string} text
+ * @param {number} freq_hz
+ * @returns {Float32Array}
+ */
+export function encode_ft4_free_text(text, freq_hz) {
+    const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_ft4_free_text(ptr0, len0, freq_hz);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }

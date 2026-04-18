@@ -1,6 +1,9 @@
-// FT8 15-second period manager.
-// Tracks UTC-aligned periods and fires callbacks at boundaries.
-// Supports TX queueing with even/odd slot control.
+// WSJT slot period manager. Tracks UTC-aligned periods and fires callbacks
+// at boundaries. Supports TX queueing with even/odd slot control.
+//
+// Slot length is configurable: 15 000 ms for FT8, 7 500 ms for FT4.
+// Name retained as `FT8PeriodManager` for historical call-sites; an alias
+// `SlotPeriodManager` is exported for new code.
 
 export class FT8PeriodManager {
   /**
@@ -8,9 +11,12 @@ export class FT8PeriodManager {
    * @param {function(number, boolean)} callbacks.onPeriodStart — (periodIndex, isEven) fires at period START
    * @param {function(number, boolean)} callbacks.onPeriodEnd — (periodIndex, isEven) fires at period END
    * @param {function(number)} callbacks.onTick — seconds remaining in current period
+   * @param {number} [slotMs=15000] — period length in milliseconds (15 000 for FT8, 7 500 for FT4)
    */
-  constructor(callbacks) {
+  constructor(callbacks, slotMs = 15000) {
     this.callbacks = callbacks;
+    this.slotMs = slotMs;
+    this.slotSec = slotMs / 1000;
     this.tickInterval = null;
     this.boundaryTimeout = null;
     this.running = false;
@@ -19,6 +25,16 @@ export class FT8PeriodManager {
     this.txQueue = null;
     // Period index when TX was queued — skip firing on the same boundary.
     this._txQueuedPeriod = -1;
+  }
+
+  /** Change the slot length on the fly (e.g. switching FT8 ↔ FT4). */
+  setSlotMs(slotMs) {
+    if (this.slotMs === slotMs) return;
+    const wasRunning = this.running;
+    if (wasRunning) this.stop();
+    this.slotMs = slotMs;
+    this.slotSec = slotMs / 1000;
+    if (wasRunning) this.start();
   }
 
   start() {
@@ -37,11 +53,11 @@ export class FT8PeriodManager {
 
   getCurrentPeriod() {
     const now = Date.now();
-    const periodIndex = Math.floor(now / 15000);
+    const periodIndex = Math.floor(now / this.slotMs);
     const isEven = periodIndex % 2 === 0;
-    const periodStartMs = periodIndex * 15000;
+    const periodStartMs = periodIndex * this.slotMs;
     const elapsed = (now - periodStartMs) / 1000;
-    const remaining = 15 - elapsed;
+    const remaining = this.slotSec - elapsed;
     return { periodIndex, isEven, elapsed, remaining };
   }
 
@@ -81,9 +97,9 @@ export class FT8PeriodManager {
   _scheduleBoundary() {
     if (!this.running) return;
     const now = Date.now();
-    const currentPeriod = Math.floor(now / 15000);
-    // Schedule setTimeout so it fires at the next UTC-aligned 15s boundary.
-    const nextBoundaryMs = (currentPeriod + 1) * 15000;
+    const currentPeriod = Math.floor(now / this.slotMs);
+    // Schedule setTimeout so it fires at the next UTC-aligned boundary.
+    const nextBoundaryMs = (currentPeriod + 1) * this.slotMs;
     const delay = nextBoundaryMs - now;
 
     this.boundaryTimeout = setTimeout(async () => {
@@ -128,3 +144,6 @@ export class FT8PeriodManager {
     }, delay);
   }
 }
+
+// Backwards-compatible alias for code that imports by the newer name.
+export { FT8PeriodManager as SlotPeriodManager };

@@ -52,6 +52,17 @@ import { QsoManager, QSO_STATE } from './qso.js';
 import { CatController, loadRigProfiles, getRigProfiles, isTauriMode, listSerialPorts } from './cat.js';
 import { QsoLog } from './qso-log.js';
 
+// ── Protocol selector (FT8 default, FT4 opt-in via settings cog) ────────────
+// Stored in localStorage as 'webft8-protocol' = 'ft8' | 'ft4'. Accessed via
+// the helpers below so any flag change propagates to period scheduler and
+// decode dispatch without restarts.
+function currentProtocol() {
+  return localStorage.getItem('webft8-protocol') === 'ft4' ? 'ft4' : 'ft8';
+}
+function getSlotMs() {
+  return currentProtocol() === 'ft4' ? 7500 : 15000;
+}
+
 // ── Elements ────────────────────────────────────────────────────────────────
 const body = document.body;
 const tabScout = document.getElementById('tab-scout');
@@ -102,6 +113,17 @@ const scoutDots = [
 ];
 const myCallInput = document.getElementById('my-call');
 const myGridInput = document.getElementById('my-grid');
+const protocolSelect = document.getElementById('protocol-select');
+if (protocolSelect) {
+  protocolSelect.value = currentProtocol();
+  protocolSelect.addEventListener('change', () => {
+    const v = protocolSelect.value === 'ft4' ? 'ft4' : 'ft8';
+    localStorage.setItem('webft8-protocol', v);
+    // Push the new slot length into the running scheduler (restarts it
+    // safely) so the UI switches over without a page reload.
+    periodMgr.setSlotMs(getSlotMs());
+  });
+}
 const deviceSelect = document.getElementById('audio-device');
 const outputDeviceSelect = document.getElementById('audio-output-device');
 const bandSelect = document.getElementById('band-header');
@@ -681,11 +703,22 @@ async function runDecode(samples, sampleRate, onPartial) {
   // Dispatch to f32 or i16 entry points based on the input array type.
   // Live capture passes Float32Array directly (worklet output) — skips
   // the JS i16 conversion loop. WAV file drops still arrive as Int16Array.
+  // FT4 mode routes to the `decode_ft4_*` family in the WASM bundle.
   const isF32 = samples instanceof Float32Array;
-  const fnDecodeName   = isF32 ? 'decode_wav_f32'          : 'decode_wav';
-  const fnSniperName   = isF32 ? 'decode_sniper_f32'       : 'decode_sniper';
-  const fnPhase1Name   = isF32 ? 'decode_phase1_f32'       : 'decode_phase1';
-  const fnPhase2Name   = isF32 ? 'decode_phase2_f32'       : 'decode_phase2';
+  const ft4   = currentProtocol() === 'ft4';
+  const fnDecodeName   = ft4
+    ? (isF32 ? 'decode_ft4_wav_f32'          : 'decode_ft4_wav')
+    : (isF32 ? 'decode_wav_f32'              : 'decode_wav');
+  const fnSniperName   = ft4
+    ? (isF32 ? 'decode_ft4_sniper_f32'       : 'decode_ft4_sniper')
+    : (isF32 ? 'decode_sniper_f32'           : 'decode_sniper');
+  // FT4 doesn't have a Phase 1 / Phase 2 split — use one-shot
+  // `decode_ft4_wav_subtract` instead, which already does 3-pass SIC.
+  const fnSubtractName = ft4
+    ? (isF32 ? 'decode_ft4_wav_subtract_f32' : 'decode_ft4_wav_subtract')
+    : null;
+  const fnPhase1Name   = ft4 ? null : (isF32 ? 'decode_phase1_f32' : 'decode_phase1');
+  const fnPhase2Name   = ft4 ? null : (isF32 ? 'decode_phase2_f32' : 'decode_phase2');
 
   // Subtract: use if enabled and not auto-disabled
   const useSub = subtractCheck.checked && !subDisabledAuto;
@@ -694,21 +727,27 @@ async function runDecode(samples, sampleRate, onPartial) {
 
   let results;
   if (useSub) {
-    // Pipelined decode: Phase 1 (fast, ~200ms) + Phase 2 (subtract, budget permitting).
-    // Phase 1 caches audio + FFT in WASM thread_local; Phase 2 reuses them.
-    const p1 = await workerDecode(fnPhase1Name, [samples, sr]);
-    const p1Ms = performance.now() - t0;
+    if (ft4) {
+      // FT4 one-shot subtract (internal 3-pass SIC).
+      results = await workerDecode(fnSubtractName, [samples, strict, sr]);
+    } else {
+      // FT8 pipelined decode: Phase 1 (fast, ~200ms) + Phase 2 (subtract,
+      // budget permitting). Phase 1 caches audio + FFT in WASM thread_local;
+      // Phase 2 reuses them.
+      const p1 = await workerDecode(fnPhase1Name, [samples, sr]);
+      const p1Ms = performance.now() - t0;
 
-    // Show Phase 1 results immediately while Phase 2 runs
-    if (onPartial && p1.length > 0) onPartial(p1);
+      // Show Phase 1 results immediately while Phase 2 runs
+      if (onPartial && p1.length > 0) onPartial(p1);
 
-    let p2 = [];
-    if (BUDGET_MS - p1Ms > 200) {
-      p2 = await workerDecode(fnPhase2Name, [strict]);
+      let p2 = [];
+      if (BUDGET_MS - p1Ms > 200) {
+        p2 = await workerDecode(fnPhase2Name, [strict]);
+      }
+      results = [...p1, ...p2];
     }
-    results = [...p1, ...p2];
   } else {
-    // Non-subtract path (unchanged)
+    // Non-subtract path
     results = await workerDecode(fnDecodeName, [samples, strict, sr]);
   }
 
@@ -827,7 +866,7 @@ async function transmit(call1, call2, report, freq) {
   }
 }
 
-// ── Period manager ──────────────────────────────────────────────────────────
+// ── Period manager (slot length follows FT8/FT4 selector) ──────────────────
 const periodMgr = new FT8PeriodManager({
   onTick: (rem) => { timerEl.textContent = `${Math.ceil(rem)}s`; },
   onPeriodEnd: async (periodIndex, isEven) => {
@@ -851,7 +890,7 @@ const periodMgr = new FT8PeriodManager({
     // Pushes decoded messages to chat/snipe views, logs them, and feeds the
     // QSO state machine.  Designed to be called once (non-subtract) or twice
     // (Phase 1 partial + Phase 2 remainder) per period.
-    const utc = new Date(periodIndex * 15000).toISOString().substr(11, 8);
+    const utc = new Date(periodIndex * getSlotMs()).toISOString().substr(11, 8);
     let sepInserted = false;
     const callers = []; // track stations calling me (for pileup notification)
     let txMsg = null;
@@ -1111,7 +1150,7 @@ const periodMgr = new FT8PeriodManager({
     // Sync AP target from QSO
     if (qso.dxCall) apCall = qso.dxCall;
   },
-});
+}, getSlotMs());
 
 // TX fire from period manager
 periodMgr.callbacks.onTxFire = async (tx) => {

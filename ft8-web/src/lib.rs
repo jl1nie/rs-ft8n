@@ -302,3 +302,164 @@ pub fn decode_phase2_f32(strictness: u8) -> Vec<DecodedMessage> {
         )
     )
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// FT4 entry points
+//
+// FT4 reuses the 77-bit WSJT message format (same DecodedMessage struct,
+// same callsign hash table) and LDPC(174,91) FEC as FT8, so the JS side
+// needs no shape changes beyond a protocol switch. Slot length (7.5 s vs
+// 15 s) and mid-band downsample are handled inside ft4-core.
+// ──────────────────────────────────────────────────────────────────────────
+
+fn ft4_to_decoded(r: ft4_core::decode::DecodeResult) -> Option<DecodedMessage> {
+    HASH_TABLE.with(|ht| {
+        let ht = ht.borrow();
+        let text = mfsk_msg::wsjt77::unpack77_with_hash(&r.message77, &ht)?;
+        if text.is_empty() || !mfsk_msg::wsjt77::is_plausible_message(&text) {
+            return None;
+        }
+        Some(DecodedMessage {
+            freq_hz: r.freq_hz,
+            dt_sec: r.dt_sec,
+            snr_db: r.snr_db,
+            hard_errors: r.hard_errors,
+            pass: r.pass,
+            message: text,
+        })
+    })
+}
+
+fn ft4_decode_and_register(results: Vec<ft4_core::decode::DecodeResult>) -> Vec<DecodedMessage> {
+    let mut out = Vec::new();
+    for r in results {
+        if let Some(dm) = ft4_to_decoded(r) {
+            register_callsigns(&dm.message);
+            out.push(dm);
+        }
+    }
+    out
+}
+
+/// Decode a 7.5-second FT4 slot (wide-band scan). Non-12 kHz input is
+/// resampled automatically.
+#[wasm_bindgen]
+pub fn decode_ft4_wav(samples: &[i16], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    let audio = if sample_rate != 12000 {
+        resample_to_12k(samples, sample_rate)
+    } else {
+        samples.to_vec()
+    };
+    ft4_decode_and_register(
+        ft4_core::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
+    )
+}
+
+/// f32 variant of [`decode_ft4_wav`].
+#[wasm_bindgen]
+pub fn decode_ft4_wav_f32(samples: &[f32], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    let audio = resample_f32_to_12k(samples, sample_rate);
+    ft4_decode_and_register(
+        ft4_core::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
+    )
+}
+
+/// FT4 multi-pass subtract decode (SIC) for crowded slots.
+#[wasm_bindgen]
+pub fn decode_ft4_wav_subtract(samples: &[i16], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    let audio = if sample_rate != 12000 {
+        resample_to_12k(samples, sample_rate)
+    } else {
+        samples.to_vec()
+    };
+    ft4_decode_and_register(
+        ft4_core::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
+    )
+}
+
+/// f32 variant of [`decode_ft4_wav_subtract`].
+#[wasm_bindgen]
+pub fn decode_ft4_wav_subtract_f32(samples: &[f32], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    let audio = resample_f32_to_12k(samples, sample_rate);
+    ft4_decode_and_register(
+        ft4_core::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
+    )
+}
+
+/// FT4 sniper-mode decode at a target frequency with optional AP hints.
+#[wasm_bindgen]
+pub fn decode_ft4_sniper(
+    samples: &[i16],
+    target_freq: f32,
+    callsign: &str,
+    mycall: &str,
+    eq_on: bool,
+    sample_rate: u32,
+) -> Vec<DecodedMessage> {
+    use ft4_core::decode::ApHint;
+    use mfsk_core::equalize::EqMode;
+
+    let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
+    let ap = if callsign.is_empty() {
+        None
+    } else if mycall.is_empty() {
+        Some(ApHint::new().with_call1("CQ").with_call2(callsign))
+    } else {
+        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
+    };
+
+    let audio = if sample_rate != 12000 {
+        resample_to_12k(samples, sample_rate)
+    } else {
+        samples.to_vec()
+    };
+    ft4_decode_and_register(
+        ft4_core::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
+    )
+}
+
+/// f32 variant of [`decode_ft4_sniper`].
+#[wasm_bindgen]
+pub fn decode_ft4_sniper_f32(
+    samples: &[f32],
+    target_freq: f32,
+    callsign: &str,
+    mycall: &str,
+    eq_on: bool,
+    sample_rate: u32,
+) -> Vec<DecodedMessage> {
+    use ft4_core::decode::ApHint;
+    use mfsk_core::equalize::EqMode;
+
+    let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
+    let ap = if callsign.is_empty() {
+        None
+    } else if mycall.is_empty() {
+        Some(ApHint::new().with_call1("CQ").with_call2(callsign))
+    } else {
+        Some(ApHint::new().with_call1(mycall).with_call2(callsign))
+    };
+
+    let audio = resample_f32_to_12k(samples, sample_rate);
+    ft4_decode_and_register(
+        ft4_core::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
+    )
+}
+
+/// Encode an FT4 standard message (CALL1 CALL2 GRID/REPORT) as 12 kHz PCM.
+#[wasm_bindgen]
+pub fn encode_ft4(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
+    use mfsk_msg::wsjt77::pack77;
+    let msg77 = pack77(call1, call2, report).ok_or_else(|| JsValue::from_str("Failed to pack message"))?;
+    let tones = ft4_core::encode::message_to_tones(&msg77);
+    Ok(ft4_core::encode::tones_to_f32(&tones, freq_hz, 1.0))
+}
+
+/// Encode a free-text FT4 message (up to 13 chars from the FT8 alphabet).
+#[wasm_bindgen]
+pub fn encode_ft4_free_text(text: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
+    use mfsk_msg::wsjt77::pack77_free_text;
+    let msg77 = pack77_free_text(text).ok_or_else(|| JsValue::from_str("Invalid free text"))?;
+    let tones = ft4_core::encode::message_to_tones(&msg77);
+    Ok(ft4_core::encode::tones_to_f32(&tones, freq_hz, 1.0))
+}
