@@ -6,6 +6,7 @@
 
 use mfsk_msg::WsprMessage;
 
+use crate::search::{coarse_search, SearchParams};
 use crate::{decode_from_deinterleaved_llrs, demodulate_aligned};
 
 /// One successful WSPR decode.
@@ -37,6 +38,29 @@ pub fn decode_at(
     })
 }
 
+/// Scan an audio buffer for any number of WSPR frames, returning all
+/// successful decodes. Runs a coarse (freq, time) search with the given
+/// [`SearchParams`], then attempts [`decode_at`] on each candidate in
+/// score-descending order. Duplicate-message suppression is left to the
+/// caller — downstream UI layers typically de-dup by (message, freq±2Hz).
+pub fn decode_scan(
+    audio: &[f32],
+    sample_rate: u32,
+    nominal_start_sample: usize,
+    params: &SearchParams,
+) -> Vec<WsprDecode> {
+    let cands = coarse_search(audio, sample_rate, nominal_start_sample, params);
+    cands
+        .into_iter()
+        .filter_map(|c| decode_at(audio, sample_rate, c.start_sample, c.freq_hz))
+        .collect()
+}
+
+/// Convenience: scan using [`SearchParams::default`].
+pub fn decode_scan_default(audio: &[f32], sample_rate: u32) -> Vec<WsprDecode> {
+    decode_scan(audio, sample_rate, 0, &SearchParams::default())
+}
+
 /// Deinterleave 162 LLRs in place (same permutation as [`deinterleave`]
 /// but for `f32` values).
 fn deinterleave_llrs(llrs: &mut [f32; 162]) {
@@ -62,6 +86,7 @@ fn deinterleave_llrs(llrs: &mut [f32; 162]) {
 mod tests {
     use super::*;
     use crate::synthesize_type1;
+    use crate::search::SearchParams;
     use mfsk_msg::WsprMessage;
 
     #[test]
@@ -78,6 +103,34 @@ mod tests {
                 power_dbm: 37,
             }
         );
+    }
+
+    #[test]
+    fn scan_recovers_message_without_freq_hint() {
+        let freq = 1500.0;
+        let audio = synthesize_type1("K1ABC", "FN42", 37, 12_000, freq, 0.3)
+            .expect("synth");
+        let decodes = decode_scan(
+            &audio,
+            12_000,
+            0,
+            &SearchParams {
+                freq_min_hz: 1450.0,
+                freq_max_hz: 1550.0,
+                ..SearchParams::default()
+            },
+        );
+        assert!(!decodes.is_empty(), "at least one decode");
+        let d = decodes.into_iter().next().unwrap();
+        assert_eq!(
+            d.message,
+            WsprMessage::Type1 {
+                callsign: "K1ABC".into(),
+                grid: "FN42".into(),
+                power_dbm: 37,
+            }
+        );
+        assert!((d.freq_hz - 1500.0).abs() <= 2.0);
     }
 
     #[test]
