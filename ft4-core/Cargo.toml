@@ -1,0 +1,13 @@
+[package]
+name = "ft4-core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "WebFT8 — Pure Rust FT4 decoder/encoder (reuses mfsk-core DSP + mfsk-fec LDPC + mfsk-msg)"
+
+[dependencies]
+mfsk-core = { path = "../mfsk-core" }
+mfsk-fec = { path = "../mfsk-fec" }
+mfsk-msg = { path = "../mfsk-msg" }
+num-complex = "0.4"
+rustfft = "6"
