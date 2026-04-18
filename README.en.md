@@ -1,6 +1,6 @@
-# WebFT8 — FT8 in Your Browser
+# WebFT8 — FT8 / FT4 in Your Browser
 
-**[日本語版](README.md)** | **[Open App](https://jl1nie.github.io/webft8/)** | **[Manual](docs/manual.en.md)**
+**[日本語版](README.md)** | **[Open App](https://jl1nie.github.io/webft8/)** | **[Manual](docs/manual.en.md)** | **[Library reference](docs/LIBRARY.md)**
 
 > Pure Rust FT8 decoder running as a WASM PWA.
 > No install, no Java — just open and operate.
@@ -70,13 +70,22 @@ WebFT8's sniper mode uses the transceiver's **500 Hz hardware narrow filter** to
 
 ## For Developers
 
+**[Library reference (English)](docs/LIBRARY.md)** — Rust generic module
+layout, FEC/message/DSP layers, C ABI, Kotlin JNI and WASM usage for
+embedders.
+
 ```
-webft8/
-├── ft8-core/      Pure Rust FT8 decoder/encoder library
+rs-ft8n/
+├── mfsk-core/     Protocol-generic traits + DSP / sync / LLR / pipeline
+├── mfsk-fec/      LDPC(174,91) codec
+├── mfsk-msg/      WSJT 77-bit message codec + AP hints
+├── ft8-core/      FT8-specific orchestration + backwards-compat API
+├── ft4-core/      FT4 implementation
 ├── ft8-bench/     Benchmark & simulation suite
 ├── ft8-web/       WASM bindings + PWA frontend
+├── wsjt-ffi/      C ABI cdylib for C++/Kotlin/Android consumers
 ├── ft8-desktop/   Tauri native wrapper
-└── docs/          GitHub Pages deployment
+└── docs/          GitHub Pages + library documentation
 ```
 
 ### Build

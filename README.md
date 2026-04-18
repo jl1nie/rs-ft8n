@@ -1,6 +1,6 @@
-# WebFT8 — ブラウザで動く FT8
+# WebFT8 — ブラウザで動く FT8 / FT4
 
-**[English version](README.en.md)** | **[アプリを開く](https://jl1nie.github.io/webft8/)** | **[マニュアル](docs/manual.md)**
+**[English version](README.en.md)** | **[アプリを開く](https://jl1nie.github.io/webft8/)** | **[マニュアル](docs/manual.md)** | **[ライブラリリファレンス](docs/LIBRARY.ja.md)**
 
 > Pure Rust FT8 デコーダを WASM PWA として実装。
 > インストール不要、Java 不要 — 開いてすぐ運用。
@@ -63,13 +63,20 @@ WebFT8 のスナイパーモードは、トランシーバの **500 Hz ハード
 
 ## 開発者向け
 
+**[ライブラリリファレンス (日本語)](docs/LIBRARY.ja.md)** — Rust Generic を使ったモジュール設計から C ABI・Kotlin JNI・WASM まで、組み込み利用者向けの詳細ドキュメント。
+
 ```
-webft8/
-├── ft8-core/      Pure Rust FT8 デコーダ/エンコーダライブラリ
+rs-ft8n/
+├── mfsk-core/     プロトコル汎用 trait + 共通 DSP / sync / LLR / pipeline
+├── mfsk-fec/      LDPC(174,91) コーデック
+├── mfsk-msg/      WSJT 77-bit メッセージ codec + AP hints
+├── ft8-core/      FT8 固有ロジック + 後方互換 API
+├── ft4-core/      FT4 実装
 ├── ft8-bench/     ベンチマーク＆シミュレーションスイート
 ├── ft8-web/       WASM バインディング + PWA フロントエンド
+├── wsjt-ffi/      C ABI cdylib (C++/Kotlin/Android 向け)
 ├── ft8-desktop/   Tauri ネイティブラッパー
-└── docs/          GitHub Pages デプロイ
+└── docs/          GitHub Pages + ライブラリドキュメント
 ```
 
 ### ビルド
