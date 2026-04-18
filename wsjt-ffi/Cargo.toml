@@ -1,0 +1,22 @@
+[package]
+name = "wsjt-ffi"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "C ABI for rs-ft8n — exposes FT8/FT4 decoders to C++/Kotlin via cbindgen-generated wsjt.h"
+
+[lib]
+name = "wsjt"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+ft8-core = { path = "../ft8-core" }
+ft4-core = { path = "../ft4-core" }
+mfsk-core = { path = "../mfsk-core" }
+mfsk-msg = { path = "../mfsk-msg" }
+
+# Header generation (include/wsjt.h) uses the cbindgen CLI.
+# After editing src/lib.rs, regenerate with:
+#   (cd wsjt-ffi && cbindgen --config cbindgen.toml --output include/wsjt.h)
+# The CI-style alternative of a build.rs was tried and produced empty
+# bindings under Rust 2024 — the CLI path is the reliable one.

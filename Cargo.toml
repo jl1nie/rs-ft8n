@@ -7,6 +7,7 @@ members = [
     "ft4-core",
     "ft8-bench",
     "ft8-web",
+    "wsjt-ffi",
 ]
 exclude = [
     "ft8-desktop/src-tauri",
