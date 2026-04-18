@@ -31,6 +31,7 @@
 pub mod dsp;
 pub mod equalize;
 pub mod llr;
+pub mod pipeline;
 pub mod protocol;
 pub mod sync;
 pub mod tx;

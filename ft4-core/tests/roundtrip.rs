@@ -59,7 +59,14 @@ fn encode_decode_clean_signal_1000hz() {
         .iter()
         .find(|r| r.message77 == msg)
         .expect("no result matches transmitted payload");
-    assert!(got.text.contains("CQ") && got.text.contains("JA1ABC"));
+    // Verify the decoded payload also unpacks to the expected human-readable
+    // text — confirms the full trait chain (FEC → MessageCodec::unpack).
+    let codec = mfsk_msg::Wsjt77Message::default();
+    let ctx = mfsk_core::DecodeContext::default();
+    let text = codec
+        .unpack(&got.message77, &ctx)
+        .expect("unpack returns a valid text");
+    assert!(text.contains("CQ") && text.contains("JA1ABC"), "text = '{text}'");
 }
 
 #[test]
