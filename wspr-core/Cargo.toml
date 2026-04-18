@@ -1,0 +1,11 @@
+[package]
+name = "wspr-core"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "WebFT8 — WSPR protocol implementation on top of the generic mfsk-* stack. Convolutional r=1/2 K=32 FEC + Fano sequential decoder, 50-bit message payload, per-symbol interleaved sync."
+
+[dependencies]
+mfsk-core = { path = "../mfsk-core" }
+mfsk-fec = { path = "../mfsk-fec" }
+mfsk-msg = { path = "../mfsk-msg" }

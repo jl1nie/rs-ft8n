@@ -6,6 +6,7 @@ members = [
     "ft8-core",
     "ft4-core",
     "fst4-core",
+    "wspr-core",
     "ft8-bench",
     "ft8-web",
     "wsjt-ffi",
