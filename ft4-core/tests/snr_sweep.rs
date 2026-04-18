@@ -64,7 +64,10 @@ fn pack_cq(call: &str, grid: &str) -> [u8; 77] {
 fn make_slot(msg77: &[u8; 77], freq_hz: f32, snr_db: f32, seed: u64) -> Vec<i16> {
     let mut mix = vec![0.0f32; SLOT];
     let snr_lin = 10f32.powf(snr_db / 10.0);
-    let amp = (2.0 * snr_lin * REF_BW / FS).sqrt();
+    // WSJT-X / weakmon SNR convention: A = sqrt(4·SNR·B/FS) with σ_noise = 1.
+    // Earlier sweeps used `sqrt(2·…)` which produced signals 3 dB weaker than
+    // the requested SNR — reinterpret old labels as +3 dB of the true SNR.
+    let amp = (4.0 * snr_lin * REF_BW / FS).sqrt();
     let itone = encode::message_to_tones(msg77);
     let pcm = encode::tones_to_f32(&itone, freq_hz, amp);
     let start = (0.5 * FS) as usize;

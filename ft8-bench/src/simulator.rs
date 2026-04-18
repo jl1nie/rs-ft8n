@@ -89,14 +89,21 @@ impl LcgRng {
 /// Returns 180 000 samples (15 s × 12 000 S/s) as i16, scaled so that the
 /// loudest peak sits at ≈29 000 (≈88% of full range) to avoid clipping.
 ///
-/// **SNR convention** (WSJT-X compatible):
+/// **SNR convention** (WSJT-X / weakmon compatible, one-sided PSD):
 ///
 /// ```text
-/// A = sqrt(2 * 10^(snr_db/10) * 2500 / 12000) * σ_noise
+/// A = sqrt(4 · 10^(snr_db/10) · 2500 / 12000)   with σ_noise = 1.0
 /// ```
 ///
-/// With `σ_noise = 1.0` (unit noise), this directly gives the correct
-/// signal amplitude for the requested SNR.
+/// Derivation: for a pure tone signal power is `A²/2`; for AWGN with
+/// per-sample variance σ² the power in bandwidth B is `2σ²B/FS`
+/// (one-sided PSD over 0..FS/2). Setting the ratio equal to the
+/// requested SNR gives `A² = 4·SNR·σ²·B/FS`.
+///
+/// History: earlier versions of this file used `sqrt(2·…)` instead of
+/// `sqrt(4·…)`, silently generating signals 3 dB weaker than their label.
+/// Bench SNR labels before commit af6fc3c should be interpreted as
+/// **3 dB lower** than the printed value to match the WSJT-X convention.
 pub fn generate_frame(config: &SimConfig) -> Vec<i16> {
     const FS: f32 = 12_000.0;
     const NMAX: usize = 180_000;
@@ -104,11 +111,10 @@ pub fn generate_frame(config: &SimConfig) -> Vec<i16> {
 
     let mut mix = vec![0.0f32; NMAX];
 
-    // σ_noise = 1.0; signal amplitudes scaled to SNR target
+    // σ_noise = 1.0; signal amplitudes scaled to SNR target (WSJT-X conv).
     for sig in &config.signals {
         let snr_linear = 10.0_f32.powf(sig.snr_db / 10.0);
-        // A² / 2 = snr_linear * σ²_noise * REF_BW / FS
-        let amplitude = (2.0 * snr_linear * REF_BW / FS).sqrt();
+        let amplitude = (4.0 * snr_linear * REF_BW / FS).sqrt();
 
         let itone = message_to_tones(&sig.message77);
         let pcm = tones_to_f32(&itone, sig.freq_hz, amplitude);
@@ -147,7 +153,7 @@ pub fn generate_frame_f32(config: &SimConfig) -> Vec<f32> {
     let mut mix = vec![0.0f32; NMAX];
     for sig in &config.signals {
         let snr_linear = 10.0_f32.powf(sig.snr_db / 10.0);
-        let amplitude = (2.0 * snr_linear * REF_BW / FS).sqrt();
+        let amplitude = (4.0 * snr_linear * REF_BW / FS).sqrt();
         let itone = message_to_tones(&sig.message77);
         let pcm = tones_to_f32(&itone, sig.freq_hz, amplitude);
         let start = ((0.5 + sig.dt_sec) * FS).round() as usize;
@@ -172,7 +178,7 @@ pub fn quantise_crowd_agc(mix: &[f32], crowd_snr_db: f32, n_crowd: usize) -> Vec
     const FS: f32 = 12_000.0;
     const REF_BW: f32 = 2_500.0;
     // Per-station amplitude at crowd SNR
-    let per_amp = (2.0_f32 * 10f32.powf(crowd_snr_db / 10.0) * REF_BW / FS).sqrt();
+    let per_amp = (4.0_f32 * 10f32.powf(crowd_snr_db / 10.0) * REF_BW / FS).sqrt();
     // Worst-case coherent peak: all stations add in phase (conservative)
     // Use sqrt(N) for typical random-phase worst case × safety margin 3.5
     let crowd_peak = per_amp * (n_crowd as f32).sqrt() * 3.5;

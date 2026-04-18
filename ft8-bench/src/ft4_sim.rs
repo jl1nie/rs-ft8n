@@ -67,7 +67,12 @@ pub fn generate_slot(config: &SimConfig) -> Vec<i16> {
     let mut mix = vec![0.0f32; SLOT_SAMPLES];
     for sig in &config.signals {
         let snr_linear = 10f32.powf(sig.snr_db / 10.0);
-        let amplitude = (2.0 * snr_linear * REF_BW / FS).sqrt();
+        // WSJT-X / weakmon convention: noise σ² = 1 per sample,
+        // one-sided noise PSD over the Nyquist band FS/2 = 6 kHz.
+        // Noise power in REF_BW = 2·σ²·B/FS = 2·2500/12000 = 5/12 ≈ 0.417.
+        // For SNR = signal_power / noise_power_in_REF_BW to match the
+        // requested value, A²/2 = SNR · 2σ²·B/FS → A = sqrt(4·SNR·B/FS).
+        let amplitude = (4.0 * snr_linear * REF_BW / FS).sqrt();
         let itone = message_to_tones(&sig.message77);
         let pcm = tones_to_f32(&itone, sig.freq_hz, amplitude);
         let start = ((0.5 + sig.dt_sec) * FS).round() as usize;
