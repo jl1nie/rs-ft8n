@@ -83,10 +83,10 @@ function addUnread(mode) {
   badgeSnipe.style.display = '';
 }
 const timerEl = document.getElementById('period-timer');
-const dtOffsetEl = document.getElementById('dt-offset-display');
 const headerEl = document.querySelector('.header');
 const btnSettings = document.getElementById('btn-settings');
 const btnNtp = document.getElementById('btn-ntp');
+const dtStatusEl = document.getElementById('dt-status');
 const settingsPanel = document.getElementById('settings-panel');
 const settingsOverlay = document.getElementById('settings-overlay');
 const wfCanvas = document.getElementById('waterfall');
@@ -148,6 +148,8 @@ let snipeDf = 1000;   // Snipe TX frequency
 let scoutDf = 1500;   // Scout TX frequency
 let apCall = '';
 let apGrid = '';
+let snipeBpfSet = false; // true once user has explicitly right-clicked to set BPF target
+let lastDecodedMsgs = []; // msgs from last completed period (for GL reactive search)
 let snipePhase = 'watch'; // 'watch' | 'call'
 let rxSlotEven = null; // even/odd of the period where DX was last heard
 let lastDecodeMs = 0; // last decode duration for timer display
@@ -202,9 +204,31 @@ function clearTargetCards() {
   snipeDxInfo.textContent = '';
 }
 
+let _glSearchTimer = null;
 snipeDxGridInput.addEventListener('input', () => {
-  apGrid = snipeDxGridInput.value.trim().toUpperCase();
-  snipeDxGridInput.value = apGrid;
+  const val = snipeDxGridInput.value.trim().toUpperCase();
+  snipeDxGridInput.value = val;
+  apGrid = val;
+  if (_glSearchTimer) clearTimeout(_glSearchTimer);
+  if (val.length < 4) { snipeDxInfo.textContent = ''; return; }
+  _glSearchTimer = setTimeout(() => {
+    // Search last decoded CQ messages for matching grid prefix
+    const match = lastDecodedMsgs.find(m => {
+      const w = m.message.toUpperCase().split(/\s+/);
+      return /^(CQ|DE|QRZ)/.test(w[0]) && w.length >= 3 && w[2].startsWith(val);
+    });
+    if (match) {
+      const fullGrid = match.message.toUpperCase().split(/\s+/)[2];
+      snipeDxGridInput.value = fullGrid;
+      apGrid = fullGrid;
+      const snrStr = `${match.snr_db >= 0 ? '+' : ''}${Math.round(match.snr_db)} dB`;
+      snipeDxInfo.textContent = `${Math.round(match.freq_hz)} Hz ${snrStr}`;
+    } else {
+      snipeDxGridInput.value = '';
+      apGrid = '';
+      snipeDxInfo.textContent = '';
+    }
+  }, 600);
 });
 
 function updateScoutStatus() {
@@ -412,7 +436,6 @@ capture._onDisconnect = () => {
   periodMgr.stop();
   liveMode = false;
   updateLiveUI();
-  setStatus('Audio disconnected');
   showToast('Audio disconnected');
 };
 // RX level meter from AudioWorklet peak reports.
@@ -423,7 +446,6 @@ capture.onPeak = (level) => {
 cat.onDisconnect = () => {
   btnCat.textContent = 'Connect';
   catStatusEl.textContent = 'disconnected';
-  setStatus('CAT disconnected');
   showToast('CAT disconnected');
   // BLE GPS queries stop automatically (BleTransport.disconnect clears timer)
 };
@@ -440,14 +462,15 @@ function setMode(mode) {
   if (mode === 'snipe') { unreadSnipe = 0; badgeSnipe.style.display = 'none'; }
   resizeCanvas();
   waterfall.dfLine = mode === 'scout' ? scoutDf : snipeDf;
-  waterfall.targetLine = (mode === 'snipe' && snipePhase === 'call') ? snipeBpf : null;
+  waterfall.targetLine = (mode === 'snipe' && snipeBpfSet) ? snipeBpf : null;
   waterfall.freqOffset = (mode === 'snipe' && snipePhase === 'call') ? (snipeBpf - FILTER_CENTER) : 0;
   if (mode === 'snipe') {
     snipePhaseHint.textContent = snipePhase === 'watch'
-      ? `full-band  DF ${snipeDf} Hz  Target ${snipeBpf} Hz`
+      ? (snipeBpfSet ? `full-band  BPF ${snipeBpf} Hz  DF ${snipeDf} Hz` : `full-band  DF ${snipeDf} Hz`)
       : `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
   }
   updateSnipeOverlay();
+  waterfall.drawFreqAxis();
 }
 
 // ── Snipe BPF toggle ────────────────────────────────────────────────────────
@@ -458,6 +481,11 @@ const snipeCallersEl = document.getElementById('snipe-callers');
 btnBpf.addEventListener('click', () => setSnipePhase(snipePhase === 'watch' ? 'call' : 'watch'));
 
 // Allow manual callsign entry in the Snipe target field
+snipeDxCall.addEventListener('input', () => {
+  const pos = snipeDxCall.selectionStart;
+  snipeDxCall.value = snipeDxCall.value.toUpperCase();
+  snipeDxCall.setSelectionRange(pos, pos);
+});
 snipeDxCall.addEventListener('change', () => {
   const call = snipeDxCall.value.trim().toUpperCase();
   snipeDxCall.value = call;
@@ -472,6 +500,24 @@ function snipeDialHz() {
   return baseHz + (snipeBpf - FILTER_CENTER);
 }
 
+/**
+ * Audio frequency (Hz) to pass to WASM encode/decode for Snipe TX.
+ *
+ * `snipeDf` is always stored in *band-offset* coordinates (= WF display
+ * position = original-VFO-relative Hz).  In Call phase the VFO has been
+ * shifted by freqOffset = snipeBpf − FILTER_CENTER, so the audio frequency
+ * that lands at the correct band position is:
+ *
+ *   audio = snipeDf − freqOffset = snipeDf − (snipeBpf − FILTER_CENTER)
+ *
+ * In Watch phase freqOffset = 0, so audio = snipeDf directly.
+ */
+function snipeAudioHz() {
+  return snipePhase === 'call'
+    ? snipeDf - (snipeBpf - FILTER_CENTER)
+    : snipeDf;
+}
+
 async function setSnipePhase(phase) {
   snipePhase = phase;
   btnBpf.classList.toggle('active', phase === 'call');
@@ -480,8 +526,10 @@ async function setSnipePhase(phase) {
   if (phase === 'watch') {
     waterfall.freqOffset = 0;
     waterfall.noiseWindow = null;
-    waterfall.targetLine = null;
-    snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
+    waterfall.targetLine = snipeBpfSet ? snipeBpf : null;
+    snipePhaseHint.textContent = snipeBpfSet
+      ? `full-band  BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`
+      : `full-band  DF ${snipeDf} Hz`;
     await cat.setFilter(false);
     const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
     await cat.setFreq(baseHz);
@@ -494,6 +542,7 @@ async function setSnipePhase(phase) {
     await cat.setFreq(snipeDialHz());
   }
   updateSnipeOverlay();
+  waterfall.drawFreqAxis();
 }
 
 // ── Settings panel ──────────────────────────────────────────────────────────
@@ -516,20 +565,16 @@ function closeSettings() {
 }
 btnSettings.addEventListener('click', openSettings);
 
-// Mobile detection: NTP Sync is only useful on Android/iOS where the OS
-// may not keep perfect time.  Desktop OS and Tauri native sync via NTP automatically.
+// NTP Sync is useful on any platform — desktop clocks can also drift (VMs, sleep/wake).
 const isMobile = !isTauriMode() && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-if (!isMobile) btnNtp.style.display = 'none';
 
 function applyDtAutoCorrectUi() {
   const on = dtAutoCorrectCheck.checked;
   periodMgr.setDtAutoCorrect(on);
-  // Only show offset display when live AND auto-correct is on AND offset is small
-  dtOffsetEl.style.display = (on && liveMode) ? '' : 'none';
-  btnNtp.disabled = !on;
+  // NTP button is independent of FT8 auto-correct — always enabled
   if (!on) {
-    dtOffsetEl.textContent = '';
-    dtOffsetEl.classList.remove('correcting');
+    dtStatusEl.textContent = '';
+    dtStatusEl.style.display = 'none';
   }
 }
 dtAutoCorrectCheck.addEventListener('change', applyDtAutoCorrectUi);
@@ -538,7 +583,7 @@ btnNtp.addEventListener('click', async () => {
   btnNtp.disabled = true;
   btnNtp.textContent = 'Syncing...';
   await syncNtpOffset();
-  btnNtp.disabled = !dtAutoCorrectCheck.checked;
+  btnNtp.disabled = false;
   btnNtp.textContent = 'NTP Sync';
 });
 
@@ -599,7 +644,7 @@ if (!myCallInput.value) setTimeout(openSettings, 500);
 
 // ── Snipe overlay on waterfall ──────────────────────────────────────────────
 function updateSnipeOverlay() {
-  if (currentMode !== 'snipe' || snipePhase === 'watch') {
+  if (currentMode !== 'snipe' || !snipeBpfSet) {
     snipeOverlay.style.display = 'none';
     snipeFreqLabel.style.display = 'none';
     return;
@@ -643,6 +688,7 @@ wfWrap.addEventListener('contextmenu', async (e) => {
   const rect = wfCanvas.getBoundingClientRect();
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
+  snipeBpfSet = true;
   // Show BPF target overlay in both Watch and Call modes
   waterfall.targetLine = snipeBpf;
   waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
@@ -888,7 +934,7 @@ async function runDecode(samples, sampleRate, onPartial) {
   if (apTarget || apGridActive) {
     const found = apTarget && results.some(r => r.message.toUpperCase().includes(apTarget));
     if (!found) {
-      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
+      const freq = currentMode === 'snipe' ? snipeAudioHz() : scoutDf;
       const myCall = myCallInput.value.trim().toUpperCase();
       const eqOn = eqModeSelect.value === 'adaptive';
       // Watch phase: CQ-style AP (pass empty mycall + grid).
@@ -935,7 +981,7 @@ async function runDecode(samples, sampleRate, onPartial) {
 // ── TX queue helper (all manual TX goes through period manager) ─────────────
 function queueTxMsg(call1, call2, report) {
   clearHalted();
-  const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
+  const freq = currentMode === 'snipe' ? snipeAudioHz() : scoutDf;
   const txSlot = rxSlotEven !== null ? !rxSlotEven : !periodMgr.getCurrentPeriod().isEven;
   periodMgr.queueTx({ call1, call2, report, freq }, txSlot);
   setStatus(`TX queued: ${call1} ${call2} ${report}`);
@@ -977,18 +1023,21 @@ async function syncNtpOffset() {
 
       periodMgr.setClockOffset(best.offsetSec);
       const sign = best.offsetSec >= 0 ? '+' : '';
-      setStatus(`NTP: ${sign}${best.offsetSec.toFixed(2)} s (RTT ${best.rttMs} ms)`);
+      const msg = `NTP: DT ${sign}${best.offsetSec.toFixed(2)} s`;
+      showToast(msg);
       return best.offsetSec;
     } catch (_) { /* try next API */ }
   }
-  setStatus('NTP sync failed');
+  showToast('NTP sync failed');
   return null;
 }
 
 // ── Transmit (called by period manager at period boundary) ─────────────────
 async function transmit(call1, call2, report, freq) {
   if (!wasmReady) return;
-  freq = freq || (currentMode === 'snipe' ? snipeDf : scoutDf);
+  freq = freq || (currentMode === 'snipe' ? snipeAudioHz() : scoutDf);
+  txActive = true;
+  updateHaltBtn();
   try {
     const txText = `${call1} ${call2} ${report}`.trim();
     scoutTxQueue.textContent = ''; // clear queue indicator
@@ -1031,10 +1080,14 @@ async function transmit(call1, call2, report, freq) {
 
     if (activeBtn) activeBtn.classList.remove('tx-active');
     timerEl.classList.remove('tx-on');
+    txActive = false;
+    updateHaltBtn();
     setStatus('TX complete');
   } catch (e) {
     txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
     timerEl.classList.remove('tx-on');
+    txActive = false;
+    updateHaltBtn();
     setStatus(`TX error: ${e.message || e}`);
     await cat.safePttOff();
   }
@@ -1043,30 +1096,29 @@ async function transmit(call1, call2, report, freq) {
 // ── Period manager (slot length follows FT8/FT4 selector) ──────────────────
 const periodMgr = new FT8PeriodManager({
   onTick: (rem) => {
-    // rem is already time-until-next-boundary-fire (from _nextFireMs in ft8-period.js).
-    // Show small annotation when abs(offset) > 0.3 s; colour yellow when >= 1.0 s.
-    const offset = periodMgr.clockOffsetSec;
-    if (Math.abs(offset) > 0.3) {
-      const ann = -offset;   // (-1.9) when clock is +1.9s fast
-      const annSign = ann >= 0 ? '+' : '';
-      timerEl.innerHTML = `${Math.ceil(rem)}s <small class="dt-ann">(${annSign}${ann.toFixed(1)})</small>`;
-      const dtWarn = Math.abs(offset) >= 1.0;
-      timerEl.classList.toggle('dt-corrected', dtWarn);
-      headerEl.classList.toggle('dt-warn', dtWarn);
-      dtOffsetEl.style.display = 'none';
-    } else {
-      timerEl.textContent = `${Math.ceil(rem)}s`;
-      timerEl.classList.remove('dt-corrected');
-      headerEl.classList.remove('dt-warn');
-      dtOffsetEl.style.display = liveMode && dtAutoCorrectCheck.checked ? '' : 'none';
+    // Recover from Chrome auto-suspending the AudioContext after inactivity.
+    // The suspension causes the worklet to stop sending audio, which stalls
+    // snapshot() and breaks the decode loop.  Resume proactively each tick.
+    if (capture.audioCtx?.state === 'suspended') {
+      capture.audioCtx.resume().catch(() => {});
     }
+    // rem is already time-until-next-boundary-fire (from _nextFireMs in ft8-period.js).
+    // Timer turns yellow when |DT offset| >= 1.0 s.
+    timerEl.textContent = `${Math.ceil(rem)}s`;
+    const dtWarn = Math.abs(periodMgr.clockOffsetSec) >= 1.0;
+    timerEl.classList.toggle('dt-corrected', dtWarn);
+    headerEl.classList.toggle('dt-warn', dtWarn);
   },
   onClockOffset: (offsetSec) => {
-    const sign = offsetSec >= 0 ? '+' : '';
-    dtOffsetEl.textContent = `DT${sign}${offsetSec.toFixed(1)}`;
-    dtOffsetEl.classList.toggle('correcting', Math.abs(offsetSec) > 0.3);
-    // Don't touch display here — onTick controls visibility when live,
-    // updateLiveUI hides it when stopped.
+    // Show DT correction value below the NTP button.
+    if (Math.abs(offsetSec) > 0.1) {
+      const sign = offsetSec >= 0 ? '+' : '';
+      dtStatusEl.textContent = `DT ${sign}${offsetSec.toFixed(2)} s`;
+      dtStatusEl.style.display = '';
+    } else {
+      dtStatusEl.textContent = '';
+      dtStatusEl.style.display = 'none';
+    }
   },
   onPeriodEnd: async (periodIndex, isEven) => {
     if (!capture.running || !wasmReady) return;
@@ -1102,6 +1154,7 @@ const periodMgr = new FT8PeriodManager({
         sep.className = 'period-sep';
         sep.textContent = utc;
         chatList.appendChild(sep);
+        pruneList(chatList);
         sepInserted = true;
       }
 
@@ -1139,7 +1192,8 @@ const periodMgr = new FT8PeriodManager({
           apGrid = clickGrid;
           snipeDxGridInput.value = clickGrid;
           snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, Math.round(freq)));
-          if (snipePhase !== 'call') snipeDf = snipeBpf;
+          snipeBpfSet = true;
+          snipeDf = snipeBpf; // sync TX to new target (band-offset coords)
           clearTargetCards();
           if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
           // In Call phase: update BPF center and VFO to track the tapped station
@@ -1266,21 +1320,40 @@ const periodMgr = new FT8PeriodManager({
     }
 
     // Auto TX / retry (skip if halted — user must explicitly resume)
-    const txSlot = !isEven;
+    //
+    // Timing problem: onPeriodEnd(N) runs inside the period-N+1 boundary
+    // callback.  When decode finds a response needed in the odd slot and we
+    // are already IN the odd period N+1, simply queuing puts the TX in N+3
+    // (30 s later) because the next matching slot after N+1 is N+3.
+    //
+    // Fix: if the current period is already the right TX slot AND decode
+    // finished within the 2.4 s TX window, fire immediately (fire-and-forget,
+    // same as onTxFire).  Otherwise fall back to queuing for the next slot.
+    const txSlot = !isEven;   // false=odd when DX used even, true=even when DX used odd
+    // Helper: fire TX immediately if decode finished within the 2.4 s TX window
+    // and the current period is already the correct slot.  Otherwise queue.
+    const _fireTx = (tx, label) => {
+      const freq = currentMode === 'snipe' ? snipeAudioHz() : scoutDf;
+      const { isEven: curIsEven, elapsed } = periodMgr.getCurrentPeriod();
+      rxSlotEven = isEven; // remember which slot DX used
+      if (txSlot === curIsEven && elapsed < 2.4) {
+        // Fire-and-forget: do NOT await — same as onTxFire behaviour
+        transmit(tx.call1, tx.call2, tx.report, tx.freq ?? freq);
+      } else {
+        periodMgr.queueTx({ ...tx, freq }, txSlot);
+        setStatus(label ?? `TX queued: ${qso.formatTx(tx)}`);
+      }
+    };
+
     if (halted) { /* user halted, don't auto-queue */ }
     else if (txMsg && autoCheck.checked) {
-      const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
-      rxSlotEven = isEven; // remember DX's slot
-      periodMgr.queueTx({ ...txMsg, freq }, txSlot);
-      setStatus(`TX queued: ${qso.formatTx(txMsg)}`);
+      _fireTx(txMsg);
     } else if (!txMsg && qso.state !== QSO_STATE.IDLE && autoCheck.checked) {
       const prevState = qso.state;
       const prevDx = qso.dxCall;
       const retryTx = qso.retry();
       if (retryTx) {
-        const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
-        periodMgr.queueTx({ ...retryTx, freq }, txSlot);
-        setStatus(`Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`);
+        _fireTx(retryTx, `Retry ${qso.retryInfo()}: ${qso.formatTx(retryTx)}`);
       } else if (prevDx) {
         // Max retries exceeded — log incomplete QSO
         qsoLog.add({
@@ -1320,6 +1393,7 @@ const periodMgr = new FT8PeriodManager({
       addUnread('snipe');
     }
 
+    lastDecodedMsgs = msgs;
     waterfall.drawLabels(msgs);
     waterfall.drawFreqAxis();
 
@@ -1340,14 +1414,15 @@ periodMgr.callbacks.onTxFire = async (tx) => {
 // ■ (TX active/queued) — cancels TX, keeps QSO state
 // ↺ (TX idle)          — logs partial QSO if any, resets to IDLE
 let halted = false;
+let txActive = false;  // true while transmit() is running (audio playing)
 
 function updateHaltBtn() {
-  const txBusy = periodMgr.hasTxQueued() || halted;
-  btnHalt.textContent = txBusy ? '■' : '↺';
+  // ■ when TX is queued OR actively transmitting
+  btnHalt.textContent = (periodMgr.hasTxQueued() || txActive) ? '■' : '↺';
 }
 
 btnHalt.addEventListener('click', async () => {
-  if (periodMgr.hasTxQueued() || !halted) {
+  if (periodMgr.hasTxQueued() || txActive) {
     // Cancel TX, stop audio, keep QSO state
     periodMgr.cancelTx();
     audioOut.stop();
@@ -1394,8 +1469,6 @@ function updateLiveUI() {
   if (!liveMode) {
     timerEl.textContent = '--';
     timerEl.classList.remove('dt-corrected');
-    // Hide DT offset display when not live — it has no meaning before decoding starts
-    if (dtAutoCorrectCheck.checked) dtOffsetEl.style.display = 'none';
   }
 }
 
@@ -1465,7 +1538,7 @@ btnTestTone.addEventListener('click', async () => {
     txMeter.classList.remove('clip');
     txClip.classList.remove('active');
   } else {
-    const df = currentMode === 'snipe' ? snipeDf : scoutDf;
+    const df = currentMode === 'snipe' ? snipeAudioHz() : scoutDf;
     if (cat.connected) await cat.ptt(true);
     await audioOut.startTone(df, outputDeviceSelect.value || undefined);
     btnTestTone.textContent = `Stop (${df} Hz)`;
@@ -1561,6 +1634,7 @@ btnCat.addEventListener('click', async () => {
       catStatusEl.textContent = 'BLE connected (IC-705)';
       localStorage.setItem('webft8-rig', rigId);
       localStorage.setItem('webft8-transport', 'ble');
+      showToast('BLE connected (IC-705)');
 
       // Enable GPS UTC sync via CI-V position query (0x23 0x00) over BLE
       if (cat.ble && dtAutoCorrectCheck.checked) {
@@ -1572,11 +1646,13 @@ btnCat.addEventListener('click', async () => {
     } catch (e) {
       btnCat.textContent = 'Connect';
       catStatusEl.textContent = `BLE error: ${e.message || e}`;
+      showToast(`BLE error: ${e.message || e}`);
     }
   } else {
     // ── Serial path (Web Serial / Tauri) ──────────────────────────────────
     if (!CatController.isSerialSupported()) {
       catStatusEl.textContent = 'Web Serial not supported';
+      showToast('Web Serial not supported');
       return;
     }
     try {
@@ -1595,14 +1671,17 @@ btnCat.addEventListener('click', async () => {
 
       btnCat.textContent = 'Disconnect';
       const profiles = getRigProfiles();
-      catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
+      const label = profiles[rigId]?.label || rigId;
+      catStatusEl.textContent = `connected (${label})`;
       localStorage.setItem('webft8-rig', rigId);
       localStorage.setItem('webft8-transport', 'serial');
+      showToast(`Connected: ${label}`);
       await rigSetup();
     } catch (e) {
       await cat.disconnect();
       btnCat.textContent = 'Connect';
       catStatusEl.textContent = `error: ${e.message || e}`;
+      showToast(`CAT error: ${e.message || e}`);
     }
   }
 });
@@ -1732,7 +1811,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '0.4.2';
+const APP_VERSION = '0.4.3';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);

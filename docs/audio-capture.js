@@ -144,10 +144,28 @@ export class AudioCapture {
   /**
    * Request a snapshot of the current buffer for decoding.
    * Returns a Promise<Float32Array> with the accumulated samples.
+   *
+   * Automatically resumes the AudioContext if Chrome auto-suspended it
+   * (happens after a period of no user interaction).  Without this,
+   * the worklet stops processing and the snapshot promise never resolves,
+   * stalling _scheduleBoundary() and halting decode entirely.
+   * A 5-second timeout ensures the period loop always continues even if
+   * the worklet fails to respond (returns empty array as fallback).
    */
   snapshot() {
+    // Resume if browser auto-suspended the AudioContext.
+    if (this.audioCtx?.state === 'suspended') {
+      this.audioCtx.resume().catch(() => {});
+    }
     return new Promise((resolve) => {
-      this._snapshotResolve = resolve;
+      const timer = setTimeout(() => {
+        this._snapshotResolve = null;
+        resolve(new Float32Array(0));
+      }, 5000);
+      this._snapshotResolve = (samples) => {
+        clearTimeout(timer);
+        resolve(samples);
+      };
       this.workletNode?.port.postMessage({ type: 'snapshot' });
     });
   }

@@ -70,11 +70,13 @@ export class FT8PeriodManager {
   }
 
   getCurrentPeriod() {
-    const now = Date.now();
-    const periodIndex = Math.floor(now / this.slotMs);
+    // Use UTC-corrected time so period boundaries align with actual UTC,
+    // not with a potentially-drifted local clock.
+    const nowUtc = Date.now() - this.clockOffsetMs;
+    const periodIndex = Math.floor(nowUtc / this.slotMs);
     const isEven = periodIndex % 2 === 0;
     const periodStartMs = periodIndex * this.slotMs;
-    const elapsed = (now - periodStartMs) / 1000;
+    const elapsed = (nowUtc - periodStartMs) / 1000;
     const remaining = this.slotSec - elapsed;
     return { periodIndex, isEven, elapsed, remaining };
   }
@@ -126,6 +128,13 @@ export class FT8PeriodManager {
     this._dtSamples = [];
     // Seed the FT8-based history so EMA starts from the new offset
     this._dtHistory = Array(this._HIST_LEN).fill(clamped);
+    // Reschedule the pending boundary immediately so the new offset takes
+    // effect from the very next period — not 1–2 periods later.
+    if (this.running && this.boundaryTimeout) {
+      clearTimeout(this.boundaryTimeout);
+      this.boundaryTimeout = null;
+      this._scheduleBoundary();
+    }
     if (this.callbacks.onClockOffset) {
       this.callbacks.onClockOffset(clamped);
     }
@@ -188,11 +197,16 @@ export class FT8PeriodManager {
   _scheduleBoundary() {
     if (!this.running) return;
     const now = Date.now();
-    const currentPeriod = Math.floor(now / this.slotMs);
-    // Schedule so it fires at the next UTC-aligned slot boundary,
-    // shifted by clockOffsetMs to compensate for local clock error.
-    const nextBoundaryMs = (currentPeriod + 1) * this.slotMs;
-    const delay = Math.max(0, nextBoundaryMs - now + this.clockOffsetMs);
+    // Always compute the current period in UTC time.
+    // If the local clock is fast by N ms, Date.now() reads N ms ahead of UTC.
+    // Using the raw Date.now() to compute the period index causes it to advance
+    // early, targeting the wrong (next-next) boundary and firing 15 s late.
+    const nowUtc = now - this.clockOffsetMs;
+    const currentPeriod = Math.floor(nowUtc / this.slotMs);
+    const nextBoundaryUtcMs = (currentPeriod + 1) * this.slotMs;
+    // delay in local-clock ms: how long until the local clock reaches the
+    // moment that corresponds to the next UTC boundary.
+    const delay = Math.max(0, nextBoundaryUtcMs - nowUtc);
     this._nextFireMs = now + delay;  // track actual fire time for accurate countdown
 
     this.boundaryTimeout = setTimeout(async () => {
