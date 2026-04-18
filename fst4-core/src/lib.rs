@@ -1,12 +1,9 @@
 //! # fst4-core
 //!
-//! FST4 protocol scaffold built on top of the generic mfsk-* stack.
-//! The trait surface, frame layout, Costas positions and DSP routing
-//! are **complete and production-ready**; the LDPC(240, 101) codec
-//! itself is [`mfsk_fec::Ldpc240_101`], currently a placeholder
-//! awaiting transcription of WSJT-X's parity-check tables — see
-//! that module's docs. Once those tables are in, this crate becomes
-//! a fully functional FST4 decoder/encoder without further edits.
+//! FST4 protocol implementation on top of the generic mfsk-* stack.
+//! Trait surface, frame layout, Costas positions, DSP routing, and
+//! LDPC(240, 101) + CRC-24 codec ([`mfsk_fec::Ldpc240_101`]) are all
+//! wired. The 77-bit message layer is shared verbatim with FT8/FT4.
 //!
 //! ## Covered sub-mode
 //!
@@ -67,7 +64,7 @@ impl FrameLayout for Fst4s60 {
 }
 
 impl Protocol for Fst4s60 {
-    /// LDPC(240, 101) — currently a scaffold; see [`mfsk_fec::Ldpc240_101`].
+    /// LDPC(240, 101) + CRC-24 — see [`mfsk_fec::Ldpc240_101`].
     type Fec = Ldpc240_101;
     /// Same 77-bit WSJT message layout as FT8 / FT4 — fully reused.
     type Msg = Wsjt77Message;
