@@ -1,102 +1,97 @@
-# WebFT8 — ブラウザで動く FT8 / FT4
+# WebFT8 — FT8 in Your Browser
 
-**[English version](README.en.md)** | **[アプリを開く](https://jl1nie.github.io/webft8/)** | **[マニュアル](docs/manual.md)** | **[ライブラリリファレンス](docs/LIBRARY.ja.md)**
+**[日本語版](README.jp.md)** | **[Open App](https://jl1nie.github.io/webft8/)** | **[Manual](docs/manual.en.md)** | **[Library reference](docs/LIBRARY.md)**
 
-> Pure Rust FT8 デコーダを WASM PWA として実装。
-> インストール不要、Java 不要 — 開いてすぐ運用。
+> Pure Rust FT8 decoder running as a WASM PWA.
+> No install, no Java — just open and operate.
 
-## 特徴
+## Features
 
-- **FT8 QSO 完結** — デコード、エンコード、オートシーケンス（IDLE → CALLING → REPORT → FINAL）
-- **スナイパーモード** — 500 Hz ハードウェア BPF + 適応型イコライザで極限の微弱信号 DX
-- **パイプラインデコード** — Phase 1 の結果を即座に表示、Phase 2 で減算信号を追加
-- **CAT 制御** — Yaesu / Icom PTT（Web Serial API / Bluetooth LE）
-- **どこでも動く** — PC、タブレット、スマートフォン。Chrome、Edge、Safari 対応
-- **オフライン対応 PWA** — ホーム画面にインストール可能
-- **WAV 解析** — FT8 WAV をドラッグ＆ドロップでオフラインデコード
+- **Full FT8 QSO** — decode, encode, auto-sequence (IDLE → CALLING → REPORT → FINAL)
+- **Sniper mode** — 500 Hz hardware BPF + adaptive equalizer for extreme weak-signal DX
+- **Pipelined decode** — Phase 1 results shown instantly, Phase 2 adds subtract signals
+- **CAT control** — Yaesu / Icom PTT via Web Serial API or Bluetooth LE
+- **Works everywhere** — PC, tablet, smartphone. Chrome, Edge, Safari
+- **Offline-capable PWA** — install to home screen, works without network
+- **WAV analysis** — drag & drop any FT8 WAV for offline decode
 
-## クイックスタート
+## Quick Start
 
-1. **[WebFT8 を開く](https://jl1nie.github.io/webft8/)**
-2. マイクへのアクセスを許可
-3. 設定（歯車アイコン）でコールサインとグリッドを入力
-4. オーディオ入出力を選択 → **Start Audio**
-5. USB または BLE でリグを接続（CAT 制御、任意）
+1. **[Open WebFT8](https://jl1nie.github.io/webft8/)**
+2. Allow microphone access
+3. Enter your callsign and grid in Settings (gear icon)
+4. Select audio input/output → **Start Audio**
+5. Connect radio via USB or BLE for CAT control (optional)
 
-**オフライン試用:** [テスト WAV](https://github.com/jl1nie/webft8/raw/main/ft8-bench/testdata/sim_busy_band.wav) をウォーターフォールにドロップ。
+**Offline trial:** drag & drop a [test WAV](https://github.com/jl1nie/webft8/raw/main/ft8-bench/testdata/sim_busy_band.wav) onto the waterfall.
 
-## 2 つのモード
+## Two Modes
 
-| モード | 用途 | ユースケース |
-|--------|------|-------------|
-| **Scout** | チャット風 UI、タップでコール | カジュアル CQ、移動運用 |
-| **Snipe** | DX ハンティング、ターゲットロック | DX ペディション、微弱信号 |
+| Mode | Purpose | Use case |
+|------|---------|----------|
+| **Scout** | Chat-style UI, tap to call | Casual CQ, portable, mobile |
+| **Snipe** | DX hunting, target lock | DXpedition pileup, weak signal |
 
-## スナイパーモード — WebFT8 の差別化
+## Sniper Mode — The Differentiator
 
-汎用 FT8 アプリ（WSJT-X、JTDX）は 3 kHz 帯域全体をデコードする。+40 dB の強力局が存在すると、16 bit ADC のダイナミックレンジが奪われ、微弱なターゲット信号は量子化ノイズに埋もれる。
+Standard FT8 apps (WSJT-X, JTDX) decode across a 3 kHz band. When a +40 dB station is present, the 16-bit ADC buries weak signals in quantization noise.
 
-WebFT8 のスナイパーモードは、トランシーバの **500 Hz ハードウェアナローフィルタ** で ADC の前段で強信号を物理的に除去し、さらに：
+WebFT8's sniper mode uses the transceiver's **500 Hz hardware narrow filter** to physically remove strong interference *before* the ADC, then applies:
 
-1. **適応型イコライザ** — Costas パイロットトーンで BPF エッジの振幅/位相歪みを補正
-2. **逐次干渉キャンセル** — 3 パス減算 + QSB ゲート
-3. **A Priori デコード** — 既知コールサインのビットをロック（最大 77 bit フルロック）
+1. **Adaptive equalizer** — corrects BPF edge distortion using Costas pilot tones
+2. **Successive interference cancellation** — 3-pass subtract with QSB gate
+3. **A Priori decoding** — locks known callsign bits (up to 77-bit full lock)
 
 ## vs WSJT-X
 
-| 機能 | WSJT-X | WebFT8 |
-|------|--------|--------|
-| プラットフォーム | デスクトップ (Java/Fortran) | **ブラウザ (Rust/WASM)** |
-| BPF 統合 | なし | **500 Hz スナイパーモード** |
-| イコライザ | なし | **Costas Wiener 適応型 EQ** |
-| 並列処理 | 逐次 | **Rayon par_iter (7.7 倍)** |
-| 減算 | 4 パス | **3 パス + QSB ゲート** |
-| バイナリサイズ | ~120 MB | **572 KB（PWA 全体）** |
+| Feature | WSJT-X | WebFT8 |
+|---------|--------|--------|
+| Platform | Desktop (Java/Fortran) | **Browser (Rust/WASM)** |
+| BPF integration | None | **500 Hz sniper mode** |
+| Equalizer | None | **Costas Wiener adaptive EQ** |
+| Parallelism | Serial | **Rayon par_iter (7.7x)** |
+| Subtract | 4-pass | **3-pass + QSB gate** |
+| Binary size | ~120 MB | **572 KB (full PWA)** |
 
-### デコード比較（15 クラウド局 + 弱ターゲット）
+### Decode Comparison (15 crowd stations + weak target)
 
-| シナリオ | WSJT-X | WebFT8 |
+| Scenario | WSJT-X | WebFT8 |
 |----------|--------|--------|
-| クラウド +5 dB、ターゲット -12 dB | 7 局 | **16 局** |
-| クラウド +20 dB、ターゲット -18 dB | 11 (3Y0Z: AP) | **15** |
-| ターゲット -18 dB、BPF エッジ | 1 (AP) | **1 (sniper+EQ+AP)** |
+| crowd +5 dB, target −12 dB | 7 decoded | **16 decoded** |
+| crowd +40 dB, target −14 dB (54 dB gap) | 0% | **100% with 500 Hz HW BPF** |
+| BPF edge −18 dB, no AP | — | **45% (EQ)** |
+| BPF edge −18 dB, EQ + AP | — | **100%** |
+| Butterworth vs Elliptic 4-pole (center, −18 dB) | — | **95% both** |
 
-## 開発者向け
+Full benchmark data (all scenarios, SNR sweeps, filter comparison): **[docs/bench.md](docs/bench.md)**
 
-**[ライブラリリファレンス (日本語)](docs/LIBRARY.ja.md)** — Rust Generic を使ったモジュール設計から C ABI・Kotlin JNI・WASM まで、組み込み利用者向けの詳細ドキュメント。
+## For Developers
 
 ```
-rs-ft8n/
-├── mfsk-core/     プロトコル汎用 trait + 共通 DSP / sync / LLR / pipeline
-├── mfsk-fec/      LDPC(174,91) コーデック
-├── mfsk-msg/      WSJT 77-bit メッセージ codec + AP hints
-├── ft8-core/      FT8 固有ロジック + 後方互換 API
-├── ft4-core/      FT4 実装
-├── ft8-bench/     ベンチマーク＆シミュレーションスイート
-├── ft8-web/       WASM バインディング + PWA フロントエンド
-├── wsjt-ffi/      C ABI cdylib (C++/Kotlin/Android 向け)
-├── ft8-desktop/   Tauri ネイティブラッパー
-└── docs/          GitHub Pages + ライブラリドキュメント
+webft8/
+├── ft8-core/      Pure Rust FT8 decoder/encoder library
+├── ft8-bench/     Benchmark & simulation suite
+├── ft8-web/       WASM bindings + PWA frontend
+├── ft8-desktop/   Tauri native wrapper
+└── docs/          GitHub Pages deployment
 ```
 
-### ビルド
+### Build
 
 ```bash
-# ネイティブ
+# Native
 cargo build --release
-cargo run -p ft8-bench --release    # ベンチマーク + シミュレーション
+cargo run -p ft8-bench --release    # benchmarks + simulation
 
 # WASM
 cd ft8-web && wasm-pack build --target web --release
 ```
 
-63 ユニットテスト。WASM バイナリ 413 KB。
+## References
 
-## 参考文献
-
-- [WSJT-X](https://github.com/saitohirga/WSJT-X) — FT8 リファレンス実装
+- [WSJT-X](https://github.com/saitohirga/WSJT-X) — FT8 reference implementation
 - K1JT et al., "The FT4 and FT8 Communication Protocols", QEX, 2020
 
-## ライセンス
+## License
 
-GPL-3.0-or-later — WSJT-X からのポートアルゴリズムを含む。
+GPL-3.0-or-later — includes ported algorithms from WSJT-X.

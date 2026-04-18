@@ -6,7 +6,7 @@ mod simulator;
 
 use std::path::PathBuf;
 use real_data::evaluate_real_data;
-use ft8_core::decode::{decode_sniper_eq, decode_sniper_ap, decode_sniper_sic, EqMode, ApHint};
+use ft8_core::decode::{decode_sniper_eq, decode_sniper_ap, EqMode, ApHint};
 use simulator::{make_busy_band_scenario, build_cq_messages};
 
 fn main() {
@@ -48,6 +48,9 @@ fn main() {
 
     // ── Busy-band hard case (+20 dB crowd, −20 dB target) ────────────────────
     run_busy_band_hard_scenario();
+
+    // ── Sniper story: no-BPF vs BPF-edge vs BPF-center × SIC/AP ──────
+    run_sniper_story_scenario();
 
     // ── BPF filter scenarios (center / shoulder / edge) ─────────────────────────
     run_bpf_scenarios();
@@ -370,40 +373,6 @@ fn run_busy_band_hard_scenario() {
     println!("  [clean sniper sw ] target hits: {:2}/{SWEEP_SEEDS}  ({:>3.0}%)",
         clean_sniper_ok, 100.0 * clean_sniper_ok as f32 / SWEEP_SEEDS as f32);
 
-    // ── BPF-filtered audio: sweep 20 seeds to show success rate ──────────────
-    // The hardware BPF removes the crowd before the ADC, so the decoder only
-    // sees target + AWGN.  At −20 dB SNR we are near the FT8 threshold; the
-    // success rate across independent noise realisations shows the gain.
-    const N_SEEDS: u64 = 20;
-    let mut bpf_ok = 0usize;
-    let mut best_result: Option<ft8_core::decode::DecodeResult> = None;
-    for seed in 0..N_SEEDS {
-        let config_bpf = simulator::SimConfig {
-            signals: vec![simulator::SimSignal {
-                message77: target_msg,
-                freq_hz: TARGET_FREQ,
-                snr_db: TARGET_SNR,
-                dt_sec: 0.0,
-            }],
-            noise_seed: Some(seed),
-        };
-        let audio_bpf = simulator::generate_frame(&config_bpf);
-        let results = decode_sniper(&audio_bpf, TARGET_FREQ, DecodeDepth::BpAllOsd, 20);
-        if let Some(r) = results.iter().find(|r| r.message77 == target_msg) {
-            bpf_ok += 1;
-            if best_result.is_none() { best_result = Some(r.clone()); }
-        }
-    }
-    println!(
-        "  [500Hz BPF: sniper ] {bpf_ok}/{N_SEEDS} seeds decoded  \
-         (success rate: {:.0}%)",
-        100.0 * bpf_ok as f32 / N_SEEDS as f32
-    );
-    if let Some(r) = &best_result {
-        println!("    example: snr={:+.1} dB  dt={:+.2} s  errors={}  pass={}",
-            r.snr_db, r.dt_sec, r.hard_errors, r.pass);
-    }
-
     // Write crowd-AGC mixed WAV for WSJT-X external verification
     let out_mixed = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("testdata").join("sim_busy_band_hard_mixed.wav");
@@ -437,6 +406,138 @@ fn run_busy_band_hard_scenario() {
     println!();
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+
+/// The Sniper Story: hardware BPF position vs SIC/AP effectiveness.
+///
+/// This is the core argument for sniper mode. Without a hardware BPF the ADC
+/// is dominated by the strong crowd (40 dB above target) and SIC/AP cannot
+/// recover useful LLRs from the saturated signal. As the BPF moves the target
+/// from the passband edge toward the centre, distortion falls, effective SNR
+/// rises, and SIC/AP gain becomes measurable.
+///
+/// Three configurations, same 15-station crowd at +20 dB, 20 noise seeds:
+///   1. **No-BPF**:     full i16 mix  -> ADC saturated, SIC/AP helpless
+///   2. **BPF-edge**:        500 Hz Butterworth BPF, target at -3 dB edge
+///   3. **BPF-center**:      500 Hz Butterworth BPF, target at 0 dB centre
+///   4. **Elliptic-edge**:   500 Hz Elliptic BPF,    target at -3 dB edge
+///   5. **Elliptic-center**: 500 Hz Elliptic BPF,    target at 0 dB centre
+fn run_sniper_story_scenario() {
+    use ft8_core::decode::{decode_sniper, decode_sniper_sic, DecodeDepth, ApHint};
+    use ft8_core::decode::EqMode;
+    use bpf::{ButterworthBpf, EllipticBpf};
+
+    const TARGET_FREQ: f32 = 1000.0;
+    const CROWD_SNR:   f32 = 40.0;
+    const N_POLES: usize = 4;
+    const FS: f64 = 12_000.0;
+    const N_SEEDS: u64 = 20;
+
+    let target_msg = pack77_test_type1("CQ", "3Y0Z", "JD34");
+
+    let crowd = crowd_calls_grids();
+    let crowd_msgs = build_cq_messages(&crowd);
+    let num_crowd = crowd_msgs.len();
+
+    let ap = ApHint::new().with_call2("3Y0Z");
+
+    println!("=== Sniper Story: Butterworth vs Elliptic (4-pole, 500 Hz BW) ===");
+    println!("  crowd: {num_crowd} stations @ {CROWD_SNR:+.0} dB (ADC-saturating)");
+    println!("  AP hint: call2 = '3Y0Z' | EQ+AP applied to all BPF columns");
+    println!();
+    println!("  {:>6}  {:>14}  {:>16}  {:>16}  {:>16}  {:>16}",
+        "SNR", "no-BPF",
+        "BW-edge+EQ+AP", "BW-center+EQ+AP",
+        "EL-edge+EQ+AP", "EL-center+EQ+AP");
+
+    // Print Elliptic filter response for reference
+    {
+        let el = EllipticBpf::design(N_POLES, 1000.0, 1500.0, FS);
+        println!("  Elliptic edge BPF 1000–1500 Hz response:");
+        for &f in &[800.0, 900.0, 1000.0, 1100.0, 1200.0, 1300.0, 1500.0, 1800.0] {
+            println!("    {:>6.0} Hz: {:>6.1} dB", f, el.response_db(f, FS));
+        }
+        println!();
+    }
+
+    for snr in [-10i32, -12, -14, -16, -18, -20, -22] {
+        let target_snr = snr as f32;
+        let mut ok_noisy     = 0usize;
+        let mut ok_bw_edge   = 0usize;
+        let mut ok_bw_ctr    = 0usize;
+        let mut ok_el_edge   = 0usize;
+        let mut ok_el_ctr    = 0usize;
+
+        for seed in 0..N_SEEDS {
+            // --- 1. No-BPF ---------------------------------------------------
+            let cfg_full = simulator::make_busy_band_scenario(
+                target_msg, TARGET_FREQ, target_snr, &crowd_msgs, CROWD_SNR, Some(seed),
+            );
+            let mix_full = simulator::generate_frame_f32(&cfg_full);
+            let audio_noisy = simulator::quantise_crowd_agc(&mix_full, CROWD_SNR, num_crowd);
+            if decode_sniper(&audio_noisy, TARGET_FREQ, DecodeDepth::BpAllOsd, 20)
+                .iter().any(|r| r.message77 == target_msg) { ok_noisy += 1; }
+
+            // Target-only mix (hardware BPF removes crowd before ADC)
+            let cfg_bpf = simulator::SimConfig {
+                signals: vec![simulator::SimSignal {
+                    message77: target_msg,
+                    freq_hz: TARGET_FREQ,
+                    snr_db: target_snr,
+                    dt_sec: 0.0,
+                }],
+                noise_seed: Some(seed),
+            };
+            let mix_bpf = simulator::generate_frame_f32(&cfg_bpf);
+
+            // helper: filter → normalise → i16 → decode
+            macro_rules! try_bpf {
+                ($filtered:expr, $ok:ident) => {{
+                    let filt = $filtered;
+                    let peak = filt.iter().map(|s: &f32| s.abs()).fold(0.0_f32, f32::max);
+                    let scale = if peak > 1e-6 { 29_000.0 / peak } else { 1.0 };
+                    let audio: Vec<i16> = filt.iter()
+                        .map(|&s| (s * scale).clamp(-32_768.0, 32_767.0) as i16).collect();
+                    if decode_sniper_sic(&audio, TARGET_FREQ, DecodeDepth::BpAllOsd, 20,
+                            EqMode::Adaptive, Some(&ap))
+                        .iter().any(|r| r.message77 == target_msg) { $ok += 1; }
+                }};
+            }
+
+            // --- 2. Butterworth-edge -----------------------------------------
+            let mut bpf = ButterworthBpf::design(N_POLES, 1000.0, 1500.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_bw_edge);
+
+            // --- 3. Butterworth-center ----------------------------------------
+            let mut bpf = ButterworthBpf::design(N_POLES, 750.0, 1250.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_bw_ctr);
+
+            // --- 4. Elliptic-edge ---------------------------------------------
+            let mut bpf = EllipticBpf::design(N_POLES, 1000.0, 1500.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_el_edge);
+
+            // --- 5. Elliptic-center -------------------------------------------
+            let mut bpf = EllipticBpf::design(N_POLES, 750.0, 1250.0, FS);
+            try_bpf!(bpf.filter(&mix_bpf), ok_el_ctr);
+        }
+
+        let pct = |ok: usize| 100.0 * ok as f64 / N_SEEDS as f64;
+        println!("  {:+4} dB  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)  {:>4}/{N_SEEDS}({:>3.0}%)",
+            snr,
+            ok_noisy,   pct(ok_noisy),
+            ok_bw_edge, pct(ok_bw_edge),
+            ok_bw_ctr,  pct(ok_bw_ctr),
+            ok_el_edge, pct(ok_el_edge),
+            ok_el_ctr,  pct(ok_el_ctr),
+        );
+    }
+    println!();
+}
+
+fn pack77_test_type1(cq: &str, call: &str, grid: &str) -> [u8; 77] {
+    use ft8_core::message::pack77_type1;
+    pack77_type1(cq, call, grid).expect("failed to pack message")
+}
 // ────────────────────────────────────────────────────────────────────────────
 
 /// BPF filter scenarios: demonstrate the effect of a 500 Hz hardware BPF on
@@ -713,12 +814,71 @@ fn run_bpf_subtract_scenario() {
         }
     }
 
-    // Write WAV
+    // Write WAV (seed=1234 example)
     let out = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("testdata")
         .join("sim_bpf_subtract.wav");
     if simulator::write_wav(&out, &audio).is_ok() {
         println!("  WAV: {}", out.display());
+    }
+
+    // ── Statistical sweep: 20 seeds × target SNR ────────────────────────────
+    // Same BPF + 4 in-band crowd setup, vary target SNR and noise seed.
+    // AP = target callsign known (call2 = "3Y0Z"), matching real GUI behaviour
+    // where the user has locked the DX station before calling.
+    use ft8_core::decode::ApHint;
+    let ap = ApHint::new().with_call2("3Y0Z");
+    const N_SEEDS: u64 = 20;
+    println!("  SNR sweep ({N_SEEDS} seeds each, AP = call2 '3Y0Z' known):");
+    println!("  {:>6}  {:>14}  {:>14}  {:>18}  {:>22}",
+        "SNR", "single-pass", "subtract", "sniper-SIC", "sniper-SIC+AP");
+    for snr in [-10, -12, -14, -16, -18, -20] {
+        let mut ok_single  = 0usize;
+        let mut ok_sub     = 0usize;
+        let mut ok_sic     = 0usize;
+        let mut ok_sic_ap  = 0usize;
+        for seed in 0..N_SEEDS {
+            let mut sigs = vec![simulator::SimSignal {
+                message77: target_msg,
+                freq_hz: TARGET_FREQ,
+                snr_db: snr as f32,
+                dt_sec: 0.0,
+            }];
+            for &(freq, ref msg) in &in_band_crowd {
+                sigs.push(simulator::SimSignal {
+                    message77: *msg,
+                    freq_hz: freq,
+                    snr_db: crowd_snr,
+                    dt_sec: 0.0,
+                });
+            }
+            let cfg = simulator::SimConfig { signals: sigs, noise_seed: Some(seed) };
+            let mix = simulator::generate_frame_f32(&cfg);
+            let mut bpf_s = ButterworthBpf::design(N_POLES, BPF_LO, BPF_HI, FS);
+            let filt = bpf_s.filter(&mix);
+            let peak = filt.iter().map(|s| s.abs()).fold(0.0_f32, f32::max);
+            let scale = if peak > 1e-6 { 29_000.0 / peak } else { 1.0 };
+            let au: Vec<i16> = filt.iter()
+                .map(|&s| (s * scale).clamp(-32_768.0, 32_767.0) as i16)
+                .collect();
+
+            if decode_sniper(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20)
+                .iter().any(|r| r.message77 == target_msg) { ok_single += 1; }
+            if decode_frame_subtract(&au, BPF_LO as f32, BPF_HI as f32, 0.8, None,
+                    DecodeDepth::BpAllOsd, 20, DecodeStrictness::Normal)
+                .iter().any(|r| r.message77 == target_msg) { ok_sub += 1; }
+            if decode_sniper_sic(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, None)
+                .iter().any(|r| r.message77 == target_msg) { ok_sic += 1; }
+            if decode_sniper_sic(&au, TARGET_FREQ, DecodeDepth::BpAllOsd, 20, EqMode::Adaptive, Some(&ap))
+                .iter().any(|r| r.message77 == target_msg) { ok_sic_ap += 1; }
+        }
+        println!("  {:+4} dB  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)  {:>5}/{N_SEEDS} ({:>3.0}%)",
+            snr,
+            ok_single, 100.0 * ok_single  as f64 / N_SEEDS as f64,
+            ok_sub,    100.0 * ok_sub     as f64 / N_SEEDS as f64,
+            ok_sic,    100.0 * ok_sic     as f64 / N_SEEDS as f64,
+            ok_sic_ap, 100.0 * ok_sic_ap  as f64 / N_SEEDS as f64,
+        );
     }
     println!();
 }
@@ -1117,7 +1277,7 @@ fn run_interference_scenario() {
 /// 3. Write WAVs at the extreme limit for WSJT-X comparison
 fn run_extreme_sweep() {
     use ft8_core::decode::{decode_frame_subtract, decode_sniper_ap, DecodeDepth, DecodeStrictness, EqMode, ApHint};
-    use ft8_core::message::{pack77_type1, unpack77};
+    use ft8_core::message::pack77_type1;
 
     let target_msg = pack77_type1("CQ", "3Y0Z", "JD34").unwrap();
     let ap = ApHint::new().with_call2("3Y0Z");

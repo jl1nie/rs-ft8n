@@ -50,6 +50,7 @@ import { AudioOutput } from './audio-output.js';
 import { FT8PeriodManager } from './ft8-period.js';
 import { QsoManager, QSO_STATE } from './qso.js';
 import { CatController, loadRigProfiles, getRigProfiles, isTauriMode, listSerialPorts } from './cat.js';
+import { GpsNmeaSync } from './gps-nmea.js';
 import { QsoLog } from './qso-log.js';
 
 // ── Protocol selector (FT8 default; FT4/WSPR opt-in via settings cog) ──────
@@ -72,24 +73,20 @@ function getSlotMs() {
 const body = document.body;
 const tabScout = document.getElementById('tab-scout');
 const tabSnipe = document.getElementById('tab-snipe');
-const badgeScout = document.getElementById('badge-scout');
 const badgeSnipe = document.getElementById('badge-snipe');
-let unreadScout = 0, unreadSnipe = 0;
+let unreadSnipe = 0;
 function addUnread(mode) {
-  if (mode === 'scout') {
-    if (currentMode === 'scout') return;
-    unreadScout++;
-    badgeScout.textContent = unreadScout > 99 ? '99+' : unreadScout;
-    badgeScout.style.display = '';
-  } else {
-    if (currentMode === 'snipe') return;
-    unreadSnipe++;
-    badgeSnipe.textContent = unreadSnipe > 99 ? '99+' : unreadSnipe;
-    badgeSnipe.style.display = '';
-  }
+  if (mode !== 'snipe') return;
+  if (currentMode === 'snipe') return;
+  unreadSnipe++;
+  badgeSnipe.textContent = unreadSnipe > 99 ? '99+' : unreadSnipe;
+  badgeSnipe.style.display = '';
 }
 const timerEl = document.getElementById('period-timer');
+const dtOffsetEl = document.getElementById('dt-offset-display');
+const headerEl = document.querySelector('.header');
 const btnSettings = document.getElementById('btn-settings');
+const btnNtp = document.getElementById('btn-ntp');
 const settingsPanel = document.getElementById('settings-panel');
 const settingsOverlay = document.getElementById('settings-overlay');
 const wfCanvas = document.getElementById('waterfall');
@@ -98,7 +95,7 @@ const snipeOverlay = document.getElementById('snipe-overlay');
 const snipeFreqLabel = document.getElementById('snipe-freq-label');
 const chatList = document.getElementById('chat-list');
 const snipeDxCall = document.getElementById('snipe-dx-call');
-const snipeDxMsg = document.getElementById('snipe-dx-msg');
+const snipeDxGridInput = document.getElementById('snipe-dx-grid');
 const snipeDxInfo = document.getElementById('snipe-dx-info');
 const snipeTxLine = document.getElementById('snipe-tx-line');
 const snipeBand = document.getElementById('snipe-band');
@@ -112,6 +109,7 @@ const scoutState = document.getElementById('scout-state');
 const scoutDxEl = document.getElementById('scout-dx');
 const scoutDecodeInfo = document.getElementById('scout-decode-info');
 const scoutTxQueue = document.getElementById('scout-tx-queue');
+const snipeDecodeInfo = document.getElementById('snipe-decode-info');
 const scoutDots = [
   document.getElementById('scout-dot-1'), document.getElementById('scout-dot-2'),
   document.getElementById('scout-dot-3'), document.getElementById('scout-dot-4'),
@@ -135,9 +133,9 @@ const outputDeviceSelect = document.getElementById('audio-output-device');
 const bandSelect = document.getElementById('band-header');
 const subtractCheck = document.getElementById('subtract-mode');
 const apCheck = document.getElementById('ap-mode');
+const dtAutoCorrectCheck = document.getElementById('dt-auto-correct');
 const strictnessSelect = document.getElementById('decode-strictness');
 const btnCat = document.getElementById('btn-cat');
-const btnCatBle = document.getElementById('btn-cat-ble');
 const catStatusEl = document.getElementById('cat-status');
 const btnStart = document.getElementById('btn-start');
 
@@ -149,15 +147,17 @@ let snipeBpf = 1000;  // Snipe BPF window center (receive)
 let snipeDf = 1000;   // Snipe TX frequency
 let scoutDf = 1500;   // Scout TX frequency
 let apCall = '';
+let apGrid = '';
 let snipePhase = 'watch'; // 'watch' | 'call'
-let snipeAltCall = ''; // call2 (sender) from last tapped Snipe message
 let rxSlotEven = null; // even/odd of the period where DX was last heard
 let lastDecodeMs = 0; // last decode duration for timer display
 let lastPeriodIndex = -1; // track period changes for separator
 let apDisabledAuto = false; // true if AP was auto-disabled due to timeout
 let subDisabledAuto = false; // true if subtract was auto-disabled due to timeout
 const FREQ_MIN = 100, FREQ_MAX = 3000;
-const FILTER_CENTER = 1000; // audio offset where 500Hz DSP filter is centered
+// USB passband center = 1500 Hz (ITU standard, rig-independent).
+// The 500 Hz narrow filter is centered here in DATA-USB mode.
+const FILTER_CENTER = 1500;
 
 // ── Status display ─────────────────────────────────────────────────────────
 function setStatus(text) {
@@ -169,9 +169,12 @@ function setStatus(text) {
     scoutDecodeInfo.textContent = text;
     if (!periodMgr.hasTxQueued()) scoutTxQueue.textContent = '';
   }
-  snipeTxLine.textContent = text;
-  // Show Halt/Reset when TX is queued, active, or halted
-  btnHalt.style.display = (periodMgr.hasTxQueued() || isTx || halted) ? '' : 'none';
+  // Decode counts (e.g. "10d 1783ms") go to snipe-decode-info only — not here
+  if (!/^\d+d \d+ms/.test(text)) snipeTxLine.textContent = text;
+  // Show ■/↺ when TX is queued, active, or QSO in progress
+  const showHalt = periodMgr.hasTxQueued() || isTx || halted || !!qso.dxCall;
+  btnHalt.style.display = showHalt ? '' : 'none';
+  if (showHalt) updateHaltBtn();
 }
 
 const DOM_MAX = 200; // max child elements per list
@@ -196,9 +199,13 @@ const scoutTargetInfo = document.getElementById('scout-target-info');
 function clearTargetCards() {
   scoutTargetMsg.textContent = '';
   scoutTargetInfo.textContent = '';
-  snipeDxMsg.textContent = '';
   snipeDxInfo.textContent = '';
 }
+
+snipeDxGridInput.addEventListener('input', () => {
+  apGrid = snipeDxGridInput.value.trim().toUpperCase();
+  snipeDxGridInput.value = apGrid;
+});
 
 function updateScoutStatus() {
   const state = qso.state;
@@ -212,8 +219,8 @@ function updateScoutStatus() {
   scoutState.textContent = state === 'IDLE' ? '' : state;
   scoutDxEl.textContent = (state !== 'IDLE' && qso.dxCall) ? qso.dxCall : '';
 
-  // Scout target card: show during active QSO
-  const active = state !== 'IDLE' && qso.dxCall;
+  // Scout target card: show during active QSO in Scout mode only
+  const active = currentMode === 'scout' && state !== 'IDLE' && qso.dxCall;
   scoutTargetEl.style.display = active ? '' : 'none';
   if (active) {
     scoutTargetCall.textContent = qso.dxCall;
@@ -221,9 +228,15 @@ function updateScoutStatus() {
 }
 
 // ── Waterfall ───────────────────────────────────────────────────────────────
+// Canvas drawing height is fixed at 280 px (Snipe mode max).  The wrapper
+// clips to the mode-appropriate height (220/280 px) via overflow:hidden, and
+// the canvas is pinned to the bottom so the most-recent rows are always visible.
+// Only width is updated on resize; setting canvas.height would clear the buffer.
+const WF_CANVAS_HEIGHT = 280;
 function resizeCanvas() {
-  wfCanvas.width = wfCanvas.clientWidth;
-  wfCanvas.height = wfCanvas.clientHeight;
+  const newW = wfCanvas.clientWidth;
+  if (wfCanvas.width !== newW) wfCanvas.width = newW;
+  if (wfCanvas.height !== WF_CANVAS_HEIGHT) wfCanvas.height = WF_CANVAS_HEIGHT;
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
@@ -408,11 +421,11 @@ capture.onPeak = (level) => {
   rxMeter.style.width = pct + '%';
 };
 cat.onDisconnect = () => {
-  btnCat.textContent = 'Connect Rig';
-  btnCatBle.textContent = 'Connect BLE';
+  btnCat.textContent = 'Connect';
   catStatusEl.textContent = 'disconnected';
   setStatus('CAT disconnected');
   showToast('CAT disconnected');
+  // BLE GPS queries stop automatically (BleTransport.disconnect clears timer)
 };
 
 // ── Mode switching ──────────────────────────────────────────────────────────
@@ -424,24 +437,34 @@ function setMode(mode) {
   body.className = mode + '-mode';
   tabScout.classList.toggle('active', mode === 'scout');
   tabSnipe.classList.toggle('active', mode === 'snipe');
-  if (mode === 'scout') { unreadScout = 0; badgeScout.style.display = 'none'; }
-  else { unreadSnipe = 0; badgeSnipe.style.display = 'none'; }
+  if (mode === 'snipe') { unreadSnipe = 0; badgeSnipe.style.display = 'none'; }
   resizeCanvas();
-  waterfall.clear();
   waterfall.dfLine = mode === 'scout' ? scoutDf : snipeDf;
-  waterfall.targetLine = mode === 'snipe' ? snipeBpf : null;
+  waterfall.targetLine = (mode === 'snipe' && snipePhase === 'call') ? snipeBpf : null;
   waterfall.freqOffset = (mode === 'snipe' && snipePhase === 'call') ? (snipeBpf - FILTER_CENTER) : 0;
+  if (mode === 'snipe') {
+    snipePhaseHint.textContent = snipePhase === 'watch'
+      ? `full-band  DF ${snipeDf} Hz  Target ${snipeBpf} Hz`
+      : `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
+  }
   updateSnipeOverlay();
 }
 
-// ── Snipe Watch/Call phase ──────────────────────────────────────────────────
-const btnWatch = document.getElementById('btn-watch');
-const btnCall = document.getElementById('btn-call');
+// ── Snipe BPF toggle ────────────────────────────────────────────────────────
+const btnBpf = document.getElementById('btn-bpf');
 const snipePhaseHint = document.getElementById('snipe-phase-hint');
 const snipeCallersEl = document.getElementById('snipe-callers');
 
-btnWatch.addEventListener('click', () => setSnipePhase('watch'));
-btnCall.addEventListener('click', () => setSnipePhase('call'));
+btnBpf.addEventListener('click', () => setSnipePhase(snipePhase === 'watch' ? 'call' : 'watch'));
+
+// Allow manual callsign entry in the Snipe target field
+snipeDxCall.addEventListener('change', () => {
+  const call = snipeDxCall.value.trim().toUpperCase();
+  snipeDxCall.value = call;
+  apCall = call;
+  qso.dxCall = call;  // set target for AP filtering without starting TX
+  updateQsoDisplay();
+});
 
 /** Compute shifted dial frequency so the physical filter covers snipeBpf. */
 function snipeDialHz() {
@@ -451,18 +474,21 @@ function snipeDialHz() {
 
 async function setSnipePhase(phase) {
   snipePhase = phase;
-  btnWatch.classList.toggle('active', phase === 'watch');
-  btnCall.classList.toggle('active', phase === 'call');
+  btnBpf.classList.toggle('active', phase === 'call');
   const snipeView = document.getElementById('snipe-view');
   snipeView.classList.toggle('snipe-call-phase', phase === 'call');
   if (phase === 'watch') {
     waterfall.freqOffset = 0;
+    waterfall.noiseWindow = null;
+    waterfall.targetLine = null;
     snipePhaseHint.textContent = `full-band  DF ${snipeDf} Hz`;
     await cat.setFilter(false);
     const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
     await cat.setFreq(baseHz);
   } else {
     waterfall.freqOffset = snipeBpf - FILTER_CENTER;
+    waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
+    waterfall.targetLine = snipeBpf;
     snipePhaseHint.textContent = `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
     await cat.setFilter(true);
     await cat.setFreq(snipeDialHz());
@@ -489,6 +515,82 @@ function closeSettings() {
   settingsOverlay.classList.remove('open');
 }
 btnSettings.addEventListener('click', openSettings);
+
+// Mobile detection: NTP Sync is only useful on Android/iOS where the OS
+// may not keep perfect time.  Desktop OS and Tauri native sync via NTP automatically.
+const isMobile = !isTauriMode() && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+if (!isMobile) btnNtp.style.display = 'none';
+
+function applyDtAutoCorrectUi() {
+  const on = dtAutoCorrectCheck.checked;
+  periodMgr.setDtAutoCorrect(on);
+  // Only show offset display when live AND auto-correct is on AND offset is small
+  dtOffsetEl.style.display = (on && liveMode) ? '' : 'none';
+  btnNtp.disabled = !on;
+  if (!on) {
+    dtOffsetEl.textContent = '';
+    dtOffsetEl.classList.remove('correcting');
+  }
+}
+dtAutoCorrectCheck.addEventListener('change', applyDtAutoCorrectUi);
+
+btnNtp.addEventListener('click', async () => {
+  btnNtp.disabled = true;
+  btnNtp.textContent = 'Syncing...';
+  await syncNtpOffset();
+  btnNtp.disabled = !dtAutoCorrectCheck.checked;
+  btnNtp.textContent = 'NTP Sync';
+});
+
+// ── GPS NMEA sync (IC-705 USB-B) ───────────────────────────────────────────
+const btnGpsSync = document.getElementById('btn-gps-sync');
+let gpsSync = null;
+
+// Hide GPS button only when neither Web Serial nor Tauri native serial is available
+if (!GpsNmeaSync.isSupported()) {
+  btnGpsSync.style.display = 'none';
+}
+
+function _applyGpsOffset(offsetSec, label) {
+  periodMgr.setClockOffset(offsetSec);
+  const sign = offsetSec >= 0 ? '+' : '';
+  setStatus(`${label}: ${sign}${offsetSec.toFixed(2)} s`);
+}
+
+btnGpsSync.addEventListener('click', async () => {
+  if (gpsSync) {
+    await gpsSync.disconnect();
+    gpsSync = null;
+    btnGpsSync.textContent = 'GPS Sync';
+    return;
+  }
+  gpsSync = new GpsNmeaSync(_applyGpsOffset);
+  try {
+    let portName;
+    if (isTauriMode()) {
+      // In Tauri, show a port selection prompt using the native port list
+      const ports = await listSerialPorts();
+      if (!ports.length) throw new Error('No serial ports found');
+      // Build a simple selection string: "COM8 (VID:0C28 PID:0003)"
+      const choices = ports.map(p =>
+        `${p.name}${p.vid ? ` (${p.vid.toString(16).toUpperCase().padStart(4,'0')}:${p.pid.toString(16).toUpperCase().padStart(4,'0')})` : ''}`
+      );
+      const choice = prompt(
+        'Select GPS port (IC-705 USB-B):\n' + choices.map((c, i) => `${i}: ${c}`).join('\n'),
+        '0'
+      );
+      if (choice === null) { gpsSync = null; return; }
+      const idx = parseInt(choice, 10);
+      if (isNaN(idx) || idx < 0 || idx >= ports.length) throw new Error('Invalid selection');
+      portName = ports[idx].name;
+    }
+    await gpsSync.connect(portName);
+    btnGpsSync.textContent = 'GPS ●';
+  } catch (e) {
+    gpsSync = null;
+    setStatus('GPS: ' + (e.message || e));
+  }
+});
 settingsOverlay.addEventListener('click', closeSettings);
 document.getElementById('btn-close-settings').addEventListener('click', closeSettings);
 
@@ -533,20 +635,24 @@ wfWrap.addEventListener('click', async (e) => {
 });
 
 // Right-click: set target frequency (BPF center, green line) — Snipe only
+// preventDefault() must come before the mode guard so Tauri WebView never
+// shows the "Save image" system context menu on the canvas element.
 wfWrap.addEventListener('contextmenu', async (e) => {
-  if (currentMode !== 'snipe') return;
   e.preventDefault();
+  if (currentMode !== 'snipe') return;
   const rect = wfCanvas.getBoundingClientRect();
   const freq = Math.round(FREQ_MIN + ((e.clientX - rect.left) / rect.width) * (FREQ_MAX - FREQ_MIN));
   snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, freq));
+  // Show BPF target overlay in both Watch and Call modes
   waterfall.targetLine = snipeBpf;
+  waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
   if (snipePhase === 'call') {
     waterfall.freqOffset = snipeBpf - FILTER_CENTER;
     await cat.setFreq(snipeDialHz());
   }
   updateSnipeOverlay();
   snipePhaseHint.textContent = snipePhase === 'watch'
-    ? `full-band  DF ${snipeDf} Hz  Target ${snipeBpf} Hz`
+    ? `full-band  BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`
     : `BPF ${snipeBpf} Hz  DF ${snipeDf} Hz`;
   setStatus(`Target: ${snipeBpf} Hz`);
 });
@@ -596,19 +702,17 @@ function addChatMsg(type, time, text, snr, actionCb, freq, dt) {
   if (type === 'rx') {
     div.classList.add('new');
     div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
-    addUnread('scout');
   }
 }
 
 // ── QSO display update ─────────────────────────────────────────────────────
-const snipeRxList = document.getElementById('snipe-rx-list');
 
 function updateQsoDisplay() {
   const state = qso.state;
 
   // Snipe view
   qsoLabel.textContent = state;
-  snipeDxCall.textContent = qso.dxCall || 'No target';
+  snipeDxCall.value = qso.dxCall || '';
   const tx = qso.getNextTx();
   snipeTxLine.textContent = tx ? `Next: ${qso.formatTx(tx)}` : '';
 
@@ -655,34 +759,10 @@ function updateTxActions() {
     });
     txActionsEl.appendChild(btn);
 
-    // Snipe: show alt call (sender) as secondary option
-    if (currentMode === 'snipe' && snipeAltCall && snipeAltCall !== myCall) {
-      const altBtn = document.createElement('button');
-      altBtn.className = 'tx-msg';
-      altBtn.textContent = `Call ${snipeAltCall}`;
-      altBtn.addEventListener('click', () => {
-        qso.setMyInfo(myCallInput.value, myGridInput.value);
-        const tx = qso.callStation(snipeAltCall);
-        apCall = snipeAltCall;
-        snipeDxCall.textContent = snipeAltCall;
-        clearTargetCards();
-        snipeAltCall = '';
-        if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
-      });
-      txActionsEl.appendChild(altBtn);
-    }
     return;
   }
 
-  // QSO active — short DX call button + CQ
-  const tx = qso.getNextTx();
-  if (tx) {
-    const btn = document.createElement('button');
-    btn.className = 'tx-next';
-    btn.textContent = dx; // just DX callsign, not full message
-    btn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
-    txActionsEl.appendChild(btn);
-  }
+  // QSO active: [CQ] [相手コール] [73]
   const cqSfx = tx1CqSuffix.value.trim().toUpperCase();
   const cqBtn = document.createElement('button');
   cqBtn.className = 'cq';
@@ -694,6 +774,30 @@ function updateTxActions() {
     queueTxMsg(cqTx.call1, cqTx.call2, cqTx.report);
   });
   txActionsEl.appendChild(cqBtn);
+
+  // 相手コール — queues the appropriate TX for the current state
+  // Label: "3Y0Z ▸ PM95" / "3Y0Z ▸ R-05" / "3Y0Z ▸ 73" so operator sees what will be sent
+  const tx = qso.getNextTx();
+  if (tx) {
+    const dxBtn = document.createElement('button');
+    dxBtn.className = 'state-nav-btn current-state';
+    dxBtn.textContent = dx;
+    dxBtn.addEventListener('click', () => queueTxMsg(tx.call1, tx.call2, tx.report));
+    txActionsEl.appendChild(dxBtn);
+  }
+
+  // 73 — force FINAL and queue
+  if (state !== QSO_STATE.FINAL) {
+    const btn73 = document.createElement('button');
+    btn73.className = 'state-nav-btn';
+    btn73.textContent = '73';
+    btn73.addEventListener('click', () => {
+      const t = qso.forceState(QSO_STATE.FINAL);
+      if (t) queueTxMsg(t.call1, t.call2, t.report);
+      updateTxActions(); updateQsoDisplay();
+    });
+    txActionsEl.appendChild(btn73);
+  }
 }
 
 autoCheck.addEventListener('change', updateTxActions);
@@ -780,15 +884,20 @@ async function runDecode(samples, sampleRate, onPartial) {
     ? (apCall || (currentMode === 'scout' && qso.dxCall ? qso.dxCall : ''))
     : '';
 
-  if (apTarget) {
-    const found = results.some(r => r.message.toUpperCase().includes(apTarget));
+  const apGridActive = useAp ? apGrid : '';
+  if (apTarget || apGridActive) {
+    const found = apTarget && results.some(r => r.message.toUpperCase().includes(apTarget));
     if (!found) {
       const freq = currentMode === 'snipe' ? snipeDf : scoutDf;
       const myCall = myCallInput.value.trim().toUpperCase();
       const eqOn = eqModeSelect.value === 'adaptive';
+      // Watch phase: CQ-style AP (pass empty mycall + grid).
+      // Call phase: QSO AP (pass real mycall, no grid — grid bits overlap report).
+      const apMyCall = (currentMode === 'snipe' && snipePhase === 'call') ? myCall : '';
+      const apGridVal = (currentMode === 'snipe' && snipePhase === 'call') ? '' : apGridActive;
       const ap = await workerDecode(
         fnSniperName,
-        [samples, freq, apTarget, myCall, eqOn, sr],
+        [samples, freq, apTarget, apGridVal, apMyCall, eqOn, sr],
       );
       for (const r of ap) {
         if (!results.some(x => Math.abs(x.freq_hz - r.freq_hz) < 10)) {
@@ -830,6 +939,50 @@ function queueTxMsg(call1, call2, report) {
   const txSlot = rxSlotEven !== null ? !rxSlotEven : !periodMgr.getCurrentPeriod().isEven;
   periodMgr.queueTx({ call1, call2, report, freq }, txSlot);
   setStatus(`TX queued: ${call1} ${call2} ${report}`);
+}
+
+// ── NTP clock-offset sync (HTTP-based) ────────────────────────────────────
+// Fetches UTC time from a public API, compares with Date.now(), and applies
+// the measured offset to the period manager.  Works without NTP UDP access.
+async function syncNtpOffset() {
+  // HTTP-based time sync (UDP NTP is not accessible from browsers).
+  // Each API has CORS enabled and returns UTC time in JSON.
+  // Strategy: take 3 measurements per API, keep the one with minimum RTT.
+  // Minimum RTT ≈ most symmetric path → best midpoint estimate (standard NTP practice).
+  const APIS = [
+    { url: 'https://time.cloudflare.com/',
+      parse: d => new Date(d.time).getTime() },
+    { url: 'https://worldtimeapi.org/api/timezone/UTC',
+      parse: d => new Date(d.utc_datetime).getTime() },
+    { url: 'https://timeapi.io/api/time/current/zone?timeZone=UTC',
+      parse: d => new Date(d.dateTime + 'Z').getTime() },
+  ];
+
+  for (const api of APIS) {
+    try {
+      let best = null;
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        const resp = await fetch(api.url, { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+        const t1 = Date.now();
+        if (!resp.ok) break;
+        const data = await resp.json();
+        const serverMs = api.parse(data);
+        if (isNaN(serverMs)) break;
+        const rttMs = t1 - t0;
+        const offsetSec = (t0 + rttMs / 2 - serverMs) / 1000;
+        if (!best || rttMs < best.rttMs) best = { offsetSec, rttMs };
+      }
+      if (!best) continue;
+
+      periodMgr.setClockOffset(best.offsetSec);
+      const sign = best.offsetSec >= 0 ? '+' : '';
+      setStatus(`NTP: ${sign}${best.offsetSec.toFixed(2)} s (RTT ${best.rttMs} ms)`);
+      return best.offsetSec;
+    } catch (_) { /* try next API */ }
+  }
+  setStatus('NTP sync failed');
+  return null;
 }
 
 // ── Transmit (called by period manager at period boundary) ─────────────────
@@ -889,7 +1042,32 @@ async function transmit(call1, call2, report, freq) {
 
 // ── Period manager (slot length follows FT8/FT4 selector) ──────────────────
 const periodMgr = new FT8PeriodManager({
-  onTick: (rem) => { timerEl.textContent = `${Math.ceil(rem)}s`; },
+  onTick: (rem) => {
+    // rem is already time-until-next-boundary-fire (from _nextFireMs in ft8-period.js).
+    // Show small annotation when abs(offset) > 0.3 s; colour yellow when >= 1.0 s.
+    const offset = periodMgr.clockOffsetSec;
+    if (Math.abs(offset) > 0.3) {
+      const ann = -offset;   // (-1.9) when clock is +1.9s fast
+      const annSign = ann >= 0 ? '+' : '';
+      timerEl.innerHTML = `${Math.ceil(rem)}s <small class="dt-ann">(${annSign}${ann.toFixed(1)})</small>`;
+      const dtWarn = Math.abs(offset) >= 1.0;
+      timerEl.classList.toggle('dt-corrected', dtWarn);
+      headerEl.classList.toggle('dt-warn', dtWarn);
+      dtOffsetEl.style.display = 'none';
+    } else {
+      timerEl.textContent = `${Math.ceil(rem)}s`;
+      timerEl.classList.remove('dt-corrected');
+      headerEl.classList.remove('dt-warn');
+      dtOffsetEl.style.display = liveMode && dtAutoCorrectCheck.checked ? '' : 'none';
+    }
+  },
+  onClockOffset: (offsetSec) => {
+    const sign = offsetSec >= 0 ? '+' : '';
+    dtOffsetEl.textContent = `DT${sign}${offsetSec.toFixed(1)}`;
+    dtOffsetEl.classList.toggle('correcting', Math.abs(offsetSec) > 0.3);
+    // Don't touch display here — onTick controls visibility when live,
+    // updateLiveUI hides it when stopped.
+  },
   onPeriodEnd: async (periodIndex, isEven) => {
     if (!capture.running || !wasmReady) return;
 
@@ -924,7 +1102,6 @@ const periodMgr = new FT8PeriodManager({
         sep.className = 'period-sep';
         sep.textContent = utc;
         chatList.appendChild(sep);
-        snipeRxList.appendChild(sep.cloneNode(true));
         sepInserted = true;
       }
 
@@ -952,17 +1129,31 @@ const periodMgr = new FT8PeriodManager({
         }
         const isCq = /^(CQ|DE|QRZ)\b/.test(msg);
         const clickCall = isCq ? (calls[0] || '') : (calls[1] || calls[0] || '');
+        // Extract grid from CQ messages: "CQ DXCALL GRID" — words[2] if Maidenhead
+        const clickGrid = (isCq && words.length >= 3 && /^[A-R]{2}[0-9]{2}/i.test(words[2]))
+          ? words[2].toUpperCase() : '';
         addChatMsg('rx', utc, msg, snr, clickCall ? () => {
           qso.setMyInfo(myCallInput.value, myGridInput.value);
           const tx = qso.callStation(clickCall);
           apCall = clickCall;
+          apGrid = clickGrid;
+          snipeDxGridInput.value = clickGrid;
+          snipeBpf = Math.max(FREQ_MIN + 250, Math.min(FREQ_MAX - 250, Math.round(freq)));
+          if (snipePhase !== 'call') snipeDf = snipeBpf;
           clearTargetCards();
           if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
+          // In Call phase: update BPF center and VFO to track the tapped station
+          if (currentMode === 'snipe' && snipePhase === 'call') {
+            waterfall.targetLine = snipeBpf;
+            waterfall.freqOffset = snipeBpf - FILTER_CENTER;
+            waterfall.noiseWindow = { min: snipeBpf - 250, max: snipeBpf + 250 };
+            cat.setFreq(snipeDialHz());
+          }
+          updateSnipeOverlay();
         } : null, freq, dt);
 
         // Snipe view
         if (currentMode === 'snipe' && apCall && msg.toUpperCase().includes(apCall)) {
-          snipeDxMsg.textContent = msg;
           snipeDxInfo.textContent = `${freq.toFixed(0)} Hz  ${snr >= 0 ? '+' : ''}${Math.round(snr)} dB`;
         }
 
@@ -1009,9 +1200,43 @@ const periodMgr = new FT8PeriodManager({
 
     lastPeriodIndex = periodIndex;
 
+    // Feed DT values to clock-offset estimator.
+    // Only use BP/OSD results with clean sync (dt_sec is reliable);
+    // skip AP-assisted passes which may be anchored to a known signal.
+    {
+      const dtVals = results
+        .filter(r => (r.pass ?? 0) <= 5 && r.dt_sec != null)
+        .map(r => r.dt_sec);
+      if (dtVals.length >= 1) periodMgr.addDtSamples(dtVals);
+    }
+
     const shed = [subDisabledAuto && 'sub', apDisabledAuto && 'AP'].filter(Boolean);
     const shedTag = shed.length ? ` [-${shed.join(',')}]` : '';
     setStatus(`${n}d ${lastDecodeMs}ms${shedTag}`);
+    {
+      // Decoder depth breakdown for snipe-decode-info
+      let bp = 0, osd2 = 0, osd3 = 0, osd4 = 0;
+      for (const r of results) {
+        const p = r.pass ?? 0;
+        if (p <= 3) bp++;
+        else if (p === 4) osd2++;
+        else if (p === 5) osd3++;
+        else if (p === 13) osd4++;
+        else bp++; // AP passes count as BP-level for display
+      }
+      const parts = [`${n}d ${lastDecodeMs}ms`];
+      if (n > 0) {
+        const depth = [
+          bp   && `BP:${bp}`,
+          osd2 && `OSD2:${osd2}`,
+          osd3 && `OSD3:${osd3}`,
+          osd4 && `OSD4:${osd4}`,
+        ].filter(Boolean).join(' ');
+        if (depth) parts.push(depth);
+      }
+      if (shedTag) parts.push(shedTag.trim());
+      snipeDecodeInfo.textContent = parts.join('  ');
+    }
 
     // AP target: use QSO dxCall if available, or last Snipe target
     if (qso.dxCall) apCall = qso.dxCall;
@@ -1073,96 +1298,26 @@ const periodMgr = new FT8PeriodManager({
       }
     }
 
-    // Snipe: update RX list based on phase
-    if (currentMode === 'snipe') {
+    // Snipe: track who DX responded to (Picked summary)
+    // Decoded from DX's TX period — always visible. Also count unread badge.
+    if (currentMode === 'snipe' && apCall && msgs.length > 0) {
       const myCall = myCallInput.value.toUpperCase();
-
-      if (snipePhase === 'watch') {
-        // Watch: show callers of target + all band activity
-        const callers = [];
-        for (const m of msgs) {
-          const upper = m.message.toUpperCase();
-          // Track who is calling the target
-          if (apCall && upper.includes(apCall)) {
-            const words = m.message.split(/\s+/);
-            // "TARGET CALLER GRID/RPT" — caller is words[1]
-            if (words[0]?.toUpperCase() === apCall && words[1] && words[1].toUpperCase() !== myCall) {
-              callers.push(words[1]);
-            }
-          }
-
-          const div = document.createElement('div');
-          div.className = 'chat-msg rx';
-          const isTarget = apCall && upper.includes(apCall);
-          if (isTarget) div.classList.add('qso-active');
-          const snrV = Math.round(m.snr_db);
-          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
-            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
-            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
-            <span class="text">${m.message}</span>`;
-          div.style.cursor = 'pointer';
-          div.addEventListener('click', () => {
-            const words = m.message.split(/\s+/);
-            // Extract call1 (target) and call2 (sender/alt)
-            const calls = [];
-            for (const w of words) {
-              if (['CQ','DE','QRZ','DX'].includes(w)) continue;
-              if (w.length >= 3 && /[0-9]/.test(w)) calls.push(w);
-              if (calls.length >= 2) break;
-            }
-            const isCq = /^(CQ|DE|QRZ)\b/.test(m.message);
-            const target = isCq ? (calls[0] || '') : (calls[0] || '');
-            const sender = isCq ? (calls[0] || '') : (calls[1] || '');
-            if (target) {
-              qso.setMyInfo(myCallInput.value, myGridInput.value);
-              const tx = qso.callStation(target);
-              apCall = target;
-              snipeDxCall.textContent = target;
-              clearTargetCards();
-              snipeAltCall = (sender && sender !== target) ? sender : '';
-              if (tx) queueTxMsg(tx.call1, tx.call2, tx.report);
-            }
-          });
-          div.classList.add('new');
-          div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
-          snipeRxList.appendChild(div);
+      const pickedUp = [];
+      for (const m of msgs) {
+        const words = m.message.split(/\s+/);
+        const w0 = words[0]?.toUpperCase();
+        const w1 = words[1]?.toUpperCase();
+        if (w0 === apCall && w1 && w1 !== myCall) {
+          pickedUp.push({ call: words[1], freq: Math.round(m.freq_hz) });
         }
-        pruneList(snipeRxList);
-        snipeRxList.scrollTop = snipeRxList.scrollHeight;
-        if (msgs.length > 0) addUnread('snipe');
-
-        // Show callers list
-        if (apCall && callers.length > 0) {
-          snipeCallersEl.textContent = `Calling ${apCall}: ${callers.join(', ')}`;
-        }
-
-      } else {
-        // Call phase: only show messages involving me and target
-        for (const m of msgs) {
-          const upper = m.message.toUpperCase();
-          if (!apCall) continue;
-          const involvesMe = upper.includes(myCall);
-          const involvesTarget = upper.includes(apCall);
-          if (!involvesMe && !involvesTarget) continue;
-
-          const div = document.createElement('div');
-          div.className = 'chat-msg rx';
-          if (involvesTarget) div.classList.add('qso-active');
-          const snrV = Math.round(m.snr_db);
-          div.innerHTML = `<span class="col-freq">${Math.round(m.freq_hz)}</span>
-            <span class="col-dt">${m.dt_sec >= 0 ? '+' : ''}${m.dt_sec.toFixed(1)}</span>
-            <span class="col-snr">${snrV >= 0 ? '+' : ''}${snrV}</span>
-            <span class="text">${m.message}</span>`;
-          div.classList.add('new');
-          div.addEventListener('animationend', () => div.classList.remove('new'), { once: true });
-          snipeRxList.appendChild(div);
-        }
-        snipeRxList.scrollTop = snipeRxList.scrollHeight;
-        addUnread('snipe');
-
-        // Auto-switch back to Watch on QSO failure (reset)
-        // (handled by retry timeout above — user can manually switch too)
       }
+      if (pickedUp.length > 0) {
+        const fmt = ({ call, freq }) => `${call}@${freq}`;
+        snipeCallersEl.textContent = `Picked: ${pickedUp.map(fmt).join(' ')}`;
+      } else {
+        snipeCallersEl.textContent = '';
+      }
+      addUnread('snipe');
     }
 
     waterfall.drawLabels(msgs);
@@ -1173,27 +1328,37 @@ const periodMgr = new FT8PeriodManager({
   },
 }, getSlotMs());
 
+// Apply DT auto-correct initial UI state (periodMgr now initialized)
+applyDtAutoCorrectUi();
+
 // TX fire from period manager
 periodMgr.callbacks.onTxFire = async (tx) => {
   await transmit(tx.call1, tx.call2, tx.report, tx.freq);
 };
 
-// ── Halt / Reset (progressive: 1st tap = halt TX, 2nd tap = reset QSO) ─────
+// ── Halt / Reset ────────────────────────────────────────────────────────────
+// ■ (TX active/queued) — cancels TX, keeps QSO state
+// ↺ (TX idle)          — logs partial QSO if any, resets to IDLE
 let halted = false;
 
+function updateHaltBtn() {
+  const txBusy = periodMgr.hasTxQueued() || halted;
+  btnHalt.textContent = txBusy ? '■' : '↺';
+}
+
 btnHalt.addEventListener('click', async () => {
-  if (!halted) {
-    // First tap: cancel TX, stop audio output, but keep QSO state
+  if (periodMgr.hasTxQueued() || !halted) {
+    // Cancel TX, stop audio, keep QSO state
     periodMgr.cancelTx();
     audioOut.stop();
     await cat.safePttOff();
     txActionsEl.querySelectorAll('.tx-active').forEach(b => b.classList.remove('tx-active'));
     timerEl.classList.remove('tx-on');
     halted = true;
-    btnHalt.textContent = 'Reset';
-    setStatus('Halted — tap Reset to abandon QSO');
+    updateHaltBtn();
+    setStatus('TX halted — tap ↺ to reset QSO');
   } else {
-    // Second tap: reset QSO to IDLE
+    // Reset QSO, log partial QSO if applicable
     if (qso.state !== QSO_STATE.IDLE && qso.dxCall) {
       qsoLog.add({
         dxCall: qso.dxCall, dxGrid: qso.dxGrid,
@@ -1206,7 +1371,7 @@ btnHalt.addEventListener('click', async () => {
     qso.reset();
     rxSlotEven = null;
     halted = false;
-    btnHalt.textContent = 'Halt';
+    updateHaltBtn();
     updateQsoDisplay();
     setStatus('QSO reset');
   }
@@ -1216,7 +1381,7 @@ btnHalt.addEventListener('click', async () => {
 function clearHalted() {
   if (halted) {
     halted = false;
-    btnHalt.textContent = 'Halt';
+    updateHaltBtn();
   }
 }
 
@@ -1226,7 +1391,12 @@ const logoEl = document.querySelector('.header h1');
 function updateLiveUI() {
   btnStart.textContent = liveMode ? 'Stop Audio' : 'Start Audio';
   logoEl.classList.toggle('live', liveMode);
-  if (!liveMode) timerEl.textContent = '--';
+  if (!liveMode) {
+    timerEl.textContent = '--';
+    timerEl.classList.remove('dt-corrected');
+    // Hide DT offset display when not live — it has no meaning before decoding starts
+    if (dtAutoCorrectCheck.checked) dtOffsetEl.style.display = 'none';
+  }
 }
 
 async function toggleAudio() {
@@ -1306,10 +1476,38 @@ btnTestTone.addEventListener('click', async () => {
 
 // ── CAT ─────────────────────────────────────────────────────────────────────
 
-// Tauri mode: show COM port selector and populate it
 const catPortField = document.getElementById('cat-port-field');
 const catPortSelect = document.getElementById('cat-port');
 const btnCatRefresh = document.getElementById('btn-cat-refresh');
+const transportSerialRadio = document.getElementById('transport-serial');
+const transportBleRadio = document.getElementById('transport-ble');
+const transportBleLabel = document.getElementById('transport-ble-label');
+const rigModelField = document.getElementById('rig-model-field');
+const bleRigLabel = document.getElementById('ble-rig-label');
+
+/** Update UI visibility based on selected transport and environment. */
+function applyTransportUi() {
+  const isBle = transportBleRadio.checked;
+  rigModelField.style.display = isBle ? 'none' : '';
+  bleRigLabel.style.display = isBle ? '' : 'none';
+  catPortField.style.display = (!isBle && isTauriMode()) ? '' : 'none';
+}
+
+// BLE radio: hide entirely if BLE not supported
+if (!CatController.isBleSupported()) {
+  transportBleLabel.style.display = 'none';
+}
+
+// Restore saved transport
+const savedTransport = localStorage.getItem('webft8-transport');
+if (savedTransport === 'ble' && CatController.isBleSupported()) {
+  transportBleRadio.checked = true;
+}
+
+applyTransportUi();
+
+transportSerialRadio.addEventListener('change', applyTransportUi);
+transportBleRadio.addEventListener('change', applyTransportUi);
 
 async function refreshCatPorts() {
   const ports = await listSerialPorts();
@@ -1326,66 +1524,86 @@ async function refreshCatPorts() {
 }
 
 if (isTauriMode()) {
-  catPortField.style.display = '';
   refreshCatPorts();
   btnCatRefresh.addEventListener('click', refreshCatPorts);
+  // Tauri WebView shows a native "Save image" context menu on canvas right-clicks.
+  // Suppress it globally — custom right-click handlers use e.preventDefault() anyway.
+  document.addEventListener('contextmenu', e => e.preventDefault());
+}
+
+/** Apply rig initial state after any connect path (serial / BLE / auto).
+ *  Sets DATA-USB mode, band frequency, and Wide filter (Watch phase start). */
+async function rigSetup() {
+  const baseHz = Math.round(parseFloat(bandSelect.value) * 1e6);
+  await cat.setModeData();
+  await new Promise(r => setTimeout(r, 200)); // settle after mode change
+  await cat.setFreq(baseHz);
+  await cat.setFilter(false); // Wide — Watch phase
 }
 
 btnCat.addEventListener('click', async () => {
   if (cat.connected) {
     await cat.disconnect();
-    btnCat.textContent = 'Connect Rig';
+    btnCat.textContent = 'Connect';
     catStatusEl.textContent = 'disconnected';
     return;
   }
-  if (!CatController.isSerialSupported()) {
-    catStatusEl.textContent = 'Web Serial not supported';
-    return;
-  }
-  try {
-    const rigId = document.getElementById('rig-model').value;
-    if (!rigId) { catStatusEl.textContent = 'Select a rig model'; return; }
 
-    if (isTauriMode()) {
-      const portName = catPortSelect.value;
-      if (!portName) { catStatusEl.textContent = 'Select a COM port'; return; }
-      await cat.connectTauri(rigId, portName);
-      localStorage.setItem('webft8-cat-port', portName);
-    } else {
-      await cat.requestPort();
-      await cat.connect(rigId);
+  const isBle = transportBleRadio.checked;
+
+  if (isBle) {
+    // ── BLE path (IC-705 only) ────────────────────────────────────────────
+    try {
+      const rigId = 'ic705';
+      catStatusEl.textContent = 'pairing...';
+      await cat.connectBle(rigId);
+      btnCat.textContent = 'Disconnect';
+      catStatusEl.textContent = 'BLE connected (IC-705)';
+      localStorage.setItem('webft8-rig', rigId);
+      localStorage.setItem('webft8-transport', 'ble');
+
+      // Enable GPS UTC sync via CI-V position query (0x23 0x00) over BLE
+      if (cat.ble && dtAutoCorrectCheck.checked) {
+        cat.ble.onGpsTime = (offsetSec) => _applyGpsOffset(offsetSec, 'GPS(BLE)');
+        cat.ble._startGpsQuery();
+      }
+
+      await rigSetup();
+    } catch (e) {
+      btnCat.textContent = 'Connect';
+      catStatusEl.textContent = `BLE error: ${e.message || e}`;
     }
+  } else {
+    // ── Serial path (Web Serial / Tauri) ──────────────────────────────────
+    if (!CatController.isSerialSupported()) {
+      catStatusEl.textContent = 'Web Serial not supported';
+      return;
+    }
+    try {
+      const rigId = document.getElementById('rig-model').value;
+      if (!rigId) { catStatusEl.textContent = 'Select a rig model'; return; }
 
-    btnCat.textContent = 'Disconnect';
-    const profiles = getRigProfiles();
-    catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
-    localStorage.setItem('webft8-rig', rigId);
-  } catch (e) {
-    await cat.disconnect();
-    btnCat.textContent = 'Connect Rig';
-    catStatusEl.textContent = `error: ${e.message || e}`;
-  }
-});
+      if (isTauriMode()) {
+        const portName = catPortSelect.value;
+        if (!portName) { catStatusEl.textContent = 'Select a COM port'; return; }
+        await cat.connectTauri(rigId, portName);
+        localStorage.setItem('webft8-cat-port', portName);
+      } else {
+        await cat.requestPort();
+        await cat.connect(rigId);
+      }
 
-// ── CAT BLE ───────────────────────────────────────────────────────────────
-btnCatBle.addEventListener('click', async () => {
-  if (cat.connected) {
-    await cat.disconnect();
-    btnCatBle.textContent = 'Connect BLE';
-    catStatusEl.textContent = 'disconnected';
-    return;
-  }
-  try {
-    // BLE is IC-705 only — auto-select rig profile
-    const rigId = 'ic705';
-    document.getElementById('rig-model').value = rigId;
-    catStatusEl.textContent = 'pairing...';
-    await cat.connectBle(rigId);
-    btnCatBle.textContent = 'Disconnect';
-    catStatusEl.textContent = 'BLE connected (IC-705)';
-    localStorage.setItem('webft8-rig', rigId);
-  } catch (e) {
-    catStatusEl.textContent = `BLE error: ${e.message || e}`;
+      btnCat.textContent = 'Disconnect';
+      const profiles = getRigProfiles();
+      catStatusEl.textContent = `connected (${profiles[rigId]?.label || rigId})`;
+      localStorage.setItem('webft8-rig', rigId);
+      localStorage.setItem('webft8-transport', 'serial');
+      await rigSetup();
+    } catch (e) {
+      await cat.disconnect();
+      btnCat.textContent = 'Connect';
+      catStatusEl.textContent = `error: ${e.message || e}`;
+    }
   }
 });
 
@@ -1514,7 +1732,7 @@ function splashDismiss() {
 // Build version — bumped on every commit-worthy change so the splash makes
 // it obvious which build the user is actually running (catches stale PWA
 // caches and helps when triaging "I refreshed but it didn't update").
-const APP_VERSION = '2026-04-18-wspr-b';
+const APP_VERSION = '0.4.2';
 
 // ── WASM init ───────────────────────────────────────────────────────────────
 splashStep('Loading WASM...', 10);
@@ -1600,15 +1818,30 @@ init().then(async () => {
   const savedRig = localStorage.getItem('webft8-rig');
   if (savedRig) rigSelect.value = savedRig;
 
-  // Show CAT / BLE buttons based on browser support
-  if (CatController.isSerialSupported()) {
-    btnCat.style.display = '';
-  } else {
+  // Tauri auto-connect: silently reconnect if rig + port were saved
+  if (isTauriMode() && savedRig) {
+    const savedPort = localStorage.getItem('webft8-cat-port');
+    if (savedPort) {
+      try {
+        await cat.connectTauri(savedRig, savedPort);
+        btnCat.textContent = 'Disconnect';
+        catStatusEl.textContent = `connected (${profiles[savedRig]?.label || savedRig})`;
+        localStorage.setItem('webft8-transport', 'serial');
+        transportSerialRadio.checked = true;  // sync radio to actual connected transport
+        await rigSetup();
+      } catch (e) {
+        catStatusEl.textContent = `auto-connect failed: ${e.message || e}`;
+      }
+    }
+  }
+
+  // Show/hide Connect button based on whether any transport is supported
+  if (!CatController.isSerialSupported() && !CatController.isBleSupported()) {
     btnCat.style.display = 'none';
   }
-  if (CatController.isBleSupported()) {
-    btnCatBle.style.display = '';
-  }
+
+  // Re-apply transport UI now that profiles are loaded
+  applyTransportUi();
 
   try {
     const devices = await capture.enumerateDevices();

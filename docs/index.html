@@ -46,7 +46,9 @@
 
   /* ── Header ─────────────────────────────────────────────────────────── */
   .header { display: flex; align-items: center; gap: var(--sp-sm); padding: var(--sp-xs) var(--sp-sm);
-            background: var(--c-surface); border-bottom: 1px solid var(--c-border); flex-shrink: 0; }
+            background: var(--c-surface); border-bottom: 2px solid var(--c-border); flex-shrink: 0;
+            transition: border-bottom-color .3s, background .3s; }
+  .header.dt-warn { border-bottom-color: var(--c-warn, #f90); background: rgba(255,153,0,0.06); }
   .header h1 { font-size: var(--fs-lg); color: var(--c-text2); cursor: pointer; transition: color .2s;
     user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
   .header h1.live { color: var(--c-accent); }
@@ -61,17 +63,27 @@
     padding: var(--sp-xs); margin-left: auto; min-width: 5em; }
   .timer { font-size: var(--fs-base); color: var(--c-snr); font-variant-numeric: tabular-nums;
     min-width: 2.5em; text-align: right; flex-shrink: 0; transition: color .2s; }
+  .timer.dt-corrected { color: var(--c-warn, #f90); }
+  .timer .dt-ann { font-size: 0.65em; opacity: 0.8; font-weight: normal; font-variant-numeric: normal; }
   .timer.tx-on { color: var(--c-danger); font-weight: bold; }
+  .dt-offset { font-size: var(--fs-xs); color: var(--c-text2); flex-shrink: 0;
+    min-width: 4em; text-align: center; }
+  .dt-offset.correcting { color: var(--c-warn, #f90); }
   .header .gear { font-size: var(--fs-lg); color: var(--c-text2); cursor: pointer;
     padding: var(--sp-xs); border: 1px solid var(--c-border); border-radius: var(--radius-sm);
     line-height: 1; flex-shrink: 0; }
   .header .gear:hover { color: var(--c-accent); border-color: var(--c-accent); }
 
   /* ── Waterfall ──────────────────────────────────────────────────────── */
-  #waterfall-wrap { position: relative; flex-shrink: 0; cursor: crosshair; }
-  #waterfall { width: 100%; display: block; background: #000; border-bottom: 1px solid var(--c-border); }
-  .scout-mode #waterfall { height: min(25vh, 220px); }
-  .snipe-mode #waterfall { height: 280px; }
+  /* Canvas stays at fixed 280px drawing height; wrapper clips via overflow:hidden.
+     Scout mode shows the bottom 220px (most recent rows); Snipe shows all 280px.
+     Switching modes preserves the waterfall history — top goes black in Snipe if
+     the canvas hasn't scrolled enough to fill it yet. */
+  #waterfall-wrap { position: relative; flex-shrink: 0; cursor: crosshair; overflow: hidden; }
+  .scout-mode #waterfall-wrap { height: min(25vh, 220px); }
+  .snipe-mode #waterfall-wrap { height: 280px; }
+  #waterfall { position: absolute; bottom: 0; left: 0; width: 100%; height: 280px;
+    display: block; background: #000; border-bottom: 1px solid var(--c-border); }
   #snipe-overlay { position: absolute; top: 0; bottom: 0; background: rgba(79,195,247,0.12);
     border-left: 1px solid rgba(79,195,247,0.5); border-right: 1px solid rgba(79,195,247,0.5);
     pointer-events: none; display: none; }
@@ -89,15 +101,16 @@
   .dot.current { background: var(--c-accent); border-color: var(--c-accent); }
   #scout-status .state, .qso-progress .label { color: var(--c-accent); font-weight: bold; }
   #scout-status .dx { color: var(--c-success); font-weight: bold; }
-  #scout-status .decode-info { color: var(--c-text2); margin-left: auto; font-size: var(--fs-xs);
+  .decode-info { font-size: var(--fs-xs); color: var(--c-text2); white-space: nowrap; }
+  #scout-status .decode-info { margin-left: auto; font-size: var(--fs-xs);
     flex-shrink: 0; }
   #scout-status .tx-queue { color: var(--c-danger); font-weight: bold; font-size: var(--fs-sm);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* ── Message list (shared Scout & Snipe) ────────────────────────────── */
-  #scout-view { flex: 1; overflow-y: auto; display: none; }
-  .scout-mode #scout-view { display: flex; flex-direction: column; }
-  .chat-list { flex: 1; overflow-y: auto; padding: var(--sp-xs) var(--sp-sm); }
+  #scout-view { display: none; }
+  .scout-mode #scout-view { display: block; }
+  .chat-list { padding: var(--sp-xs) var(--sp-sm); }
   .chat-msg { padding: var(--sp-xs) var(--sp-sm); margin-bottom: 2px; border-radius: var(--radius-md);
     font-size: var(--fs-base); display: flex; align-items: baseline; gap: var(--sp-xs); }
   .chat-msg.rx { background: var(--c-surface); border-left: 3px solid var(--c-accent); }
@@ -119,26 +132,30 @@
   .chat-msg .text .call { color: var(--c-warn); font-weight: bold; }
   .chat-msg .text .target { color: var(--c-success); font-weight: bold; }
 
+  /* ── Shared RX list ─────────────────────────────────────────────────── */
+  #chat-list { flex: 1; overflow-y: auto; display: none; }
+  .scout-mode #chat-list, .snipe-mode #chat-list { display: block; }
+
   /* ── Snipe view ─────────────────────────────────────────────────────── */
-  #snipe-view { flex: 1; overflow-y: auto; display: none; padding: var(--sp-xs) var(--sp-sm); }
+  #snipe-view { flex-shrink: 0; display: none; padding: var(--sp-xs) var(--sp-sm) 0; }
   .snipe-mode #snipe-view { display: flex; flex-direction: column; }
   .snipe-target { background: var(--c-surface); border: 1px solid var(--c-border);
     border-radius: var(--radius-md); padding: var(--sp-sm); margin-bottom: var(--sp-xs); }
   .snipe-target .dx-call { font-size: var(--fs-lg); color: var(--c-success); font-weight: bold; }
+  #snipe-dx-grid { font-size: var(--fs-lg); font-weight: bold; color: var(--c-text2); }
   .snipe-target .dx-msg { font-size: var(--fs-base); color: var(--c-warn); margin-top: var(--sp-xs); }
   .snipe-target .dx-info { font-size: var(--fs-sm); color: var(--c-text2); }
   .qso-progress { display: flex; align-items: center; gap: var(--sp-xs); margin: var(--sp-xs) 0;
-    font-size: var(--fs-base); }
+    font-size: var(--fs-base); overflow: hidden; }
   .qso-progress .label { margin-left: var(--sp-xs); }
+  .qso-progress .decode-info { color: var(--c-text2); font-size: var(--fs-xs); margin-left: auto;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1; }
   .snipe-band { font-size: var(--fs-sm); color: var(--c-text2); margin-top: var(--sp-xs); }
   .snipe-band span { margin-right: var(--sp-sm); }
-  .snipe-phase-tabs { display: flex; gap: 0; }
-  .snipe-phase-tabs button { font-size: var(--fs-sm); padding: var(--sp-xs) 0.6rem;
+  .bpf-btn { font-size: var(--fs-sm); padding: var(--sp-xs) 0.8rem;
     border: 1px solid var(--c-border); background: var(--c-surface2); color: var(--c-text2);
-    cursor: pointer; min-height: 32px; }
-  .snipe-phase-tabs button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
-  .snipe-phase-tabs button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-  .snipe-phase-tabs button.active { background: #1b5e20; color: var(--c-success); border-color: var(--c-success); }
+    border-radius: var(--radius-sm); cursor: pointer; min-height: 32px; font-weight: bold; }
+  .bpf-btn.active { background: #b71c1c; border-color: var(--c-danger); color: #fff; }
   .snipe-call-phase #snipe-callers { display: none; }
   .snipe-call-phase #snipe-band { display: none; }
 
@@ -233,6 +250,13 @@
   /* ── Waterfall drop highlight ──────────────────────────────────────── */
   #waterfall-wrap.drop-over { outline: 2px dashed var(--c-accent); outline-offset: -2px; }
 
+  /* ── QSO state nav (desync recovery) — inline with CQ row ───────────── */
+  #tx-actions button.state-nav-btn { font-size: var(--fs-base); padding: var(--sp-sm) 0.8rem;
+    min-height: 44px; border: 1px solid var(--c-border); border-radius: var(--radius-md);
+    background: transparent; color: var(--c-text2); cursor: pointer; font-weight: bold; }
+  #tx-actions button.state-nav-btn:hover { border-color: var(--c-text); color: var(--c-text); }
+  #tx-actions button.state-nav-btn.current-state { border-color: var(--c-accent); color: var(--c-accent); background: var(--c-accent-bg); }
+
   /* ── Responsive: mobile ────────────────────────────────────────────── */
   @media (max-width: 600px) {
     :root {
@@ -304,7 +328,7 @@
 <div class="header">
   <h1>WebFT8</h1>
   <div class="mode-tabs">
-    <button id="tab-scout" class="active">Scout<span class="badge" id="badge-scout" style="display:none"></span></button>
+    <button id="tab-scout" class="active">Scout</button>
     <button id="tab-snipe">Snipe<span class="badge" id="badge-snipe" style="display:none"></span></button>
   </div>
   <select id="band-header" class="band-sel">
@@ -326,6 +350,7 @@
     <option value="1296.065">1296.065</option>
   </select>
   <span class="timer" id="period-timer">--</span>
+  <span class="dt-offset" id="dt-offset-display" title="Estimated clock offset (DT auto-correction)"></span>
   <span class="gear" id="btn-settings">&#9881;</span>
 </div>
 
@@ -355,30 +380,25 @@
   <div class="dx-info" id="scout-target-info"></div>
 </div>
 
-<!-- Scout view: chat-style message flow -->
-<div id="scout-view">
-  <div class="chat-list" id="chat-list">
-    <div class="empty-state" id="empty-state">
-      <div style="font-size:var(--fs-lg);margin-bottom:var(--sp-md)">Tap <b>WebFT8</b> to start</div>
-      <div id="diag-info"></div>
-    </div>
-  </div>
-</div>
+<!-- Scout-specific status (empty-state shown here via JS) -->
+<div id="scout-view"></div>
 
-<!-- Snipe view: target-focused -->
+<!-- Snipe view: target header only (list is shared below) -->
 <div id="snipe-view">
   <div style="display:flex;align-items:center;gap:var(--sp-xs);margin-bottom:var(--sp-xs)">
-    <div class="snipe-phase-tabs">
-      <button id="btn-watch" class="active">Watch</button>
-      <button id="btn-call">Call</button>
-    </div>
-    <span id="snipe-phase-hint" style="font-size:var(--fs-xs);color:var(--c-text2)">full-band</span>
+    <button id="btn-bpf" class="bpf-btn">BPF</button>
+    <span id="snipe-phase-hint" class="decode-info">full-band</span>
   </div>
   <div class="snipe-target" id="snipe-target">
-    <div class="dx-call" id="snipe-dx-call">No target</div>
-    <div class="dx-msg" id="snipe-dx-msg"></div>
-    <div class="dx-info" id="snipe-dx-info"></div>
-    <div id="snipe-callers" style="margin-top:var(--sp-xs);font-size:var(--fs-sm);color:var(--c-text2)"></div>
+    <div style="display:flex;align-items:baseline;gap:var(--sp-sm)">
+      <input type="text" id="snipe-dx-call" class="dx-call" placeholder="No target"
+        style="background:transparent;border:none;border-bottom:1px solid var(--c-border);outline:none;width:8em;cursor:text;"
+        autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
+      <input type="text" id="snipe-dx-grid" placeholder="GL" maxlength="6"
+        style="width:4.2em;background:var(--c-surface);color:var(--c-text);border:1px solid var(--c-border);border-radius:4px;padding:1px 4px;text-transform:uppercase">
+      <div class="dx-info" id="snipe-dx-info"></div>
+    </div>
+    <div id="snipe-callers" style="margin-top:var(--sp-xs);font-size:var(--fs-sm);color:var(--c-text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
   </div>
   <div class="qso-progress" id="qso-progress">
     <span class="dot" id="dot-1"></span>
@@ -386,16 +406,24 @@
     <span class="dot" id="dot-3"></span>
     <span class="dot" id="dot-4"></span>
     <span class="label" id="qso-label">IDLE</span>
+    <span class="decode-info" id="snipe-decode-info"></span>
   </div>
   <div id="snipe-tx-line" style="font-size:var(--fs-sm);color:var(--c-warn);margin:var(--sp-xs) 0"></div>
   <div class="snipe-band" id="snipe-band"></div>
-  <div class="chat-list" id="snipe-rx-list" style="flex:1;overflow-y:auto;margin-top:var(--sp-xs)"></div>
+</div>
+
+<!-- Shared RX list — Scout and Snipe both use this -->
+<div class="chat-list" id="chat-list">
+  <div class="empty-state" id="empty-state">
+    <div style="font-size:var(--fs-lg);margin-bottom:var(--sp-md)">Tap <b>WebFT8</b> to start</div>
+    <div id="diag-info"></div>
+  </div>
 </div>
 
 <!-- Bottom bar -->
 <div class="bottom-bar">
   <div id="tx-actions"></div>
-  <button id="btn-halt" class="halt" style="display:none">Halt</button>
+  <button id="btn-halt" class="halt" style="display:none">■</button>
   <label class="toggle"><input type="checkbox" id="auto-qso"><span class="toggle-track"></span> Auto</label>
 </div>
 
@@ -452,18 +480,31 @@
     </div>
     <button id="btn-test-tone">Test Tone</button>
     <button id="btn-start">Start Audio</button>
-    <div class="field">
+    <div class="field" id="transport-field">
+      <label>Transport</label>
+      <span style="display:inline-flex;gap:var(--sp-md);align-items:center">
+        <label style="display:inline-flex;gap:4px;align-items:center;font-size:var(--fs-base)">
+          <input type="radio" name="transport" id="transport-serial" value="serial" checked> Serial
+        </label>
+        <label id="transport-ble-label" style="display:inline-flex;gap:4px;align-items:center;font-size:var(--fs-base)">
+          <input type="radio" name="transport" id="transport-ble" value="ble"> BLE
+        </label>
+      </span>
+    </div>
+    <div class="field" id="rig-model-field">
       <label>Rig Model</label>
       <select id="rig-model"></select>
     </div>
+    <div id="ble-rig-label" style="display:none;font-size:var(--fs-sm);color:var(--c-text2);margin-bottom:var(--sp-sm)">IC-705</div>
     <div id="cat-port-field" class="field" style="display:none">
       <label>Port</label>
       <select id="cat-port"></select>
       <button id="btn-cat-refresh" style="font-size:var(--fs-xs);padding:2px 6px">&#x21bb;</button>
     </div>
-    <button id="btn-cat">Connect Rig</button>
-    <button id="btn-cat-ble" style="display:none">Connect BLE</button>
+    <button id="btn-cat">Connect</button>
     <span class="cat-status" id="cat-status" style="font-size:var(--fs-xs);color:var(--c-text2);display:block;margin-bottom:var(--sp-sm)">not connected</span>
+    <button id="btn-gps-sync" style="margin-top:4px">GPS Sync</button>
+    <button id="btn-ntp" style="margin-top:4px">NTP Sync</button>
   </details>
   <details class="accordion">
     <summary>Log</summary>
@@ -515,6 +556,7 @@
     </div>
     <label><input type="checkbox" id="subtract-mode" checked> Multi-pass subtract</label>
     <label><input type="checkbox" id="ap-mode" checked> A Priori (AP)</label>
+    <label><input type="checkbox" id="dt-auto-correct" checked> DT auto-correct (FT8 signals)</label>
     <label class="toggle"><input type="checkbox" id="cq-best-snr" checked><span class="toggle-track"></span><span id="cq-reply-label">CQ reply: best SNR</span></label>
     <label class="toggle"><input type="checkbox" id="waterfall-enable" checked><span class="toggle-track"></span><span>Waterfall FFT</span></label>
     <button id="btn-open-wav">Open WAV File</button>

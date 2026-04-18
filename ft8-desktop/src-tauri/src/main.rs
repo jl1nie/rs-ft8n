@@ -8,7 +8,7 @@ mod waterfall;
 
 use audio::AudioState;
 use decoder::DecoderState;
-use serial::SerialState;
+use serial::{SerialState, GpsSerialState};
 
 fn main() {
     // Panic hook for crash diagnostics
@@ -25,14 +25,19 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(SerialState::new())
+        .manage(GpsSerialState::new())
         .manage(AudioState::new())
         .manage(DecoderState::new())
         .invoke_handler(tauri::generate_handler![
-            // Serial port
+            // Serial port (CI-V, write-only)
             serial::serial_list_ports,
             serial::serial_open,
             serial::serial_write,
             serial::serial_close,
+            // GPS serial port (NMEA, read-only)
+            serial::serial_gps_open,
+            serial::serial_gps_readline,
+            serial::serial_gps_close,
             // Audio capture
             audio::audio_list_devices,
             audio::audio_list_output_devices,

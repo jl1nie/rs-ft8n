@@ -119,7 +119,7 @@ mod tests {
         assert_eq!(pcm.len(), NN * NSPS);
     }
 
-    /// Encode → decode round-trip via the full ft8-core pipeline.
+    /// Encode → decode round-trip via the full ft8-core pipeline (raw bits).
     #[test]
     fn encode_decode_roundtrip() {
         use crate::decode::{decode_frame, DecodeDepth};
@@ -151,5 +151,55 @@ mod tests {
             results[0].message77, msg,
             "decoded message77 does not match input"
         );
+    }
+
+    /// Full encode → decode round-trip with real FT8 callsigns.
+    ///
+    /// Tests the complete pipeline:
+    ///   pack77 → message_to_tones → tones_to_f32 → decode_frame → unpack77
+    ///
+    /// Catches bugs in pack77/unpack77 that the raw-bit round-trip test misses,
+    /// and verifies WSJT-X CRC compatibility (77-bit CRC, not 96-bit).
+    #[test]
+    fn callsign_roundtrip() {
+        use crate::decode::{decode_frame, DecodeDepth};
+        use crate::message::{pack77, unpack77};
+
+        let cases: &[(&str, &str, &str, &str)] = &[
+            ("CQ",     "JA1ABC", "PM95", "CQ JA1ABC PM95"),
+            ("JA1ABC", "W1AW",   "-15",  "JA1ABC W1AW -15"),
+            ("W1AW",   "JA1ABC", "R-15", "W1AW JA1ABC R-15"),
+            ("JA1ABC", "W1AW",   "RR73", "JA1ABC W1AW RR73"),
+            ("W1AW",   "JA1ABC", "73",   "W1AW JA1ABC 73"),
+            ("CQ",     "3Y0Z",   "JD34", "CQ 3Y0Z JD34"),
+        ];
+
+        for &(call1, call2, report, expected) in cases {
+            // 1. Pack message
+            let msg77 = pack77(call1, call2, report)
+                .unwrap_or_else(|| panic!("pack77 failed: {call1} {call2} {report}"));
+
+            // 2. Verify pack → unpack consistency (no audio)
+            let text = unpack77(&msg77)
+                .unwrap_or_else(|| panic!("unpack77 failed for: {expected}"));
+            assert_eq!(text, expected, "pack/unpack mismatch");
+
+            // 3. Full encode → decode with audio
+            let itone = message_to_tones(&msg77);
+            let pcm_f32 = tones_to_f32(&itone, 1000.0, 1.0);
+            let pad = vec![0.0f32; 6000];
+            let signal: Vec<f32> = pad.iter().chain(pcm_f32.iter()).cloned().collect();
+            let samples: Vec<i16> = signal.iter().map(|&s| (s * 20000.0) as i16).collect();
+            let mut audio = vec![0i16; 180_000];
+            let n = samples.len().min(audio.len());
+            audio[..n].copy_from_slice(&samples[..n]);
+
+            let results = decode_frame(&audio, 800.0, 1200.0, 1.0, None, DecodeDepth::BpAll, 50);
+            assert!(!results.is_empty(), "decode found nothing for: {expected}");
+
+            let decoded = unpack77(&results[0].message77)
+                .unwrap_or_else(|| panic!("unpack decoded bits failed for: {expected}"));
+            assert_eq!(decoded, expected, "full roundtrip mismatch for: {call1} {call2} {report}");
+        }
     }
 }

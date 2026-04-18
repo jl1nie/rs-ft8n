@@ -28,7 +28,7 @@ export class QsoManager {
     this.rxReport = '';
     this.rxSnr = -10;
     this.retryCount = 0;
-    this.maxRetries = 15;
+    this.maxRetries = 5;      // 5 × 15 s = 75 s before auto-reset
     this.finalMaxRetries = 3; // FINAL state needs fewer retries
     this.cqSuffix = '';  // e.g. "POTA", "SOTA", "DX"
     this.freeText = '';  // Tx5 free text (replaces RR73/73 in FINAL)
@@ -141,6 +141,17 @@ export class QsoManager {
       return null;
     }
     this.retryCount++;
+    return this.getNextTx();
+  }
+
+  /**
+   * Manually force a state transition (recovery from desync).
+   * Returns the TX object appropriate for the new state, or null.
+   */
+  forceState(targetState) {
+    this.state = targetState;
+    this.retryCount = 0;
+    this.onStateChange(targetState);
     return this.getNextTx();
   }
 

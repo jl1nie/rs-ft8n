@@ -149,32 +149,63 @@ git config core.hooksPath .githooks
 
 これにより `.githooks/pre-commit` が有効になり、コミット前に `deploy.sh` が自動実行されて `docs/` が更新される。
 
-## 7. ブラウザ版リリース手順
+## 7. バージョン管理とリリース手順
 
-ブラウザ版（GitHub Pages）のリリースは以下の手順で行う。
-**手動で `wasm-pack` を実行してはいけない。** pre-commit hook が自動で処理する。
+### 7.1. セマンティックバージョニング
 
-### 手順
+Web版・Tauriデスクトップ版は**常に同一バージョン**を維持する。
 
-1. **`APP_VERSION` を更新**（`ft8-web/www/app.js` 内の `APP_VERSION` 定数）
-2. **`ft8-web/www/` 配下の JS/HTML を変更・コミット**
-   - pre-commit hook が `ft8-web/www/*.js` → `docs/*.js` へ自動コピー
-   - import パス `'../pkg/ft8_web.js'` → `'./ft8_web.js'` も自動書き換え
-3. **WASM 再ビルドが必要な場合**（ft8-core または ft8-web/src/lib.rs を変更した場合のみ）:
-   ```bash
-   cd ft8-web && wasm-pack build --target web --release
-   cp pkg/ft8_web.js ../docs/ft8_web.js
-   cp pkg/ft8_web_bg.wasm ../docs/ft8_web_bg.wasm
-   ```
-   - `wasm-pack` のデフォルト出力先は `ft8-web/pkg/`
-   - `docs/ft8_web.js` と `docs/ft8_web_bg.wasm` は**必ず同じビルドからペアでコピー**する（JS グルーと WASM バイナリのハッシュが一致しないと動かない）
-   - `--out-dir` で直接 docs/ に出力しない（余計なファイルが混入する）
-4. **`git add` & `git commit` & `git push`**
+| 変更の種類 | バンプ例 |
+|-----------|---------|
+| バグ修正・UI微調整 | `0.2.0` → `0.2.1` |
+| 機能追加（後方互換あり） | `0.2.0` → `0.3.0` |
+| 破壊的変更・大規模刷新 | `0.2.0` → `1.0.0` |
 
-### JS のみの変更（WASM 再ビルド不要）
+バージョン番号を変更する場所（**1ファイルのみ**）：
+- `ft8-desktop/src-tauri/Cargo.toml` の `version`
+  - `APP_VERSION` は deploy.sh が Cargo.toml から自動注入するため手動変更不要
+  - `tauri.conf.json` にはバージョンフィールドなし（Tauri v2 は Cargo.toml から自動取得）
+
+### 7.2. 通常のリリース手順（Web + Tauri 同時）
+
+```bash
+# 1. ソース変更をコミット（ft8-web/www/ や ft8-core/ など）
+git add <changed files>
+git commit -m "feat: ..."
+
+# 2. Cargo.toml のバージョンをバンプ
+#    例: version = "0.4.0" → "0.5.0"
+$EDITOR ft8-desktop/src-tauri/Cargo.toml
+
+# 3. リリーススクリプトを実行（docs/ 更新 → Tauri ビルド → GitHub リリース まで自動）
+./release.sh
+```
+
+`release.sh` が行うこと:
+- `core.hooksPath .githooks` を自動設定（hook セルフヒーリング）
+- `deploy.sh` 実行（`ft8-web/www/` → `docs/` コピー＋バージョン注入）
+- `docs/` の変更を `git add -f` でステージ・コミット
+- `cargo tauri build` で `.exe` / `.msi` 生成
+- `git push` + タグ作成・プッシュ
+- `gh release create` または既存リリースへアセット差し替え
+
+### 7.3. WASM 再ビルドが必要な場合
+
+`ft8-core/` または `ft8-web/src/lib.rs` を変更した場合のみ、コミット前に実行:
+
+```bash
+cd ft8-web && wasm-pack build --target web --release
+cp pkg/ft8_web.js ../docs/ft8_web.js
+cp pkg/ft8_web_bg.wasm ../docs/ft8_web_bg.wasm
+```
+
+- `docs/ft8_web.js` と `docs/ft8_web_bg.wasm` は**必ず同じビルドからペアでコピー**する
+- `--out-dir` で直接 docs/ に出力しない（余計なファイルが混入する）
+
+### 7.4. JS のみの変更（WASM 再ビルド不要）
 
 `ft8-core/` や `ft8-web/src/` に変更がない場合、WASM 再ビルドは不要。
-`ft8-web/www/` の変更をコミットするだけで pre-commit hook が docs/ を更新する。
+`./release.sh` がすべて処理する。
 
 ---
 **Engineering Ethos:**

@@ -77,6 +77,7 @@ export class CatController {
     this.transportType = ''; // 'serial' | 'ble' | 'tauri'
     this.port = null;       // Web Serial port (serial mode only)
     this.writer = null;     // Web Serial writer (serial mode only)
+    this.ble = null;        // BleTransport instance (ble mode only)
     this.connected = false;
     this.rig = null;
     this.rigId = '';
@@ -140,6 +141,7 @@ export class CatController {
     await ble.connect();
 
     this.transport = ble;
+    this.ble = ble;        // direct reference for GPS/CI-V callbacks
     this.transportType = 'ble';
     this.rig = rig;
     this.rigId = rigId;
@@ -309,6 +311,13 @@ export class CatController {
   // ── Internal ──────────────────────────────────────────────────────────
 
   _handleDisconnect() {
+    // BLE: if the physical GATT link is still alive, this is a transient CI-V
+    // write error (e.g., IC-705 not ready right after pairing grant), NOT a
+    // true disconnect.  The gattserverdisconnected event handles real drops.
+    if (this.transportType === 'ble' && this.ble?.device?.gatt?.connected) {
+      console.warn('[CAT] BLE CI-V write error (transient) — physical link alive, not disconnecting');
+      return;
+    }
     this.connected = false;
     this.pttOn = false;
     this.narrowOn = false;
@@ -316,6 +325,7 @@ export class CatController {
       try { this.writer.releaseLock(); } catch (_) {}
       this.writer = null;
     }
+    this.ble = null;
     if (this.onDisconnect) this.onDisconnect();
   }
 

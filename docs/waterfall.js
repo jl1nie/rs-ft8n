@@ -122,6 +122,10 @@ export class Waterfall {
     this.targetLine = null;
     // Frequency offset (Hz) — shifts FFT rendering position for VFO-shifted display
     this.freqOffset = 0;
+    // Noise floor estimation window (Hz). null = full display range.
+    // Set to { min, max } in BPF-narrow mode so stopband doesn't pull
+    // the noise floor down and over-colour passband signals.
+    this.noiseWindow = null;
 
     // Residual buffer for streaming
     this.residual = new Float32Array(0);
@@ -264,10 +268,22 @@ export class Waterfall {
       power[i] = 10 * Math.log10(mag + 1e-20);
     }
 
-    // Adaptive noise floor (slow-moving average of median power)
-    const sorted = Float32Array.from(power).sort();
+    // Adaptive noise floor — estimate from passband only in narrow mode.
+    // Mirrors WASM compute_snr_db which uses within-signal bins for noise.
+    // +3 dB boost in narrow mode keeps weak stations visible (user pref).
+    let noiseSlice;
+    if (this.noiseWindow) {
+      const bps = this.sampleRate / this.fftSize; // Hz per bin
+      const lo = Math.max(0, Math.round((this.noiseWindow.min - this.freqMin) / bps));
+      const hi = Math.min(this.numBins, Math.round((this.noiseWindow.max - this.freqMin) / bps));
+      noiseSlice = (lo < hi) ? power.slice(lo, hi) : power;
+    } else {
+      noiseSlice = power;
+    }
+    const sorted = Float32Array.from(noiseSlice).sort();
     const median = sorted[sorted.length >> 1];
-    this.noiseFloor = this.noiseFloor * 0.95 + median * 0.05;
+    const boost = this.noiseWindow ? -3 : 0; // lower threshold = show weaker signals
+    this.noiseFloor = this.noiseFloor * 0.95 + (median + boost) * 0.05;
 
     // Scroll canvas up by 1 row
     const ctx = this.ctx;

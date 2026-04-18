@@ -56,6 +56,7 @@ WebFT8 [Scout][Snipe]  14.074(20m)  12s  *
 | **Mode tabs** | Scout / Snipe toggle |
 | **Band selector** | Operating band. On change, sets rig VFO frequency and mode (DATA-USB) when CAT is connected |
 | **Seconds remaining** | Integer seconds until next period boundary |
+| **DT±X.X** | Clock offset display. Shows the auto-corrected value (in seconds) when DT auto-correct is ON and signals have been decoded |
 | **Gear icon** | Open settings panel |
 
 ---
@@ -119,7 +120,7 @@ During an active QSO, A Priori (AP) decoding is automatically enabled using the 
 
 A dedicated mode for hunting target stations. The waterfall is larger.
 
-The core of Snipe mode is the **separation of DF (TX frequency) and BPF (RX window center)**. Set the transmit frequency in Watch phase, then in Call phase only the receive window moves to track the target. This enables "off-frequency calling" where you transmit on a different frequency than the DX station.
+The core of Snipe mode is the **independent control of DF (TX frequency) and BPF (RX window center)**. Your transmit frequency (DF) is chosen once in Watch phase and stays fixed throughout the QSO. Meanwhile, the 500 Hz hardware BPF center continuously tracks the target station's frequency. This means you can **transmit from a clean, uncrowded slot while the pre-ADC filter stays precisely aimed at the DX station** — maximising SNR exactly where it matters. If the DX station drifts slightly during a pileup, only the BPF follows; there is no need to retune your TX frequency.
 
 #### Watch Phase (Full-Band Receive)
 
@@ -128,41 +129,42 @@ Find the target and choose the **transmit frequency (DF)**. Receive is full-band
 | Action | Effect |
 |--------|--------|
 | **Tap waterfall** | Set **DF (TX frequency)** (shown as red dashed line) |
-| **Tap an RX message** | Set call1 as target (AP auto-enabled). A secondary "Call call2" button also appears in TX actions |
+| **Tap an RX message** | Set that station as target (AP auto-enabled) and set **BPF center** to that station's frequency. TX actions show a "Call" button for the sender |
 
-**Phase hint:** Status shows `full-band  DF 1200 Hz`
+**Phase hint:** Status shows `full-band  DF 1200 Hz` (small text, top-right of Watch/Call tabs)
 
 **Watch display:**
 
-- **Top**: Target station's latest message (call / frequency / SNR)
-- **Callers**: List of other stations calling the target
-- **Message list**: DF / DT / SNR / Message in unified format (with period separators)
-- **QSO progress dots**: filled-circle empty-circle empty-circle empty-circle -> all filled
+- **Top card**: `TARGET_CALL  1234 Hz  -18 dB` — target callsign and latest heard freq/SNR on one line
+- **Picked line**: `Picked: YB2AYA@1234` — who the DX responded to this period and their DF. Decoded from the DX's own transmit period, so always visible. Shows who is getting through — if it's not you, the slot is in play
+- **Message list**: DF / DT / SNR / Message unified format with period separators. Shared between Watch and Call — preserved across phase switches
+- **QSO progress dots**: filled → → → all filled
 
 #### Call Phase (Narrow-Filter Receive)
 
-Once you've set the DF in Watch, switch to **Call**. When CAT is connected, the rig's DSP narrow filter (FIL3) is automatically engaged, and the VFO frequency shifts to track the BPF window center.
+Once you've set the DF in Watch, switch to **Call**. When CAT is connected, the rig's DSP narrow filter (FIL3) is automatically engaged, and the VFO shifts so the BPF center (1500 Hz audio, USB passband standard) covers the target.
 
 | Action | Effect |
 |--------|--------|
-| **Tap waterfall** | Set **BPF (RX window center)**. DF (TX frequency) remains as set in Watch. VFO tracks BPF when CAT is connected |
+| **Tap waterfall** | Set **BPF (RX window center)**. DF (TX frequency) stays as set in Watch. VFO tracks BPF when CAT is connected |
+| **Tap an RX message** | Set BPF center to that station's frequency and update VFO accordingly |
 
 **Phase hint:** Status shows `BPF 1050 Hz  DF 1200 Hz`
 
 - 500 Hz BPF window shown as a cyan band on the waterfall
 - Only messages involving you and the target are displayed (noise reduction)
-- If you tapped a target in Watch, Auto mode continues the QSO state progression automatically
-- Switching to Call alone does not start TX -- tap a target in Watch first to initiate the QSO
-- QSO failure (retry limit reached) -- auto-reverts to Watch, rig filter restored to wide
+- If you tapped a target in Watch, Auto mode continues the QSO automatically in Call
+- Switching to Call alone does not start TX — tap a target in Watch first to initiate the QSO
+- QSO failure (retry limit reached) → auto-reverts to Watch, rig filter restored to wide
 - You can manually switch back to Watch to change DF
 
 **VFO tracking (when CAT is connected):**
 
-Moving the BPF window automatically shifts the rig's VFO frequency so the physical filter covers the target signal. Returning to Watch restores the VFO to the original band frequency.
+Moving the BPF window shifts the rig VFO so the physical filter always covers the target. The BPF center is always 1500 Hz in audio (the USB passband center per ITU standard), so `dial_freq = band_freq + (BPF_target − 1500)`. Returning to Watch restores the VFO to the original band frequency.
 
 **Switching Watch / Call:**
 
-Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is preserved when switching. Returning to Watch automatically restores the CAT filter to wide (FIL2).
+Use the `[Watch] [Call]` tabs at the top of the Snipe view. The message list is shared and preserved across phase switches. Returning to Watch automatically restores the CAT filter to wide (FIL2).
 
 ---
 
@@ -201,6 +203,18 @@ All TX is **synchronized to the next period boundary** (never immediate).
 - **Halt / Reset (progressive)**: First tap = stop TX immediately (button changes to "Reset"), second tap = reset QSO (saved as incomplete to log)
 - Status bar shows `TX queued: ...` when TX is pending
 
+**State navigation (desync recovery):**
+
+While a QSO is active (any state other than IDLE), a state nav row appears below the TX buttons. Use it to manually recover when your state machine falls out of sync with the other station.
+
+| Button | Visible in state | Action |
+|--------|-----------------|--------|
+| `← CALLING` | REPORT / FINAL | Force back to CALLING; retransmit grid |
+| `→ REPORT` | CALLING | Advance to REPORT; send SNR report |
+| `→ FINAL` | REPORT | Advance to FINAL; send RR73 |
+| `✓ Complete` | FINAL | Log the QSO and return to IDLE (no need to receive 73) |
+| `↺ Reset` | All states | Cancel TX and reset to IDLE |
+
 ---
 
 ## QSO State Machine
@@ -218,9 +232,10 @@ IDLE -> CALLING -> REPORT -> FINAL -> IDLE (complete)
 | **REPORT** | Report exchange | `DX MYCALL R+00` |
 | **FINAL** | Awaiting confirmation | `DX MYCALL RR73` or `73` |
 
-- **Auto ON**: Fully automatic state transitions. Retries on no response (up to 15 times).
+- **Auto ON**: Fully automatic state transitions. Retries on no response (up to 5 times = 75 seconds).
 - **Auto OFF**: TX message selector buttons appear for manual selection.
 - When the retry limit is reached, the QSO is logged as incomplete.
+- **Desync recovery**: Use the state nav buttons in the TX actions area to manually force a state transition (see [TX Actions](#tx-actions-bottom-bar)).
 
 ---
 
@@ -304,9 +319,12 @@ Open/close with the gear icon. Organized as an accordion with 5 sections (ordere
 | **RX / TX Gain** | Input/output level sliders + level meters |
 | **Test Tone** | Continuous carrier for ALC adjustment (CAT PTT auto) |
 | **Start Audio** | Start or stop live decoding (also via logo tap) |
-| **Rig Model** | Rig selector dropdown (from rig-profiles.json) |
-| **Connect Rig** | Connect via Web Serial. Desktop Chrome / Edge |
-| **Connect BLE** | Connect to IC-705 via Web Bluetooth. Mobile supported (see below) |
+| **Transport** | Connection type (Serial / BLE). Serial-only on platforms without Web Bluetooth |
+| **Rig Model** | Rig selector dropdown (shown for Serial only) |
+| **Port** | COM port selector (Tauri desktop only) |
+| **Connect** | Connect/disconnect using the selected transport. BLE is IC-705 only |
+| **GPS Sync** | Sync UTC from IC-705 USB-B NMEA or BLE CI-V |
+| **NTP Sync** | Sync time via HTTP (**mobile only**) |
 
 ### Log
 
@@ -328,10 +346,11 @@ Open/close with the gear icon. Organized as an accordion with 5 sections (ordere
 |------|-------------|
 | **Strictness** | Decode sensitivity vs false-positive (Strict / Normal / Deep) |
 | **Equalizer** | Adaptive equalizer (Off / Adaptive). BPF edge correction |
-| **Retry limit** | QSO retry count limit (default 15) |
+| **Retry limit** | QSO retry count limit (default 5) |
 | **Multi-pass subtract** | Successive interference cancellation (3-pass SIC). Default ON |
 | **A Priori (AP)** | AP decoding. Default ON |
 | **CQ reply: best SNR** | ON: respond to strongest CQ. OFF: first decoded |
+| **DT auto-correct** | ON: automatically corrects the clock offset using the median DT of decoded FT8 signals. Shows `DT±X.X` in the header. Default ON |
 | **Waterfall FFT** | Toggle waterfall display |
 | **Open WAV File** | Select a WAV file for offline analysis |
 
@@ -398,9 +417,10 @@ Uses the Web Serial API to control rig PTT, filter, frequency, and mode via USB.
 **Connection steps:**
 
 1. Connect your rig to the PC via USB cable
-2. Select **Rig Model** in the CAT section of the settings panel
-3. **Connect CAT** -- browser serial port selection dialog opens
-4. Select the port -- connected
+2. In the settings panel **Rig** section, select **Transport: Serial** (default)
+3. Select **Rig Model**
+4. Click **Connect** — the browser serial port dialog opens (Tauri: select from dropdown)
+5. Select the port — connected
 
 ### IC-705 BLE Connection (Mobile / Wireless)
 
@@ -413,16 +433,16 @@ The IC-705 supports BLE (Bluetooth Low Energy) for CI-V CAT commands. This lets 
 BLE requires no OS-level pairing. Just follow these steps:
 
 1. **On the IC-705:** MENU → **SET** → **Bluetooth** → **Bluetooth** = **ON**, then tap **Pairing from Other Device** to start waiting
-2. **In WebFT8 settings** (gear icon) → **Rig** section, select your rig and tap **Connect BLE**
-3. Select "ICOM BT(IC-705)" from the browser's device dialog
-4. Status shows "connected" — done!
+2. **In WebFT8 settings** (gear icon) → **Rig** section, select **Transport: BLE**
+3. Tap **Connect** — the browser device selection dialog opens
+4. Select "ICOM BT(IC-705)" — status shows "connected" — done!
 
 #### Subsequent Connections
 
 Once paired, the IC-705 remembers the device. On the next session:
 
 1. Ensure IC-705 Bluetooth is ON (it usually stays on)
-2. In WebFT8, tap the logo (or **Connect BLE** in settings)
+2. In WebFT8, tap the logo (or settings → **Transport: BLE** → **Connect**)
 3. Select the IC-705 from the dialog — connects in seconds
 
 #### Requirements
@@ -447,6 +467,8 @@ Once paired, the IC-705 remembers the device. On the next session:
 
 | Function | Trigger |
 |----------|---------|
+| **Auto-connect** | On app launch, if a rig and port are saved in settings, connects automatically |
+| **Rig setup** | After connect: sets DATA-USB mode → 200 ms delay → band frequency → wide filter (FIL2) |
 | **PTT ON/OFF** | Automatic on TX start/end |
 | **Mode setting** | Sets DATA-USB (FIL2) on band change |
 | **Narrow filter** | FIL3 (500 Hz) auto-engaged on Snipe Call phase |

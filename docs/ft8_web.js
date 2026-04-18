@@ -275,33 +275,36 @@ export function decode_phase2_f32(strictness) {
 }
 
 /**
- * Sniper-mode decode with multi-pass AP (single WASM call).
- *
- * AP passes are handled internally by ft8-core (pass 6-11).
- * The deepest applicable pass is tried first based on available info:
  *   mycall + dxcall + RRR/RR73/73 → 77-bit lock (passes 9-11)
- *   CQ + dxcall → 61-bit lock (pass 7)
+ *   CQ + dxcall + grid → up to 76-bit lock (passes 7/8)
  *   mycall + dxcall → 61-bit lock (pass 8)
  *   dxcall only → 33-bit lock (pass 6)
+ *   grid only → 15-bit lock (pass 6 fallback)
+ *
+ * Pass `mycall = ""` for Watch phase (CQ-style hint + grid).
+ * Pass `mycall = <own_call>` for Call phase (QSO hint, grid ignored).
  * @param {Int16Array} samples
  * @param {number} target_freq
  * @param {string} callsign
+ * @param {string} grid
  * @param {string} mycall
  * @param {boolean} eq_on
  * @param {number} sample_rate
  * @returns {DecodedMessage[]}
  */
-export function decode_sniper(samples, target_freq, callsign, mycall, eq_on, sample_rate) {
+export function decode_sniper(samples, target_freq, callsign, grid, mycall, eq_on, sample_rate) {
     const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(callsign, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const ptr2 = passStringToWasm0(grid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.decode_sniper(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, eq_on, sample_rate);
-    var v4 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    const ptr3 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_sniper(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, ptr3, len3, eq_on, sample_rate);
+    var v5 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-    return v4;
+    return v5;
 }
 
 /**
@@ -309,22 +312,25 @@ export function decode_sniper(samples, target_freq, callsign, mycall, eq_on, sam
  * @param {Float32Array} samples
  * @param {number} target_freq
  * @param {string} callsign
+ * @param {string} grid
  * @param {string} mycall
  * @param {boolean} eq_on
  * @param {number} sample_rate
  * @returns {DecodedMessage[]}
  */
-export function decode_sniper_f32(samples, target_freq, callsign, mycall, eq_on, sample_rate) {
+export function decode_sniper_f32(samples, target_freq, callsign, grid, mycall, eq_on, sample_rate) {
     const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(callsign, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const ptr2 = passStringToWasm0(grid, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.decode_sniper_f32(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, eq_on, sample_rate);
-    var v4 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    const ptr3 = passStringToWasm0(mycall, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_sniper_f32(ptr0, len0, target_freq, ptr1, len1, ptr2, len2, ptr3, len3, eq_on, sample_rate);
+    var v5 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
-    return v4;
+    return v5;
 }
 
 /**

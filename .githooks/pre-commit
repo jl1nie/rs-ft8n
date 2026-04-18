@@ -5,5 +5,5 @@ cd "$(git rev-parse --show-toplevel)"
 
 bash deploy.sh
 
-# Stage updated docs/ files
-git add docs/*.js docs/*.html docs/*.json 2>/dev/null || true
+# Stage updated docs/ files (use -f to include new files ignored by docs/.gitignore)
+git add -f docs/*.js docs/*.html docs/*.json docs/*.md 2>/dev/null || true
