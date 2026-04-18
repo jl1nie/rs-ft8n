@@ -29,6 +29,7 @@
 //! ```
 
 pub mod dsp;
+pub mod equalize;
 pub mod llr;
 pub mod protocol;
 pub mod sync;
