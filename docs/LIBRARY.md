@@ -6,32 +6,94 @@ This document covers the rs-ft8n library surface for embedders: Rust
 crate consumers, C/C++ projects linking `libwsjt.so`, and
 Kotlin/Android apps using the JNI scaffold.
 
+## 0. Why this exists
+
+WSJT-X is the reference decoder for the FT8/FT4/FST4/WSPR family, but
+it is a desktop C++ + Fortran binary with 20+ years of accretion.
+Getting it to run in a browser PWA, on an Android phone, or as an
+embeddable library inside another app means rewriting non-trivial
+portions per platform — and each rewrite diverges further from
+upstream.
+
+**rs-ft8n solves this by refactoring the decode pipeline around a
+zero-cost trait abstraction.** The algorithms (DSP, sync correlation,
+LLR, equaliser, LDPC BP/OSD, convolutional + Fano) live in shared
+crates (`mfsk-core`, `mfsk-fec`, `mfsk-msg`). Each protocol is a
+~100–300 line ZST that declares its constants and the specific FEC /
+message codec it uses; the entire pipeline is then available via
+`decode_frame::<P>()`. Because `P` is a compile-time type parameter,
+monomorphisation produces code byte-identical to a hand-written
+per-protocol decoder — the abstraction is free.
+
+### What you get from this structure
+
+| Benefit                                    | How it shows up in practice                                                 |
+|--------------------------------------------|-----------------------------------------------------------------------------|
+| **One codebase → four platforms**          | Same crates compile to native Rust, WASM (PWA), Android ARM64 (JNI), C/C++ (cbindgen) |
+| **Shared optimisations propagate**         | A SIMD tweak in `mfsk-fec::ldpc::bp_decode` speeds up FT8, FT4 *and* FST4 simultaneously |
+| **New protocols are cheap**                | FT4 = ~150 lines on top of the FT8 stack; FST4-60A = ~90 lines + LDPC tables; WSPR brings its own FEC family and still reuses the pipeline scaffold |
+| **Clean ABI surface**                      | The C ABI in `wsjt-ffi` dispatches once via `match protocol_id`; the specialised code paths are already monomorphised away |
+| **Algorithm correctness is testable in isolation** | 118 workspace tests cover each codec, each message type, sync, LLR, etc. before any integration |
+
+### What the library can decode / encode today
+
+- **FT8** (15 s slot, 8-GFSK, LDPC(174, 91) + CRC-14, 77-bit message)
+- **FT4** (7.5 s slot, 4-GFSK, LDPC(174, 91) + CRC-14, 77-bit message)
+- **FST4-60A** (60 s slot, 4-GFSK, LDPC(240, 101) + CRC-24, 77-bit message)
+- **WSPR** (120 s slot, 4-FSK, convolutional r=1/2 K=32 + Fano, 50-bit message)
+
+JT65 (Reed–Solomon, 72-bit) and JT9 (convolutional, 72-bit) slot into
+the same abstraction cleanly — the work is adding one more `FecCodec`
+and one more `MessageCodec` implementation.
+
+### Evidence that the abstraction is real, not nominal
+
+WSPR is the stress test. Unlike the FT-family, WSPR uses:
+
+1. A different FEC family (convolutional + sequential Fano, not LDPC)
+2. A different message size (50 bits, not 77)
+3. A different sync structure (per-symbol interleaved sync vector, not
+   block Costas arrays)
+
+Every one of these pushed on a different axis of the trait surface —
+`FecCodec` had to accept `ConvFano`, `MessageCodec::Unpacked` had to
+generalise from `String` (FT8) to `WsprMessage` (enum), and
+`FrameLayout::SYNC_MODE` gained an `Interleaved` variant. The FT8/FT4/FST4
+code paths stayed *unchanged*: their impls still use `SyncMode::Block`
+and produce the same bits they did before. The multi-crate refactor
+paid for itself at WSPR time — there was no "tear out the FT8-only
+assumption" cliff to climb.
+
 ## 1. Crate layout
 
 ```
 mfsk-core  ──┐
              │
-mfsk-fec    ─┼─┐
+mfsk-fec    ─┼─┐    (LDPC 174/91, LDPC 240/101, ConvFano r=1/2 K=32)
              │ │
-mfsk-msg    ─┼─┼─┬── ft8-core ──┐
-             │ │ │               │
-             │ │ └── ft4-core ──┼── ft8-web (WASM)
-             │ │                 │
-             │ │                 └── wsjt-ffi (C ABI cdylib)
-             │ │                          │
-             │ │                          └── examples/{cpp_smoke, kotlin_jni}
-             │ └── (future) rs codec, conv codec…
-             └── (future) sync / llr / tx reused by other families
+mfsk-msg    ─┼─┼─┬── ft8-core   ──┐
+             │ │ │                 │
+             │ │ ├── ft4-core   ──┤
+             │ │ │                 ├── ft8-web (WASM / PWA)
+             │ │ ├── fst4-core  ──┤
+             │ │ │                 │
+             │ │ └── wspr-core  ──┼── wsjt-ffi (C ABI cdylib)
+             │ │                   │         │
+             │ │                   │         └── examples/{cpp_smoke, kotlin_jni}
+             │ └── (future) rs codec (JT65)
+             └── (future) jt72 msg codec (JT9 / JT65)
 ```
 
 | Crate        | Role                                                                  |
 |--------------|-----------------------------------------------------------------------|
 | `mfsk-core`  | Protocol traits, DSP (resample / downsample / subtract / GFSK), sync, LLR, equalize, pipeline |
-| `mfsk-fec`   | LDPC(174, 91) codec implementing `FecCodec`                            |
-| `mfsk-msg`   | WSJT 77-bit message codec + AP hints + AP-aware pipeline             |
+| `mfsk-fec`   | `FecCodec` implementations: `Ldpc174_91`, `Ldpc240_101`, `ConvFano`    |
+| `mfsk-msg`   | 77-bit (`Wsjt77Message`) + 50-bit (`Wspr50Message`) message codecs, AP hints |
 | `ft8-core`   | `Ft8` ZST + FT8-tuned decode orchestration (AP / sniper / SIC)        |
 | `ft4-core`   | `Ft4` ZST + FT4-tuned entry points                                    |
-| `ft8-web`    | `wasm-bindgen` surface — FT8 *and* FT4 exposed to the PWA             |
+| `fst4-core`  | `Fst4s60` ZST — 60-s sub-mode, LDPC(240, 101)                         |
+| `wspr-core`  | `Wspr` ZST + WSPR TX synth / RX demod / spectrogram search            |
+| `ft8-web`    | `wasm-bindgen` surface — FT8 / FT4 / WSPR exposed to the PWA          |
 | `wsjt-ffi`   | C ABI cdylib + cbindgen-generated `include/wsjt.h`                    |
 
 Each crate is `[package.edition = "2024"]`. `mfsk-core` is `no_std`-clean
@@ -63,9 +125,22 @@ pub trait FrameLayout: Copy + Default + 'static {
     const N_SYNC: u32;
     const N_SYMBOLS: u32;
     const N_RAMP: u32;
-    const SYNC_BLOCKS: &'static [SyncBlock];
+    const SYNC_MODE: SyncMode;  // Block(&[SyncBlock]) or Interleaved { .. }
     const T_SLOT_S: f32;
     const TX_START_OFFSET_S: f32;
+}
+
+pub enum SyncMode {
+    /// Block-based Costas / pilot arrays at fixed symbol positions.
+    /// Used by FT8 / FT4 / FST4.
+    Block(&'static [SyncBlock]),
+    /// Per-symbol bit-interleaved sync: one bit of a known sync vector
+    /// is embedded at `sync_bit_pos` within every channel-symbol tone
+    /// index. Used by WSPR (symbol = 2·data + sync_bit).
+    Interleaved {
+        sync_bit_pos: u8,
+        vector: &'static [u8],
+    },
 }
 
 pub trait Protocol: ModulationParams + FrameLayout + 'static {
@@ -92,21 +167,31 @@ text (which runs once per successful decode, not once per candidate).
 
 ### Adding a new protocol
 
-To add FST4, FT2, or any new LDPC-based mode:
+Three tiers depending on how much the new mode shares:
 
-1. Create `your-core/` crate with a ZST `YourMode`.
-2. Implement the three traits, slotting `SYNC_BLOCKS` to the protocol's
-   Costas layout and the numeric constants.
-3. Declare `type Fec = Ldpc174_91;` (shared with FT8/FT4) if the code
-   is the same, otherwise point at a new `FecCodec` implementation in
-   `mfsk-fec`.
-4. Declare `type Msg = Wsjt77Message;` if the mode uses the 77-bit
-   message layout (FT8/FT4/FT2/FST4 all do).
+1. **Same FEC + same message (e.g. FT2, other FST4 sub-modes)** —
+   one ZST, ~20–100 lines. Change only the numeric constants
+   (`NTONES`, `NSPS`, `TONE_SPACING_HZ`, `SYNC_MODE`). `Fec` and `Msg`
+   are aliases to existing impls. The entire `decode_frame::<P>()`
+   pipeline works out of the box.
 
-The decode / encode machinery is already generic — you get a working
-pipeline without writing any DSP code. For JT65 / JT9 / WSPR, provide
-a new `FecCodec` (Reed-Solomon or convolutional) and a new
-`MessageCodec` (72-bit / 50-bit payload).
+2. **New FEC, same message (e.g. a second LDPC size)** — add the
+   codec module in `mfsk-fec`, implement `FecCodec` for it. The
+   BP / OSD / systematic-encode *algorithms* generalise across
+   LDPC sizes automatically; only parity-check + generator tables
+   and the `N`/`K` constants change. See `mfsk_fec::ldpc240_101` for
+   the pattern.
+
+3. **New FEC *and* new message (e.g. WSPR)** — add the codec, add
+   the message codec in `mfsk-msg`, and if the sync structure differs
+   fundamentally add a `SyncMode` variant. This is the path WSPR took:
+   `ConvFano` + `Wspr50Message` + `SyncMode::Interleaved`. The shared
+   pipeline scaffolding still applies — coarse search, spectrogram,
+   candidate dedup, CRC / message unpack all remain available.
+
+For JT65 (Reed–Solomon) and JT9 (convolutional, 72-bit), the work
+is tier 3: one new `FecCodec` + one new `MessageCodec` each. The
+`SyncMode` trait already has the needed variants.
 
 ## 3. Shared primitives (`mfsk-core`)
 
@@ -127,7 +212,7 @@ each — `ft8-core::downsample::FT8_CFG`, `ft4-core::decode::FT4_DOWNSAMPLE`, et
 ### Sync (`mfsk_core::sync`)
 
 * `coarse_sync::<P>(audio, freq_min, freq_max, …)` — UTC-aligned 2D
-  peak search over `P::SYNC_BLOCKS`.
+  peak search over `P::SYNC_MODE.blocks()`.
 * `refine_candidate::<P>(cd0, cand, search_steps)` — integer-sample
   scan + parabolic sub-sample interpolation.
 * `make_costas_ref(pattern, ds_spb)` / `score_costas_block(...)` — raw
@@ -142,7 +227,7 @@ each — `ft8-core::downsample::FT8_CFG`, `ft4-core::decode::FT4_DOWNSAMPLE`, et
 ### Equalise (`mfsk_core::equalize`)
 
 * `equalize_local::<P>(cs)` — per-tone Wiener equaliser driven by
-  `P::SYNC_BLOCKS` pilot observations; linearly extrapolates any tones
+  `P::SYNC_MODE.blocks()` pilot observations; linearly extrapolates any tones
   that Costas doesn't visit.
 
 ### Pipeline (`mfsk_core::pipeline`)
@@ -282,38 +367,52 @@ Full build instructions in `wsjt-ffi/examples/kotlin_jni/README.md`.
 import init, {
     decode_wav,         // FT8
     decode_ft4_wav,     // FT4
+    decode_wspr_wav,    // WSPR (120-s slot; coarse search internal)
     decode_sniper,
     decode_ft4_sniper,
+    encode_ft8,
+    encode_ft4,
+    encode_wspr,        // Type-1 WSPR: (callsign, grid, dBm, freq) → f32 PCM
 } from './ft8_web.js';
 
 await init();
-const messages = decode_wav(int16Samples, /* strictness */ 1, /* sampleRate */ 48_000);
+const ft8Msgs  = decode_wav(int16Samples,      /* strictness */ 1, /* sampleRate */ 48_000);
+const wsprMsgs = decode_wspr_wav(int16Samples, /* sampleRate */ 48_000);
 ```
 
 The PWA in `docs/` demonstrates usage end-to-end, including the
 Phase 1 / Phase 2 pipelined decode for FT8 (`decode_phase1` +
-`decode_phase2` share a thread-local FFT cache).
+`decode_phase2` share a thread-local FFT cache) and the protocol
+selector in the settings cog that switches slot scheduling between
+FT8 (15 s), FT4 (7.5 s), and WSPR (120 s).
 
 ## 9. Protocol notes
 
-| Protocol  | Slot   | Tones | Symbols | Tone Δf    | FEC           | Msg   | Status |
-|-----------|--------|-------|---------|------------|---------------|-------|--------|
-| FT8       | 15 s   | 8     | 79      | 6.25 Hz    | LDPC(174, 91) | 77 b  | shipping |
-| FT4       | 7.5 s  | 4     | 103     | 20.833 Hz  | LDPC(174, 91) | 77 b  | shipping |
-| FST4-60A  | 60 s   | 4     | 160     | 3.125 Hz   | LDPC(240,101) | 77 b  | scaffold (FEC tables pending) |
-| FST4 other | 15–1800 s | 4 | var     | var        | LDPC(240,101) | 77 b  | TODO   |
-| JT65      | 60 s   | 65    | 126     | ~2.7 Hz    | RS(63, 12)    | 72 b  | TODO   |
-| JT9       | 60 s   | 9     | 85      | 1.736 Hz   | conv + Fano   | 72 b  | TODO   |
-| WSPR      | 110 s  | 4     | 162     | 1.465 Hz   | conv + Fano   | 50 b  | TODO   |
+| Protocol   | Slot   | Tones | Symbols | Tone Δf    | FEC              | Msg   | Sync       | Status |
+|------------|--------|-------|---------|------------|------------------|-------|------------|--------|
+| FT8        | 15 s   | 8     | 79      | 6.25 Hz    | LDPC(174, 91)    | 77 b  | 3×Costas-7 | shipping |
+| FT4        | 7.5 s  | 4     | 103     | 20.833 Hz  | LDPC(174, 91)    | 77 b  | 4×Costas-4 | shipping |
+| FST4-60A   | 60 s   | 4     | 160     | 3.125 Hz   | LDPC(240, 101)   | 77 b  | 5×Costas-8 | shipping |
+| FST4 other | 15–1800 s | 4 | var     | var        | LDPC(240, 101)   | 77 b  | 5×Costas-8 | one more ZST per sub-mode |
+| WSPR       | 120 s  | 4     | 162     | 1.465 Hz   | conv r=½ K=32 + Fano | 50 b | per-symbol LSB (npr3) | shipping |
+| JT65       | 60 s   | 65    | 126     | ~2.7 Hz    | RS(63, 12)       | 72 b  | pseudo-rand | TODO |
+| JT9        | 60 s   | 9     | 85      | 1.736 Hz   | conv r=½ + Fano  | 72 b  | block      | TODO |
 
-FST4 does **not** share FT8's LDPC(174, 91); it uses a longer
-LDPC(240, 101) with 24-bit CRC. The BP and OSD *algorithms* in
-`mfsk-fec` generalise naturally once the (240, 101) parity-check and
-generator tables are transcribed from WSJT-X
-`lib/fst4/ldpc_240_101_*.f90` — see `mfsk_fec::ldpc240_101` module
-docs. The FST4 trait surface, Costas layout and DSP routing are
-fully in place and wired through the generic pipeline; only the FEC
-tables block end-to-end decode.
+FST4 does **not** share FT8's LDPC(174, 91); it uses LDPC(240, 101)
+with 24-bit CRC, implemented in `mfsk_fec::ldpc240_101`. The BP / OSD
+algorithm is structurally the same — only the parity-check / generator
+tables and code dimensions differ. FST4-60A is shipping end-to-end;
+the other FST4 sub-modes (-15/-30/-120/-300/-900/-1800) differ only in
+`NSPS` / `SYMBOL_DT` / `TONE_SPACING_HZ`, and each is a ~20-line ZST
+reusing the same FEC + sync + DSP.
+
+WSPR is the structurally different member of the family: convolutional
+FEC instead of LDPC (`mfsk_fec::conv::ConvFano`, ported from WSJT-X
+`lib/wsprd/fano.c`), 50-bit message (`mfsk_msg::wspr::Wspr50Message`
+covering Type 1 / 2 / 3), and per-symbol interleaved sync
+(`SyncMode::Interleaved`) instead of block Costas. The `wspr-core`
+crate adds its own TX synthesiser, RX demodulator and a quarter-symbol
+spectrogram for ~40× faster coarse search over a 120-s slot.
 
 ## 10. See also
 
