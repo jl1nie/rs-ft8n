@@ -1,68 +1,195 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Minimal C++ smoke test for the rs-ft8n FFI: generate a clean FT8 tone
-// via the Rust side (simpler than inlining the simulator here), feed it
-// back through the C ABI, and verify at least one message decodes.
+// End-to-end C++ driver for the rs-ft8n FFI — encodes a known test
+// message for every supported protocol, feeds the synthesised PCM
+// back through the matching decoder handle, and verifies the decoded
+// text round-trips correctly. Doubles as smoke test for the ABI
+// (NULL handling, last-error, samples / message-list lifetimes) and
+// as proof that each protocol is actually wired up in the C ABI.
 //
-// Build: run `./build.sh` (or see it for the raw g++ invocation).
+// Build: run `./build.sh`.
 
 #include "wsjt.h"
 
-#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
-#include <cstdlib>
+#include <string>
 #include <vector>
 
 namespace {
 
-// FT8: 79 symbols × 1920 samples/symbol @ 12 kHz = 151 680 samples = 12.64 s
-constexpr double kSampleRate = 12000.0;
-constexpr size_t  kSlotSamples = 180000;      // 15 s @ 12 kHz
-constexpr double  kRefBw = 2500.0;
+// Tally of failed sub-tests — reported at the end so one broken
+// protocol doesn't hide the status of the others.
+int g_failures = 0;
 
-// Very small deterministic Gaussian RNG (LCG + Box-Muller); enough for
-// a smoke test — real simulator lives on the Rust side.
-struct Lcg {
-    uint64_t state;
-    double spare = 0.0;
-    bool have_spare = false;
-    explicit Lcg(uint64_t seed) : state(seed + 1) {}
-    uint64_t next_u64() {
-        state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-        return state;
-    }
-    double uniform() {
-        return (double((next_u64() >> 11) + 1)) / double((uint64_t(1) << 53) + 1);
-    }
-    double gauss() {
-        if (have_spare) { have_spare = false; return spare; }
-        const double u = uniform();
-        const double v = uniform();
-        const double m = std::sqrt(-2.0 * std::log(u));
-        spare = m * std::sin(2.0 * M_PI * v);
-        have_spare = true;
-        return m * std::cos(2.0 * M_PI * v);
-    }
-};
+void fail(const char* proto, const char* detail) {
+    std::fprintf(stderr, "  FAIL [%s] %s\n", proto, detail);
+    g_failures++;
+}
 
-// Inject a single-tone dummy signal at f0 Hz + WSJT-X SNR-convention AWGN.
-// This isn't a real FT8 frame — it just exercises the FFI end-to-end and
-// the Rust coarse-sync will find "no candidates". A valid decode requires
-// encoding through ft8_core::wave_gen, which is callable from Rust tests
-// but not from C++ without extra bindings. For our smoke we content
-// ourselves with verifying the ABI boundary works (no crashes, no leaks,
-// zero messages returned for noise).
-std::vector<int16_t> make_noise_slot(uint64_t seed) {
-    Lcg rng(seed);
-    std::vector<int16_t> pcm(kSlotSamples);
-    for (size_t i = 0; i < kSlotSamples; ++i) {
-        const double x = rng.gauss();
-        const double clipped = std::max(-32768.0, std::min(32767.0, x * 3000.0));
-        pcm[i] = static_cast<int16_t>(clipped);
+// Helper: does any decoded message text contain `needle` (case-sensitive)?
+bool any_contains(const WsjtMessageList& list, const char* needle) {
+    for (size_t i = 0; i < list.len; ++i) {
+        const WsjtMessage& m = list.items[i];
+        if (m.text && std::strstr(m.text, needle) != nullptr) {
+            return true;
+        }
     }
-    return pcm;
+    return false;
+}
+
+void print_decodes(const char* proto, const WsjtMessageList& list) {
+    std::printf("  [%s] %zu decode(s):\n", proto, list.len);
+    for (size_t i = 0; i < list.len; ++i) {
+        const WsjtMessage& m = list.items[i];
+        std::printf("    freq=%7.2f dt=%+.3f snr=%+.1f err=%u pass=%u text='%s'\n",
+                    m.freq_hz, m.dt_sec, m.snr_db,
+                    m.hard_errors, m.pass,
+                    m.text ? m.text : "<null>");
+    }
+}
+
+// ── FT8 ──────────────────────────────────────────────────────────────
+void test_ft8() {
+    std::printf("— FT8 roundtrip: encode 'CQ JA1ABC PM95' at 1500 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_ft8("CQ", "JA1ABC", "PM95", 1500.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("FT8", wsjt_last_error());
+        return;
+    }
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_FT8);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("FT8", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("FT8", list);
+        if (!any_contains(list, "JA1ABC") || !any_contains(list, "PM95")) {
+            fail("FT8", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
+// ── FT4 ──────────────────────────────────────────────────────────────
+void test_ft4() {
+    std::printf("— FT4 roundtrip: encode 'CQ JA1ABC PM95' at 1500 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_ft4("CQ", "JA1ABC", "PM95", 1500.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("FT4", wsjt_last_error());
+        return;
+    }
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_FT4);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("FT4", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("FT4", list);
+        if (!any_contains(list, "JA1ABC") || !any_contains(list, "PM95")) {
+            fail("FT4", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
+// ── WSPR ─────────────────────────────────────────────────────────────
+void test_wspr() {
+    std::printf("— WSPR roundtrip: encode 'K1ABC FN42 37' at 1500 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_wspr("K1ABC", "FN42", 37, 1500.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("WSPR", wsjt_last_error());
+        return;
+    }
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_WSPR);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("WSPR", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("WSPR", list);
+        if (!any_contains(list, "K1ABC") || !any_contains(list, "FN42")) {
+            fail("WSPR", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
+// ── JT9 ──────────────────────────────────────────────────────────────
+void test_jt9() {
+    std::printf("— JT9 roundtrip: encode 'CQ K1ABC FN42' at 1500 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_jt9("CQ", "K1ABC", "FN42", 1500.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("JT9", wsjt_last_error());
+        return;
+    }
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_JT9);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("JT9", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("JT9", list);
+        if (!any_contains(list, "K1ABC") || !any_contains(list, "FN42")) {
+            fail("JT9", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
+// ── JT65 ─────────────────────────────────────────────────────────────
+void test_jt65() {
+    std::printf("— JT65 roundtrip: encode 'CQ K1ABC FN42' at 1270 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_jt65("CQ", "K1ABC", "FN42", 1270.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("JT65", wsjt_last_error());
+        return;
+    }
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_JT65);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("JT65", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("JT65", list);
+        if (!any_contains(list, "K1ABC") || !any_contains(list, "FN42")) {
+            fail("JT65", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
+// ── Negative paths ──────────────────────────────────────────────────
+void test_null_handling() {
+    std::printf("— NULL / invalid-arg handling\n");
+    // NULL decoder
+    WsjtMessageList list{};
+    WsjtStatus st = wsjt_decode_f32(nullptr, nullptr, 0, 12000, &list);
+    if (st != WSJT_STATUS_INVALID_ARG) {
+        fail("null", "expected INVALID_ARG for null decoder");
+    }
+    // Free NULL pointers — must not crash.
+    wsjt_decoder_free(nullptr);
+    wsjt_message_list_free(nullptr);
+    wsjt_samples_free(nullptr);
+    // Unknown callsign at encode time → InvalidArg + meaningful error.
+    WsjtSamples bogus{};
+    st = wsjt_encode_ft8("XXX", "Y2Z", "FN42", 1500.0f, &bogus);
+    if (st == WSJT_STATUS_OK) {
+        fail("null", "expected pack77 failure for bogus callsigns");
+        wsjt_samples_free(&bogus);
+    }
 }
 
 } // namespace
@@ -74,50 +201,17 @@ int main() {
                 (ver >> 8) & 0xff,
                 ver & 0xff);
 
-    // ── FT8 decoder round-trip on pure noise ────────────────────────────
-    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_FT8);
-    if (dec == nullptr) {
-        std::fprintf(stderr, "wsjt_decoder_new failed: %s\n", wsjt_last_error());
-        return 1;
+    test_ft8();
+    test_ft4();
+    test_wspr();
+    test_jt9();
+    test_jt65();
+    test_null_handling();
+
+    if (g_failures == 0) {
+        std::printf("\nALL OK\n");
+        return 0;
     }
-
-    auto pcm = make_noise_slot(42);
-    WsjtMessageList list{};
-    const WsjtStatus st = wsjt_decode_i16(
-        dec,
-        pcm.data(),
-        pcm.size(),
-        12000,
-        &list);
-
-    if (st != WSJT_STATUS_OK) {
-        std::fprintf(stderr, "wsjt_decode_i16 failed: status=%d err=%s\n",
-                     int(st), wsjt_last_error());
-        wsjt_decoder_free(dec);
-        return 2;
-    }
-
-    std::printf("FT8 noise-only decode: %zu messages (expect 0)\n", list.len);
-    for (size_t i = 0; i < list.len; ++i) {
-        const WsjtMessage& m = list.items[i];
-        std::printf("  [%zu] freq=%.1f dt=%+0.3f snr=%.1f err=%u pass=%u text='%s'\n",
-                    i, m.freq_hz, m.dt_sec, m.snr_db,
-                    m.hard_errors, m.pass,
-                    m.text ? m.text : "<null>");
-    }
-
-    wsjt_message_list_free(&list);
-    wsjt_decoder_free(dec);
-
-    // ── FT4 decoder handle round-trip ───────────────────────────────────
-    WsjtDecoder* dec4 = wsjt_decoder_new(WSJT_PROTOCOL_FT4);
-    if (dec4 == nullptr) { return 3; }
-    WsjtMessageList list4{};
-    wsjt_decode_i16(dec4, pcm.data(), pcm.size(), 12000, &list4);
-    std::printf("FT4 noise-only decode: %zu messages (expect 0)\n", list4.len);
-    wsjt_message_list_free(&list4);
-    wsjt_decoder_free(dec4);
-
-    std::printf("OK\n");
-    return 0;
+    std::fprintf(stderr, "\n%d FAILURE(S)\n", g_failures);
+    return 1;
 }

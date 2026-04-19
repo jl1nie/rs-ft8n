@@ -43,6 +43,29 @@ pub use sync_pattern::{
 };
 pub use tx::{encode_channel_symbols, synthesize_audio, synthesize_standard};
 
+/// Top-level: decode a JT65 signal at a known (start_sample, base_freq)
+/// and return the recovered message if RS succeeds. Mirrors the shape of
+/// `jt9_core::decode_at`.
+pub fn decode_at(
+    audio: &[f32],
+    sample_rate: u32,
+    start_sample: usize,
+    base_freq_hz: f32,
+) -> Option<mfsk_msg::Jt72Message> {
+    use mfsk_core::{DecodeContext, MessageCodec};
+
+    let received = rx::demodulate_aligned(audio, sample_rate, start_sample, base_freq_hz)?;
+    let rs = Rs63_12::new();
+    let (info, _nerr) = rs.decode_jt65(&received)?;
+    let mut payload = [0u8; 72];
+    for (i, bit) in payload.iter_mut().enumerate() {
+        let word = info[i / 6];
+        let shift = 5 - (i % 6);
+        *bit = (word >> shift) & 1;
+    }
+    mfsk_msg::Jt72Codec::default().unpack(&payload, &DecodeContext::default())
+}
+
 /// JT65A protocol marker.
 ///
 /// The `A` sub-mode uses the native baud ≈ 2.69 Hz tone spacing

@@ -11,11 +11,15 @@
 #include <stdlib.h>
 
 /**
- * Protocol tag selecting which decoder family this handle drives.
+ * Protocol tag selecting which decoder / synth family this handle
+ * (or encode call) drives.
  */
 typedef enum WsjtProtocol {
     WSJT_PROTOCOL_FT8 = 0,
     WSJT_PROTOCOL_FT4 = 1,
+    WSJT_PROTOCOL_WSPR = 2,
+    WSJT_PROTOCOL_JT9 = 3,
+    WSJT_PROTOCOL_JT65 = 4,
 } WsjtProtocol;
 
 /**
@@ -33,8 +37,8 @@ typedef enum WsjtStatus {
 } WsjtStatus;
 
 /**
- * Opaque decoder handle. Construct with [`wsjt_decoder_new`], release with
- * [`wsjt_decoder_free`].
+ * Opaque decoder handle. Construct with [`wsjt_decoder_new`], release
+ * with [`wsjt_decoder_free`].
  */
 typedef struct WsjtDecoder {
     uint8_t _priv[0];
@@ -57,7 +61,7 @@ typedef struct WsjtMessage {
      */
     float snr_db;
     /**
-     * Hard-decision errors corrected by BP/OSD.
+     * Hard-decision errors corrected by the FEC.
      */
     uint32_t hard_errors;
     /**
@@ -90,14 +94,25 @@ typedef struct WsjtMessageList {
     uintptr_t _cap;
 } WsjtMessageList;
 
+/**
+ * A buffer of synthesised f32 PCM samples returned by `wsjt_encode_*`.
+ * Caller should zero-initialise before the call and free with
+ * [`wsjt_samples_free`] when done reading.
+ */
+typedef struct WsjtSamples {
+    float *samples;
+    uintptr_t len;
+    uintptr_t _cap;
+} WsjtSamples;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
 
 /**
- * Returns a pointer to the thread-local last-error string, or NULL if no
- * error has been recorded on this thread. The pointer is valid until the
- * next fallible call on this thread.
+ * Returns a pointer to the thread-local last-error string, or NULL if
+ * no error has been recorded on this thread. The pointer is valid until
+ * the next fallible call on this thread.
  */
 const char *wsjt_last_error(void);
 
@@ -113,34 +128,46 @@ struct WsjtDecoder *wsjt_decoder_new(enum WsjtProtocol protocol);
  *
  * # Safety
  *
- * `dec` must be a pointer previously returned by [`wsjt_decoder_new`], or
- * NULL. After this call the pointer is dangling.
+ * `dec` must be a pointer previously returned by [`wsjt_decoder_new`],
+ * or NULL. After this call the pointer is dangling.
  */
 void wsjt_decoder_free(struct WsjtDecoder *dec);
 
 /**
- * Free a [`WsjtMessageList`] populated by a decode call. The caller must
- * pass the same list (by pointer) they supplied to the decode call.
- * Passing NULL or an already-freed list is safe.
+ * Free a [`WsjtMessageList`] populated by a decode call. Passing NULL
+ * or an already-freed list is safe.
  *
  * # Safety
  *
  * `list` must point to a [`WsjtMessageList`] written by one of the
- * `wsjt_decode_*` functions, or be NULL. After this call, `items` is NULL
- * and `len` is 0.
+ * `wsjt_decode_*` functions, or be NULL. After this call, `items` is
+ * NULL and `len` is 0.
  */
 void wsjt_message_list_free(struct WsjtMessageList *list);
 
 /**
- * Decode one slot of f32 PCM audio at `sample_rate` Hz (non-12 kHz input
- * is resampled internally). Writes zero-or-more messages into `out`.
+ * Free a [`WsjtSamples`] buffer populated by a `wsjt_encode_*` call.
+ * Passing NULL or an already-freed buffer is safe.
+ *
+ * # Safety
+ *
+ * `s` must point to a [`WsjtSamples`] written by one of the
+ * `wsjt_encode_*` functions, or be NULL. After this call, `samples`
+ * is NULL and `len` is 0.
+ */
+void wsjt_samples_free(struct WsjtSamples *s);
+
+/**
+ * Decode one slot of f32 PCM audio at `sample_rate` Hz (non-12 kHz
+ * input is resampled internally). Writes zero-or-more messages into
+ * `out`. Dispatches to the right backend by protocol tag.
  *
  * # Safety
  *
  * - `dec` must be a live [`WsjtDecoder`] handle.
  * - `samples` must point to `n_samples` valid `f32` values.
- * - `out` must point to a writable [`WsjtMessageList`]; caller must pair
- *   with [`wsjt_message_list_free`].
+ * - `out` must point to a writable [`WsjtMessageList`]; caller must
+ *   pair with [`wsjt_message_list_free`].
  */
 enum WsjtStatus wsjt_decode_f32(const struct WsjtDecoder *dec,
                                 const float *samples,
@@ -162,8 +189,60 @@ enum WsjtStatus wsjt_decode_i16(const struct WsjtDecoder *dec,
                                 struct WsjtMessageList *out);
 
 /**
- * Library version, major.minor.patch packed into a 32-bit integer (8 bits
- * per field). Useful for the consumer to sanity-check ABI compatibility.
+ * Synthesise a standard FT8 message ("CALL1 CALL2 REPORT") at `freq_hz`
+ * carrier. Writes 12 kHz f32 PCM into `out`.
+ *
+ * # Safety
+ *
+ * `call1`/`call2`/`report` must be NUL-terminated UTF-8 strings.
+ * `out` must be a writable `WsjtSamples` (zero-initialise).
+ */
+enum WsjtStatus wsjt_encode_ft8(const char *call1,
+                                const char *call2,
+                                const char *report,
+                                float freq_hz,
+                                struct WsjtSamples *out);
+
+/**
+ * Synthesise a standard FT4 message at `freq_hz`. 12 kHz f32 PCM.
+ */
+enum WsjtStatus wsjt_encode_ft4(const char *call1,
+                                const char *call2,
+                                const char *report,
+                                float freq_hz,
+                                struct WsjtSamples *out);
+
+/**
+ * Synthesise a Type-1 WSPR message (`call grid power_dbm`).
+ */
+enum WsjtStatus wsjt_encode_wspr(const char *call,
+                                 const char *grid,
+                                 int32_t power_dbm,
+                                 float freq_hz,
+                                 struct WsjtSamples *out);
+
+/**
+ * Synthesise a standard JT9 message at `freq_hz`.
+ */
+enum WsjtStatus wsjt_encode_jt9(const char *call1,
+                                const char *call2,
+                                const char *grid_or_report,
+                                float freq_hz,
+                                struct WsjtSamples *out);
+
+/**
+ * Synthesise a standard JT65 message at `freq_hz`.
+ */
+enum WsjtStatus wsjt_encode_jt65(const char *call1,
+                                 const char *call2,
+                                 const char *grid_or_report,
+                                 float freq_hz,
+                                 struct WsjtSamples *out);
+
+/**
+ * Library version, major.minor.patch packed into a 32-bit integer (8
+ * bits per field). Useful for the consumer to sanity-check ABI
+ * compatibility.
  */
 uint32_t wsjt_version(void);
 
