@@ -20,6 +20,7 @@ typedef enum WsjtProtocol {
     WSJT_PROTOCOL_WSPR = 2,
     WSJT_PROTOCOL_JT9 = 3,
     WSJT_PROTOCOL_JT65 = 4,
+    WSJT_PROTOCOL_FST4S60 = 5,
 } WsjtProtocol;
 
 /**
@@ -211,6 +212,19 @@ enum WsjtStatus wsjt_encode_ft4(const char *call1,
                                 const char *report,
                                 float freq_hz,
                                 struct WsjtSamples *out);
+
+/**
+ * Synthesise a standard FST4-60A message at `freq_hz`. 12 kHz f32 PCM.
+ *
+ * # Safety
+ *
+ * See [`wsjt_encode_ft8`].
+ */
+enum WsjtStatus wsjt_encode_fst4s60(const char *call1,
+                                    const char *call2,
+                                    const char *report,
+                                    float freq_hz,
+                                    struct WsjtSamples *out);
 
 /**
  * Synthesise a Type-1 WSPR message (`call grid power_dbm`).

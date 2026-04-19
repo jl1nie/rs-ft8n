@@ -146,6 +146,45 @@ void test_jt9() {
     wsjt_samples_free(&pcm);
 }
 
+// ── FST4-60A ─────────────────────────────────────────────────────────
+// Gated behind the RUN_FST4_ROUNDTRIP environment variable because the
+// 60-s slot + outer 786 432-pt FFT makes this multi-second and not
+// every developer wants to wait on it every build.
+void test_fst4() {
+    if (!std::getenv("RUN_FST4_ROUNDTRIP")) {
+        std::printf("— FST4-60A roundtrip: skipped (set RUN_FST4_ROUNDTRIP=1)\n");
+        return;
+    }
+    std::printf("— FST4-60A roundtrip: encode 'CQ JA1ABC PM95' at 1500 Hz → decode\n");
+    WsjtSamples pcm{};
+    if (wsjt_encode_fst4s60("CQ", "JA1ABC", "PM95", 1500.0f, &pcm) != WSJT_STATUS_OK) {
+        fail("FST4", wsjt_last_error());
+        return;
+    }
+    // Pad up to a full 60-s slot with 1 s of leading silence so the
+    // outer FFT has the window decode_frame expects.
+    constexpr size_t kSlot = 60 * 12000;
+    std::vector<float> slot(kSlot, 0.0f);
+    const size_t offset = 12000;
+    const size_t copy_len = std::min(pcm.len, kSlot - offset);
+    std::memcpy(slot.data() + offset, pcm.samples, copy_len * sizeof(float));
+
+    WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_FST4S60);
+    WsjtMessageList list{};
+    const WsjtStatus st = wsjt_decode_f32(dec, slot.data(), slot.size(), 12000, &list);
+    if (st != WSJT_STATUS_OK) {
+        fail("FST4", wsjt_last_error() ? wsjt_last_error() : "decode_f32 failed");
+    } else {
+        print_decodes("FST4", list);
+        if (!any_contains(list, "JA1ABC") || !any_contains(list, "PM95")) {
+            fail("FST4", "expected callsign / grid not recovered");
+        }
+    }
+    wsjt_message_list_free(&list);
+    wsjt_decoder_free(dec);
+    wsjt_samples_free(&pcm);
+}
+
 // ── JT65 ─────────────────────────────────────────────────────────────
 void test_jt65() {
     std::printf("— JT65 roundtrip: encode 'CQ K1ABC FN42' at 1270 Hz → decode\n");
@@ -203,6 +242,7 @@ int main() {
 
     test_ft8();
     test_ft4();
+    test_fst4();
     test_wspr();
     test_jt9();
     test_jt65();

@@ -250,25 +250,85 @@ pub fn process_candidate_basic<P: Protocol>(
     }
 }
 
-/// Re-encode the decoded 77-bit payload (plus CRC-14) back into tones for
-/// SNR estimation. Uses the protocol's `Fec` for the LDPC encode step and
-/// `P::SYNC_MODE.blocks()` / `P::GRAY_MAP` for the tone layout.
+/// Re-encode the decoded 77-bit payload (plus its protocol-specific
+/// CRC) back into tones for SNR estimation. Uses the protocol's
+/// `Fec` for the code-level encode and `P::SYNC_MODE.blocks()` /
+/// `P::GRAY_MAP` for the tone layout.
+///
+/// Supports the two info-layouts rs-ft8n ships today, selected by
+/// `P::Fec::K`:
+/// - **91-bit** (`K=91`): 77 msg + CRC-14 — FT8, FT4.
+/// - **101-bit** (`K=101`): 77 msg + CRC-24 — FST4.
+///
+/// For any other K the helper falls back to "msg + zeros" which
+/// still produces a valid codeword but with a broken CRC. That's a
+/// fine approximation for SNR computation (amplitudes dominate);
+/// real decodes still validate the CRC upstream.
 fn encode_tones_for_snr<P: Protocol>(msg77: &[u8; 77], fec: &P::Fec) -> Vec<u8> {
-    // Build 91-bit info: 77 msg + 14 CRC (the FEC expects this layout).
-    let mut info = vec![0u8; 91];
+    let k = P::Fec::K;
+    let mut info = vec![0u8; k];
     info[..77].copy_from_slice(msg77);
-    // CRC-14 over 77-bit-padded 12-byte buffer.
-    let mut bytes = [0u8; 12];
-    for (i, &bit) in msg77.iter().enumerate() {
-        bytes[i / 8] |= (bit & 1) << (7 - i % 8);
-    }
-    let crc = crc14(&bytes);
-    for i in 0..14 {
-        info[77 + i] = ((crc >> (13 - i)) & 1) as u8;
+    match k {
+        91 => {
+            let mut bytes = [0u8; 12];
+            for (i, &bit) in msg77.iter().enumerate() {
+                bytes[i / 8] |= (bit & 1) << (7 - i % 8);
+            }
+            let crc = crc14(&bytes);
+            for i in 0..14 {
+                info[77 + i] = ((crc >> (13 - i)) & 1) as u8;
+            }
+        }
+        101 => {
+            // Same convention as `check_crc24`: run crc24 over the
+            // 101-bit word with the CRC slot zeroed.
+            let mut with_zero = vec![0u8; 101];
+            with_zero[..77].copy_from_slice(msg77);
+            let crc = crc24(&with_zero);
+            for i in 0..24 {
+                info[77 + i] = ((crc >> (23 - i)) & 1) as u8;
+            }
+        }
+        _ => {
+            // Unknown layout — leave the tail zero. Only SNR is at
+            // stake; decode correctness already verified upstream.
+        }
     }
     let mut cw = vec![0u8; P::Fec::N];
     fec.encode(&info, &mut cw);
     codeword_to_itone::<P>(&cw)
+}
+
+/// Local CRC-24 for FST4 SNR re-encoding. Matches
+/// `mfsk_fec::ldpc240_101::crc24` — duplicated here to keep the
+/// dep graph acyclic.
+fn crc24(bits: &[u8]) -> u32 {
+    const POLY: [u8; 25] = [
+        1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1,
+    ];
+    let mut r = [0u8; 25];
+    for (i, slot) in r.iter_mut().enumerate() {
+        *slot = if i < bits.len() { bits[i] & 1 } else { 0 };
+    }
+    let n = bits.len().saturating_sub(25);
+    for i in 0..=n {
+        r[24] = if i + 25 <= bits.len() { bits[i + 24] & 1 } else { 0 };
+        if r[0] != 0 {
+            for (rv, pv) in r.iter_mut().zip(POLY.iter()) {
+                *rv ^= *pv;
+            }
+        }
+        let first = r[0];
+        for k in 0..24 {
+            r[k] = r[k + 1];
+        }
+        r[24] = first;
+    }
+    let mut v = 0u32;
+    for &b in &r[..24] {
+        v = (v << 1) | (b as u32);
+    }
+    v
 }
 
 /// Local duplicate of the CRC-14 used by all LDPC(174,91)-based WSJT modes.

@@ -22,6 +22,9 @@ use mfsk_core::{FrameLayout, ModulationParams, Protocol, ProtocolId, SyncBlock, 
 use mfsk_fec::Ldpc240_101;
 use mfsk_msg::Wsjt77Message;
 
+pub mod decode;
+pub mod encode;
+
 /// FST4-60A: 4-GFSK, 60-second T/R period, 3.125 baud, minimum tone
 /// spacing (12.4 Hz occupied bandwidth). Uses LDPC(240, 101) + CRC-24
 /// over the same 77-bit WSJT message payload that FT8 / FT4 use.

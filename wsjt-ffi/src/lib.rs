@@ -33,6 +33,7 @@ use std::slice;
 
 use ft4_core::decode as ft4;
 use ft8_core::decode as ft8;
+use fst4_core::decode as fst4;
 
 // ──────────────────────────────────────────────────────────────────────────
 // Public C types
@@ -56,6 +57,7 @@ pub enum WsjtProtocol {
     Wspr = 2,
     Jt9 = 3,
     Jt65 = 4,
+    Fst4s60 = 5,
 }
 
 /// Status / error code returned by every fallible `wsjt_*` call.
@@ -331,7 +333,7 @@ pub unsafe extern "C" fn wsjt_decode_f32(
     let out = unsafe { &mut *out };
 
     match inner_ref.protocol {
-        WsjtProtocol::Ft8 | WsjtProtocol::Ft4 => {
+        WsjtProtocol::Ft8 | WsjtProtocol::Ft4 | WsjtProtocol::Fst4s60 => {
             // Reuse the existing i16-based pipeline.
             let audio: Vec<i16> = if sample_rate == 12_000 {
                 slice_f32
@@ -383,7 +385,7 @@ pub unsafe extern "C" fn wsjt_decode_i16(
     let out = unsafe { &mut *out };
 
     match inner_ref.protocol {
-        WsjtProtocol::Ft8 | WsjtProtocol::Ft4 => {
+        WsjtProtocol::Ft8 | WsjtProtocol::Ft4 | WsjtProtocol::Fst4s60 => {
             let audio: Vec<i16> = if sample_rate == 12_000 {
                 slice_i16.to_vec()
             } else {
@@ -432,6 +434,25 @@ fn decode_i16_wsjt77(
         WsjtProtocol::Ft4 => {
             for r in ft4::decode_frame(audio, 200.0, 3_000.0, 1.2, 50) {
                 push_ft4(&r, &mut vec);
+            }
+        }
+        WsjtProtocol::Fst4s60 => {
+            // FST4-60A's pipeline::DecodeResult has the same shape; treat
+            // it like FT4/FT8 at the message-unpack step since the payload
+            // is also 77-bit WSJT.
+            use mfsk_core::MessageCodec;
+            let codec = mfsk_msg::Wsjt77Message::default();
+            let ctx = mfsk_core::DecodeContext::default();
+            for r in fst4::decode_frame(audio, 100.0, 3_000.0, 0.8, 30) {
+                let text = codec.unpack(&r.message77, &ctx).unwrap_or_default();
+                vec.push(WsjtMessage {
+                    freq_hz: r.freq_hz,
+                    dt_sec: r.dt_sec,
+                    snr_db: r.snr_db,
+                    hard_errors: r.hard_errors,
+                    pass: r.pass,
+                    text: CString::new(text).unwrap_or_default().into_raw(),
+                });
             }
         }
         _ => unreachable!(),
@@ -557,6 +578,36 @@ pub unsafe extern "C" fn wsjt_encode_ft4(
     };
     let tones = ft4_core::encode::message_to_tones(&msg77);
     let pcm = ft4_core::encode::tones_to_f32(&tones, freq_hz, 1.0);
+    finalise_samples(pcm, unsafe { &mut *out });
+    WsjtStatus::Ok
+}
+
+/// Synthesise a standard FST4-60A message at `freq_hz`. 12 kHz f32 PCM.
+///
+/// # Safety
+///
+/// See [`wsjt_encode_ft8`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wsjt_encode_fst4s60(
+    call1: *const c_char,
+    call2: *const c_char,
+    report: *const c_char,
+    freq_hz: f32,
+    out: *mut WsjtSamples,
+) -> WsjtStatus {
+    let Ok(c1) = cstr_to_str(call1) else { return WsjtStatus::InvalidArg };
+    let Ok(c2) = cstr_to_str(call2) else { return WsjtStatus::InvalidArg };
+    let Ok(rep) = cstr_to_str(report) else { return WsjtStatus::InvalidArg };
+    if out.is_null() {
+        set_error("wsjt_encode_fst4s60: null out");
+        return WsjtStatus::InvalidArg;
+    }
+    let Some(msg77) = mfsk_msg::wsjt77::pack77(c1, c2, rep) else {
+        set_error("FST4 pack77 failed");
+        return WsjtStatus::InvalidArg;
+    };
+    let tones = fst4_core::encode::message_to_tones(&msg77);
+    let pcm = fst4_core::encode::tones_to_f32(&tones, freq_hz, 1.0);
     finalise_samples(pcm, unsafe { &mut *out });
     WsjtStatus::Ok
 }
