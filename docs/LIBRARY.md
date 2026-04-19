@@ -62,13 +62,12 @@ Some direct consequences of this approach:
 
 | Protocol   | Slot    | FEC                          | Message | Sync                 | Upstream source |
 |------------|---------|------------------------------|---------|----------------------|-----------------|
-| FT8        | 15 s    | LDPC(174, 91) + CRC-14       | 77 bit  | 3×Costas-7           | `lib/ft8/`      |
-| FT4        | 7.5 s   | LDPC(174, 91) + CRC-14       | 77 bit  | 4×Costas-4           | `lib/ft4/`      |
-| FST4-60A   | 60 s    | LDPC(240, 101) + CRC-24      | 77 bit  | 5×Costas-8           | `lib/fst4/`     |
+| FT8        | 15 s    | LDPC(174, 91) + CRC-14        | 77 bit | 3×Costas-7           | `lib/ft8/`      |
+| FT4        | 7.5 s   | LDPC(174, 91) + CRC-14        | 77 bit | 4×Costas-4           | `lib/ft4/`      |
+| FST4-60A   | 60 s    | LDPC(240, 101) + CRC-24       | 77 bit | 5×Costas-8           | `lib/fst4/`     |
 | WSPR       | 120 s   | convolutional r=½ K=32 + Fano | 50 bit | per-symbol LSB       | `lib/wsprd/`    |
-
-JT65 (Reed–Solomon, 72-bit) and JT9 (convolutional, 72-bit) are
-expected to fit the same framework but are not yet implemented.
+| JT9        | 60 s    | convolutional r=½ K=32 + Fano | 72 bit | 16 distributed slots | `lib/jt9_decode.f90`, `lib/conv232.f90` |
+| JT65       | 60 s    | Reed-Solomon(63, 12) GF(2⁶)   | 72 bit | 63 distributed slots (pseudo-random) | `lib/jt65_decode.f90`, `lib/wrapkarn.c` |
 
 ### 0.5 Checking that the design actually works — using WSPR
 
@@ -671,8 +670,8 @@ FT8 (15 s), FT4 (7.5 s), and WSPR (120 s).
 | FST4-60A   | 60 s   | 4     | 160     | 3.125 Hz   | LDPC(240, 101)   | 77 b  | 5×Costas-8 | implemented |
 | FST4 other | 15–1800 s | 4 | var     | var        | LDPC(240, 101)   | 77 b  | 5×Costas-8 | one more ZST per sub-mode |
 | WSPR       | 120 s  | 4     | 162     | 1.465 Hz   | conv r=½ K=32 + Fano | 50 b | per-symbol LSB (npr3) | implemented |
-| JT65       | 60 s   | 65    | 126     | ~2.7 Hz    | RS(63, 12)       | 72 b  | pseudo-rand | TODO |
-| JT9        | 60 s   | 9     | 85      | 1.736 Hz   | conv r=½ + Fano  | 72 b  | block      | TODO |
+| JT9        | 60 s   | 9     | 85      | 1.736 Hz   | conv r=½ K=32 + Fano | 72 b  | 16 distributed | implemented |
+| JT65       | 60 s   | 65    | 126     | 2.69 Hz    | RS(63, 12) GF(2⁶)     | 72 b  | 63 distributed | implemented |
 
 FST4 does not share FT8's LDPC(174, 91); it uses a separate
 LDPC(240, 101) + 24-bit CRC, implemented as `mfsk_fec::ldpc240_101`.
