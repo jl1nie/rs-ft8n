@@ -15,7 +15,9 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
+#include <atomic>
 
 namespace {
 
@@ -209,6 +211,121 @@ void test_jt65() {
     wsjt_samples_free(&pcm);
 }
 
+// ── Multi-thread stress ─────────────────────────────────────────────
+//
+// The C API documents `WsjtDecoder` as "not Sync — one handle per
+// thread". These tests back that up with a real multi-threaded
+// driver to catch any accidental shared mutable state in the Rust
+// backends (thread_local slots, global FFT planners, etc.) that
+// would break under concurrent use.
+void test_threads_one_handle_per_thread() {
+    std::printf("— threads × 1 handle each: 8 parallel FT8 decodes\n");
+    constexpr int kThreads = 8;
+    std::atomic<int> ok_count{0};
+    std::atomic<int> fail_count{0};
+    std::vector<std::thread> ts;
+    for (int t = 0; t < kThreads; ++t) {
+        ts.emplace_back([&ok_count, &fail_count, t]() {
+            WsjtSamples pcm{};
+            if (wsjt_encode_ft8("CQ", "JA1ABC", "PM95", 1500.0f + t * 20.0f, &pcm) != WSJT_STATUS_OK) {
+                fail_count++;
+                return;
+            }
+            WsjtDecoder* dec = wsjt_decoder_new(WSJT_PROTOCOL_FT8);
+            WsjtMessageList list{};
+            const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+            bool ok = (st == WSJT_STATUS_OK) && any_contains(list, "JA1ABC");
+            if (ok) ok_count++; else fail_count++;
+            wsjt_message_list_free(&list);
+            wsjt_decoder_free(dec);
+            wsjt_samples_free(&pcm);
+        });
+    }
+    for (auto& th : ts) th.join();
+    std::printf("  → %d/%d OK, %d fail\n",
+                ok_count.load(), kThreads, fail_count.load());
+    if (ok_count.load() != kThreads) {
+        fail("threads", "one-handle-per-thread concurrent decode failed");
+    }
+}
+
+// Even stronger: one handle shared across threads. Spec says "not
+// Sync"; this test verifies the *current* implementation in fact
+// stays sound under sharing (no internal mutable state on DecoderInner).
+// If this ever starts failing, tighten the spec AND fix the cause.
+void test_threads_shared_handle() {
+    std::printf("— threads × 1 shared handle: 8 parallel FT8 decodes\n");
+    constexpr int kThreads = 8;
+    std::atomic<int> ok_count{0};
+    std::atomic<int> fail_count{0};
+    WsjtDecoder* shared = wsjt_decoder_new(WSJT_PROTOCOL_FT8);
+    std::vector<std::thread> ts;
+    for (int t = 0; t < kThreads; ++t) {
+        ts.emplace_back([shared, &ok_count, &fail_count, t]() {
+            WsjtSamples pcm{};
+            if (wsjt_encode_ft8("CQ", "K1ABC", "FN42", 1500.0f + t * 20.0f, &pcm) != WSJT_STATUS_OK) {
+                fail_count++;
+                return;
+            }
+            WsjtMessageList list{};
+            const WsjtStatus st = wsjt_decode_f32(shared, pcm.samples, pcm.len, 12000, &list);
+            bool ok = (st == WSJT_STATUS_OK) && any_contains(list, "K1ABC");
+            if (ok) ok_count++; else fail_count++;
+            wsjt_message_list_free(&list);
+            wsjt_samples_free(&pcm);
+        });
+    }
+    for (auto& th : ts) th.join();
+    wsjt_decoder_free(shared);
+    std::printf("  → %d/%d OK, %d fail\n",
+                ok_count.load(), kThreads, fail_count.load());
+    if (ok_count.load() != kThreads) {
+        fail("threads-shared", "shared-handle concurrent decode failed");
+    }
+}
+
+// Mixed-protocol threads: ensures per-thread thread_local state
+// (like wsjt_last_error) in the Rust side doesn't cross-contaminate.
+void test_threads_mixed_protocols() {
+    std::printf("— threads × mixed protocols (FT8 + FT4 + WSPR concurrently)\n");
+    std::atomic<int> ok_count{0};
+    std::atomic<int> fail_count{0};
+    auto run_proto = [&](WsjtProtocol proto, auto encode_fn, const char* needle) {
+        WsjtSamples pcm{};
+        if (encode_fn(&pcm) != WSJT_STATUS_OK) { fail_count++; return; }
+        WsjtDecoder* dec = wsjt_decoder_new(proto);
+        WsjtMessageList list{};
+        const WsjtStatus st = wsjt_decode_f32(dec, pcm.samples, pcm.len, 12000, &list);
+        if (st == WSJT_STATUS_OK && any_contains(list, needle)) ok_count++;
+        else fail_count++;
+        wsjt_message_list_free(&list);
+        wsjt_decoder_free(dec);
+        wsjt_samples_free(&pcm);
+    };
+    std::thread t_ft8([&] {
+        run_proto(WSJT_PROTOCOL_FT8,
+                  [](WsjtSamples* p) { return wsjt_encode_ft8("CQ", "JA1ABC", "PM95", 1500.0f, p); },
+                  "JA1ABC");
+    });
+    std::thread t_ft4([&] {
+        run_proto(WSJT_PROTOCOL_FT4,
+                  [](WsjtSamples* p) { return wsjt_encode_ft4("CQ", "W1AW", "FN31", 1500.0f, p); },
+                  "W1AW");
+    });
+    std::thread t_wspr([&] {
+        run_proto(WSJT_PROTOCOL_WSPR,
+                  [](WsjtSamples* p) { return wsjt_encode_wspr("K1ABC", "FN42", 37, 1500.0f, p); },
+                  "K1ABC");
+    });
+    t_ft8.join();
+    t_ft4.join();
+    t_wspr.join();
+    std::printf("  → %d/3 OK, %d fail\n", ok_count.load(), fail_count.load());
+    if (ok_count.load() != 3) {
+        fail("threads-mixed", "mixed-protocol concurrent decode failed");
+    }
+}
+
 // ── Negative paths ──────────────────────────────────────────────────
 void test_null_handling() {
     std::printf("— NULL / invalid-arg handling\n");
@@ -246,6 +363,9 @@ int main() {
     test_wspr();
     test_jt9();
     test_jt65();
+    test_threads_one_handle_per_thread();
+    test_threads_shared_handle();
+    test_threads_mixed_protocols();
     test_null_handling();
 
     if (g_failures == 0) {

@@ -22,9 +22,19 @@
 //!
 //! # Thread safety
 //!
-//! A [`WsjtDecoder`] handle is **not** `Sync`. Each thread should own
-//! its own handle. Calls do not allocate thread-local state beyond the
-//! `wsjt_last_error` slot (which uses `thread_local!`).
+//! The supported usage model is **one [`WsjtDecoder`] handle per
+//! thread**. The handle itself carries no mutable state other than
+//! its protocol tag, so in the current implementation sharing one
+//! handle across threads also works — the C++ driver in
+//! `examples/cpp_smoke` exercises both patterns (8 threads × own
+//! handle, 8 threads × shared handle, and a mixed-protocol fan-out)
+//! on every build. Concurrent decode calls allocate their own FFT
+//! planners / scratch buffers; `wsjt_last_error` uses
+//! `thread_local!` storage so error text never crosses threads.
+//!
+//! Future changes that add cached state to `DecoderInner` must
+//! keep that shared-handle test green or tighten this documented
+//! contract back to strict one-per-thread.
 
 use std::ffi::{c_char, c_int, CStr, CString};
 use std::os::raw::c_void;
