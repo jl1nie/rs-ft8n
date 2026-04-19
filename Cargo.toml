@@ -8,6 +8,7 @@ members = [
     "fst4-core",
     "wspr-core",
     "jt9-core",
+    "jt65-core",
     "ft8-bench",
     "ft8-web",
     "wsjt-ffi",
