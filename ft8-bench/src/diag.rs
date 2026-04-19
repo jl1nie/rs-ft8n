@@ -1,7 +1,7 @@
 /// Diagnostic tracing for the decode pipeline.
 use std::path::Path;
 
-use ft8_core::{
+use mfsk_core::ft8::{
     downsample::downsample,
     ldpc::{bp::bp_decode, osd::osd_decode},
     llr::{compute_llr, symbol_spectra, sync_quality},

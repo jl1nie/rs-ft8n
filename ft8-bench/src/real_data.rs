@@ -5,8 +5,8 @@
 ///   data/191111_110200.wav
 use std::path::Path;
 
-use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult, DecodeStrictness};
-use ft8_core::message::unpack77;
+use mfsk_core::ft8::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeResult, DecodeStrictness};
+use mfsk_core::ft8::message::unpack77;
 
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -143,7 +143,7 @@ pub fn evaluate_real_data(wav_path: &Path) -> Result<RealDataReport, String> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use ft8_core::message::unpack77;
+    use mfsk_core::ft8::message::unpack77;
 
     /// Verify the decoder against a real WSJT-X recording.
     ///

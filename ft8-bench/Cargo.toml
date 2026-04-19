@@ -6,8 +6,5 @@ license = "GPL-3.0-or-later"
 description = "WebFT8 benchmark and FT8 simulation suite"
 
 [dependencies]
-ft8-core = { path = "../ft8-core" }
-ft4-core = { path = "../ft4-core" }
-mfsk-core = { path = "../mfsk-core" }
-mfsk-msg = { path = "../mfsk-msg" }
+mfsk-core = { workspace = true, features = ["full"] }
 hound = "3"

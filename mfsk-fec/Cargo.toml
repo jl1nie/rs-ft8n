@@ -1,9 +1,0 @@
-[package]
-name = "mfsk-fec"
-version = "0.1.0"
-edition = "2024"
-license = "GPL-3.0-or-later"
-description = "Forward-error-correction codecs (LDPC, RS, convolutional) for WSJT-family MFSK modes"
-
-[dependencies]
-mfsk-core = { path = "../mfsk-core" }

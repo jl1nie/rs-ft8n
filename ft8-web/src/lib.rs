@@ -1,11 +1,11 @@
 use wasm_bindgen::prelude::*;
-use ft8_core::decode::{
+use mfsk_core::ft8::decode::{
     decode_frame, decode_frame_subtract, decode_frame_subtract_with_known,
     decode_frame_with_cache, DecodeDepth, DecodeStrictness, FftCache,
 };
-use ft8_core::hash_table::CallsignHashTable;
-use ft8_core::message::{unpack77_with_hash, is_plausible_message};
-use ft8_core::resample::{resample_to_12k, resample_f32_to_12k};
+use mfsk_core::ft8::hash_table::CallsignHashTable;
+use mfsk_core::ft8::message::{unpack77_with_hash, is_plausible_message};
+use mfsk_core::ft8::resample::{resample_to_12k, resample_f32_to_12k};
 
 use std::cell::RefCell;
 
@@ -16,7 +16,7 @@ thread_local! {
     /// Cached 192k-point FFT from Phase 1 (reused by Phase 2 pass 1).
     static CACHED_FFT: RefCell<Option<FftCache>> = RefCell::new(None);
     /// Phase 1 decode results (passed as `known` to Phase 2).
-    static CACHED_PHASE1: RefCell<Vec<ft8_core::decode::DecodeResult>> = RefCell::new(Vec::new());
+    static CACHED_PHASE1: RefCell<Vec<mfsk_core::ft8::decode::DecodeResult>> = RefCell::new(Vec::new());
 }
 
 #[wasm_bindgen]
@@ -38,7 +38,7 @@ impl DecodedMessage {
     }
 }
 
-fn to_decoded(r: ft8_core::decode::DecodeResult) -> Option<DecodedMessage> {
+fn to_decoded(r: mfsk_core::ft8::decode::DecodeResult) -> Option<DecodedMessage> {
     HASH_TABLE.with(|ht| {
         let ht = ht.borrow();
         let text = unpack77_with_hash(&r.message77, &ht)?;
@@ -86,7 +86,7 @@ fn to_strictness(level: u8) -> DecodeStrictness {
     }
 }
 
-fn decode_and_register(results: Vec<ft8_core::decode::DecodeResult>) -> Vec<DecodedMessage> {
+fn decode_and_register(results: Vec<mfsk_core::ft8::decode::DecodeResult>) -> Vec<DecodedMessage> {
     let mut out = Vec::new();
     for r in results {
         if let Some(dm) = to_decoded(r) {
@@ -123,8 +123,8 @@ pub fn decode_wav(samples: &[i16], strictness: u8, sample_rate: u32) -> Vec<Deco
 /// | empty    | set  | any    | grid only                             |
 /// | set      | any  | empty  | CQ + call2 [+ grid] (Watch phase)     |
 /// | set      | any  | set    | mycall + call2       (Call phase)      |
-fn build_ap_hint(callsign: &str, grid: &str, mycall: &str) -> Option<ft8_core::decode::ApHint> {
-    use ft8_core::decode::ApHint;
+fn build_ap_hint(callsign: &str, grid: &str, mycall: &str) -> Option<mfsk_core::ft8::decode::ApHint> {
+    use mfsk_core::ft8::decode::ApHint;
     if callsign.is_empty() && grid.is_empty() {
         None
     } else if callsign.is_empty() {
@@ -151,7 +151,7 @@ fn build_ap_hint(callsign: &str, grid: &str, mycall: &str) -> Option<ft8_core::d
 /// Pass `mycall = <own_call>` for Call phase (QSO hint, grid ignored).
 #[wasm_bindgen]
 pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, grid: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
-    use ft8_core::decode::{decode_sniper_sic, EqMode};
+    use mfsk_core::ft8::decode::{decode_sniper_sic, EqMode};
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
 
@@ -168,8 +168,8 @@ pub fn decode_sniper(samples: &[i16], target_freq: f32, callsign: &str, grid: &s
 
 #[wasm_bindgen]
 pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
-    use ft8_core::message::pack77;
-    use ft8_core::wave_gen::{message_to_tones, tones_to_f32};
+    use mfsk_core::ft8::message::pack77;
+    use mfsk_core::ft8::wave_gen::{message_to_tones, tones_to_f32};
 
     let msg77 = pack77(call1, call2, report)
         .ok_or_else(|| JsValue::from_str("Failed to pack message"))?;
@@ -182,8 +182,8 @@ pub fn encode_ft8(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Resul
 /// `text` — up to 13 characters from the FT8 free-text alphabet.
 #[wasm_bindgen]
 pub fn encode_free_text(text: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
-    use ft8_core::message::pack77_free_text;
-    use ft8_core::wave_gen::{message_to_tones, tones_to_f32};
+    use mfsk_core::ft8::message::pack77_free_text;
+    use mfsk_core::ft8::wave_gen::{message_to_tones, tones_to_f32};
 
     let msg77 = pack77_free_text(text)
         .ok_or_else(|| JsValue::from_str("Invalid free text (max 13 chars, 0-9 A-Z +-./?)"))?;
@@ -232,7 +232,7 @@ pub fn decode_wav_subtract_f32(samples: &[f32], strictness: u8, sample_rate: u32
 /// f32 variant of `decode_sniper`. See `decode_sniper` for parameters.
 #[wasm_bindgen]
 pub fn decode_sniper_f32(samples: &[f32], target_freq: f32, callsign: &str, grid: &str, mycall: &str, eq_on: bool, sample_rate: u32) -> Vec<DecodedMessage> {
-    use ft8_core::decode::{decode_sniper_sic, EqMode};
+    use mfsk_core::ft8::decode::{decode_sniper_sic, EqMode};
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
 
@@ -330,11 +330,11 @@ pub fn decode_phase2_f32(strictness: u8) -> Vec<DecodedMessage> {
 // 15 s) and mid-band downsample are handled inside ft4-core.
 // ──────────────────────────────────────────────────────────────────────────
 
-fn ft4_to_decoded(r: ft4_core::decode::DecodeResult) -> Option<DecodedMessage> {
+fn ft4_to_decoded(r: mfsk_core::ft4::decode::DecodeResult) -> Option<DecodedMessage> {
     HASH_TABLE.with(|ht| {
         let ht = ht.borrow();
-        let text = mfsk_msg::wsjt77::unpack77_with_hash(&r.message77, &ht)?;
-        if text.is_empty() || !mfsk_msg::wsjt77::is_plausible_message(&text) {
+        let text = mfsk_core::msg::wsjt77::unpack77_with_hash(&r.message77, &ht)?;
+        if text.is_empty() || !mfsk_core::msg::wsjt77::is_plausible_message(&text) {
             return None;
         }
         Some(DecodedMessage {
@@ -348,7 +348,7 @@ fn ft4_to_decoded(r: ft4_core::decode::DecodeResult) -> Option<DecodedMessage> {
     })
 }
 
-fn ft4_decode_and_register(results: Vec<ft4_core::decode::DecodeResult>) -> Vec<DecodedMessage> {
+fn ft4_decode_and_register(results: Vec<mfsk_core::ft4::decode::DecodeResult>) -> Vec<DecodedMessage> {
     let mut out = Vec::new();
     for r in results {
         if let Some(dm) = ft4_to_decoded(r) {
@@ -369,7 +369,7 @@ pub fn decode_ft4_wav(samples: &[i16], _strictness: u8, sample_rate: u32) -> Vec
         samples.to_vec()
     };
     ft4_decode_and_register(
-        ft4_core::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
+        mfsk_core::ft4::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
     )
 }
 
@@ -378,7 +378,7 @@ pub fn decode_ft4_wav(samples: &[i16], _strictness: u8, sample_rate: u32) -> Vec
 pub fn decode_ft4_wav_f32(samples: &[f32], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
     let audio = resample_f32_to_12k(samples, sample_rate);
     ft4_decode_and_register(
-        ft4_core::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
+        mfsk_core::ft4::decode::decode_frame(&audio, 300.0, 2700.0, 1.2, 50),
     )
 }
 
@@ -391,7 +391,7 @@ pub fn decode_ft4_wav_subtract(samples: &[i16], _strictness: u8, sample_rate: u3
         samples.to_vec()
     };
     ft4_decode_and_register(
-        ft4_core::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
+        mfsk_core::ft4::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
     )
 }
 
@@ -400,7 +400,7 @@ pub fn decode_ft4_wav_subtract(samples: &[i16], _strictness: u8, sample_rate: u3
 pub fn decode_ft4_wav_subtract_f32(samples: &[f32], _strictness: u8, sample_rate: u32) -> Vec<DecodedMessage> {
     let audio = resample_f32_to_12k(samples, sample_rate);
     ft4_decode_and_register(
-        ft4_core::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
+        mfsk_core::ft4::decode::decode_frame_subtract(&audio, 300.0, 2700.0, 1.2, 50),
     )
 }
 
@@ -414,8 +414,8 @@ pub fn decode_ft4_sniper(
     eq_on: bool,
     sample_rate: u32,
 ) -> Vec<DecodedMessage> {
-    use ft4_core::decode::ApHint;
-    use mfsk_core::equalize::EqMode;
+    use mfsk_core::ft4::decode::ApHint;
+    use mfsk_core::core::equalize::EqMode;
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
     let ap = if callsign.is_empty() {
@@ -432,7 +432,7 @@ pub fn decode_ft4_sniper(
         samples.to_vec()
     };
     ft4_decode_and_register(
-        ft4_core::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
+        mfsk_core::ft4::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
     )
 }
 
@@ -446,8 +446,8 @@ pub fn decode_ft4_sniper_f32(
     eq_on: bool,
     sample_rate: u32,
 ) -> Vec<DecodedMessage> {
-    use ft4_core::decode::ApHint;
-    use mfsk_core::equalize::EqMode;
+    use mfsk_core::ft4::decode::ApHint;
+    use mfsk_core::core::equalize::EqMode;
 
     let eq_mode = if eq_on { EqMode::Adaptive } else { EqMode::Off };
     let ap = if callsign.is_empty() {
@@ -460,33 +460,33 @@ pub fn decode_ft4_sniper_f32(
 
     let audio = resample_f32_to_12k(samples, sample_rate);
     ft4_decode_and_register(
-        ft4_core::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
+        mfsk_core::ft4::decode::decode_sniper_ap(&audio, target_freq, 15, eq_mode, ap.as_ref()),
     )
 }
 
 /// Encode an FT4 standard message (CALL1 CALL2 GRID/REPORT) as 12 kHz PCM.
 #[wasm_bindgen]
 pub fn encode_ft4(call1: &str, call2: &str, report: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
-    use mfsk_msg::wsjt77::pack77;
+    use mfsk_core::msg::wsjt77::pack77;
     let msg77 = pack77(call1, call2, report).ok_or_else(|| JsValue::from_str("Failed to pack message"))?;
-    let tones = ft4_core::encode::message_to_tones(&msg77);
-    Ok(ft4_core::encode::tones_to_f32(&tones, freq_hz, 1.0))
+    let tones = mfsk_core::ft4::encode::message_to_tones(&msg77);
+    Ok(mfsk_core::ft4::encode::tones_to_f32(&tones, freq_hz, 1.0))
 }
 
 /// Encode a free-text FT4 message (up to 13 chars from the FT8 alphabet).
 #[wasm_bindgen]
 pub fn encode_ft4_free_text(text: &str, freq_hz: f32) -> Result<Vec<f32>, JsValue> {
-    use mfsk_msg::wsjt77::pack77_free_text;
+    use mfsk_core::msg::wsjt77::pack77_free_text;
     let msg77 = pack77_free_text(text).ok_or_else(|| JsValue::from_str("Invalid free text"))?;
-    let tones = ft4_core::encode::message_to_tones(&msg77);
-    Ok(ft4_core::encode::tones_to_f32(&tones, freq_hz, 1.0))
+    let tones = mfsk_core::ft4::encode::message_to_tones(&msg77);
+    Ok(mfsk_core::ft4::encode::tones_to_f32(&tones, freq_hz, 1.0))
 }
 
 // ───────────────────────────────────────────────────────────────────────
 // WSPR
 // ───────────────────────────────────────────────────────────────────────
 
-fn wspr_decode_to_messages(decodes: Vec<wspr_core::WsprDecode>) -> Vec<DecodedMessage> {
+fn wspr_decode_to_messages(decodes: Vec<mfsk_core::wspr::WsprDecode>) -> Vec<DecodedMessage> {
     decodes
         .into_iter()
         .map(|d| DecodedMessage {
@@ -507,18 +507,18 @@ fn wspr_decode_to_messages(decodes: Vec<wspr_core::WsprDecode>) -> Vec<DecodedMe
 /// the sync-score threshold.
 #[wasm_bindgen]
 pub fn decode_wspr_wav(samples: &[i16], sample_rate: u32) -> Vec<DecodedMessage> {
-    use mfsk_core::dsp::resample::resample_i16_to_12k_f32;
+    use mfsk_core::core::dsp::resample::resample_i16_to_12k_f32;
     let audio = resample_i16_to_12k_f32(samples, sample_rate);
-    let decodes = wspr_core::decode::decode_scan_default(&audio, 12_000);
+    let decodes = mfsk_core::wspr::decode::decode_scan_default(&audio, 12_000);
     wspr_decode_to_messages(decodes)
 }
 
 /// f32 variant of [`decode_wspr_wav`].
 #[wasm_bindgen]
 pub fn decode_wspr_wav_f32(samples: &[f32], sample_rate: u32) -> Vec<DecodedMessage> {
-    use mfsk_core::dsp::resample::resample_f32_to_12k_f32;
+    use mfsk_core::core::dsp::resample::resample_f32_to_12k_f32;
     let audio = resample_f32_to_12k_f32(samples, sample_rate);
-    let decodes = wspr_core::decode::decode_scan_default(&audio, 12_000);
+    let decodes = mfsk_core::wspr::decode::decode_scan_default(&audio, 12_000);
     wspr_decode_to_messages(decodes)
 }
 
@@ -531,6 +531,6 @@ pub fn encode_wspr(
     power_dbm: i32,
     freq_hz: f32,
 ) -> Result<Vec<f32>, JsValue> {
-    wspr_core::synthesize_type1(callsign, grid, power_dbm, 12_000, freq_hz, 0.3)
+    mfsk_core::wspr::synthesize_type1(callsign, grid, power_dbm, 12_000, freq_hz, 0.3)
         .ok_or_else(|| JsValue::from_str("Invalid WSPR message (bad callsign/grid/power)"))
 }

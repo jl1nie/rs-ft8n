@@ -6,7 +6,7 @@ mod simulator;
 
 use std::path::PathBuf;
 use real_data::evaluate_real_data;
-use ft8_core::decode::{decode_sniper_eq, decode_sniper_ap, EqMode, ApHint};
+use mfsk_core::ft8::decode::{decode_sniper_eq, decode_sniper_ap, EqMode, ApHint};
 use simulator::{make_busy_band_scenario, build_cq_messages};
 
 fn main() {
@@ -83,8 +83,8 @@ fn main() {
 }
 
 fn run_ft4_snr_sweep() {
-    use ft4_core::decode::{ApHint, decode_frame, decode_sniper_ap};
-    use mfsk_core::equalize::EqMode;
+    use mfsk_core::ft4::decode::{ApHint, decode_frame, decode_sniper_ap};
+    use mfsk_core::core::equalize::EqMode;
     use mfsk_core::{MessageCodec, MessageFields};
 
     println!("\n=== FT4 synthetic SNR sweep (20 seeds/SNR) ===");
@@ -94,7 +94,7 @@ fn run_ft4_snr_sweep() {
         "SNR", "basic/20", "AP/20"
     );
 
-    let codec = mfsk_msg::Wsjt77Message::default();
+    let codec = mfsk_core::msg::Wsjt77Message::default();
     let msg77: [u8; 77] = {
         let bits = codec
             .pack(&MessageFields {
@@ -166,8 +166,8 @@ fn crowd_calls_grids() -> Vec<(&'static str, &'static str)> {
 ///   - Full-band decode: target is NOT decoded (ADC range dominated by crowd)
 ///   - Sniper decode (target ±250 Hz): target IS decoded (crowd outside BPF)
 fn run_busy_band_scenario() {
-    use ft8_core::decode::{decode_frame, decode_sniper, DecodeDepth};
-    use ft8_core::message::{pack77_type1, unpack77};
+    use mfsk_core::ft8::decode::{decode_frame, decode_sniper, DecodeDepth};
+    use mfsk_core::ft8::message::{pack77_type1, unpack77};
 
     const TARGET_FREQ: f32 = 1000.0;
     const TARGET_SNR: f32 = -12.0;
@@ -248,8 +248,8 @@ fn run_busy_band_scenario() {
 ///   - Full-band (WSJT-X equivalent): target missed
 ///   - Sniper-mode (500 Hz BPF removes crowd): target decoded
 fn run_busy_band_hard_scenario() {
-    use ft8_core::decode::{decode_frame, decode_sniper, DecodeDepth};
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::decode::{decode_frame, decode_sniper, DecodeDepth};
+    use mfsk_core::ft8::message::pack77_type1;
 
     const TARGET_FREQ: f32 = 1000.0;
     const TARGET_SNR: f32 = -14.0;  // 100% decode in BPF mode
@@ -423,8 +423,8 @@ fn run_busy_band_hard_scenario() {
 ///   4. **Elliptic-edge**:   500 Hz Elliptic BPF,    target at -3 dB edge
 ///   5. **Elliptic-center**: 500 Hz Elliptic BPF,    target at 0 dB centre
 fn run_sniper_story_scenario() {
-    use ft8_core::decode::{decode_sniper, decode_sniper_sic, DecodeDepth, ApHint};
-    use ft8_core::decode::EqMode;
+    use mfsk_core::ft8::decode::{decode_sniper, decode_sniper_sic, DecodeDepth, ApHint};
+    use mfsk_core::ft8::decode::EqMode;
     use bpf::{ButterworthBpf, EllipticBpf};
 
     const TARGET_FREQ: f32 = 1000.0;
@@ -535,7 +535,7 @@ fn run_sniper_story_scenario() {
 }
 
 fn pack77_test_type1(cq: &str, call: &str, grid: &str) -> [u8; 77] {
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::message::pack77_type1;
     pack77_type1(cq, call, grid).expect("failed to pack message")
 }
 // ────────────────────────────────────────────────────────────────────────────
@@ -553,8 +553,8 @@ fn pack77_test_type1(cq: &str, call: &str, grid: &str) -> [u8; 77] {
 /// * **Edge:**     target at the −3 dB point → significant amplitude loss +
 ///   phase distortion.  Without an equalizer, decode may fail at low SNR.
 fn run_bpf_scenarios() {
-    use ft8_core::decode::{decode_sniper, DecodeDepth};
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::decode::{decode_sniper, DecodeDepth};
+    use mfsk_core::ft8::message::pack77_type1;
     use bpf::ButterworthBpf;
 
     const TARGET_FREQ: f32 = 1000.0;
@@ -702,8 +702,8 @@ fn run_bpf_scenarios() {
 /// Single-pass sniper: crowd masks the target.
 /// Subtract-pass: crowd is decoded & subtracted → target emerges.
 fn run_bpf_subtract_scenario() {
-    use ft8_core::decode::{decode_sniper, DecodeDepth};
-    use ft8_core::message::{pack77_type1, unpack77};
+    use mfsk_core::ft8::decode::{decode_sniper, DecodeDepth};
+    use mfsk_core::ft8::message::{pack77_type1, unpack77};
     use bpf::ButterworthBpf;
 
     const TARGET_FREQ: f32 = 1000.0;
@@ -780,7 +780,7 @@ fn run_bpf_subtract_scenario() {
     }
 
     // Subtract-pass (multi-pass decode with signal subtraction)
-    use ft8_core::decode::{decode_frame_subtract, decode_sniper_sic, DecodeStrictness};
+    use mfsk_core::ft8::decode::{decode_frame_subtract, decode_sniper_sic, DecodeStrictness};
     let results_sub = decode_frame_subtract(
         &audio, BPF_LO as f32, BPF_HI as f32, 0.8, None, DecodeDepth::BpAllOsd, 20, DecodeStrictness::Normal,
     );
@@ -826,7 +826,7 @@ fn run_bpf_subtract_scenario() {
     // Same BPF + 4 in-band crowd setup, vary target SNR and noise seed.
     // AP = target callsign known (call2 = "3Y0Z"), matching real GUI behaviour
     // where the user has locked the DX station before calling.
-    use ft8_core::decode::ApHint;
+    use mfsk_core::ft8::decode::ApHint;
     let ap = ApHint::new().with_call2("3Y0Z");
     const N_SEEDS: u64 = 20;
     println!("  SNR sweep ({N_SEEDS} seeds each, AP = call2 '3Y0Z' known):");
@@ -896,8 +896,8 @@ fn run_bpf_subtract_scenario() {
 /// Our sniper+EQ should decode the target from (2); WSJT-X should fail
 /// on (1) due to ADC saturation and may fail on (2) due to BPF edge distortion.
 fn run_wsjt_stress_test() {
-    use ft8_core::decode::{decode_frame, DecodeDepth};
-    use ft8_core::message::{pack77_type1, unpack77};
+    use mfsk_core::ft8::decode::{decode_frame, DecodeDepth};
+    use mfsk_core::ft8::message::{pack77_type1, unpack77};
     use bpf::ButterworthBpf;
 
     // ── Parameters tuned at the sniper+EQ limit ─────────────────────────────
@@ -1093,8 +1093,8 @@ fn run_wsjt_stress_test() {
 /// Run with `cargo run --release` for meaningful numbers.
 fn run_speed_bench() {
     use std::time::Instant;
-    use ft8_core::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeStrictness};
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::decode::{decode_frame, decode_frame_subtract, DecodeDepth, DecodeStrictness};
+    use mfsk_core::ft8::message::pack77_type1;
 
     const N_WARM: usize = 3;
     const N_MEASURE: usize = 10;
@@ -1189,8 +1189,8 @@ fn run_speed_bench() {
 /// Places a weak target at 1000 Hz (SNR = −5 dB) and a +40 dB interferer at
 /// 1200 Hz in the same frame.  Tests that the decoder recovers the target.
 fn run_interference_scenario() {
-    use ft8_core::decode::{decode_frame, DecodeDepth};
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::decode::{decode_frame, DecodeDepth};
+    use mfsk_core::ft8::message::pack77_type1;
     use simulator::{SimConfig, SimSignal, make_interference_scenario};
 
     println!("=== Synthetic: +40 dB interferer @ 200 Hz offset ===");
@@ -1276,8 +1276,8 @@ fn run_interference_scenario() {
 /// 2. BPF edge: sweep target from -18 to -28 dB (sniper + EQ + AP)
 /// 3. Write WAVs at the extreme limit for WSJT-X comparison
 fn run_extreme_sweep() {
-    use ft8_core::decode::{decode_frame_subtract, decode_sniper_ap, DecodeDepth, DecodeStrictness, EqMode, ApHint};
-    use ft8_core::message::pack77_type1;
+    use mfsk_core::ft8::decode::{decode_frame_subtract, decode_sniper_ap, DecodeDepth, DecodeStrictness, EqMode, ApHint};
+    use mfsk_core::ft8::message::pack77_type1;
 
     let target_msg = pack77_type1("CQ", "3Y0Z", "JD34").unwrap();
     let ap = ApHint::new().with_call2("3Y0Z");
@@ -1371,7 +1371,7 @@ fn run_extreme_sweep() {
     // ── (3) Write extreme WAVs for WSJT-X comparison ────────────────────────
     // ── (3) QSO scenario sweep: test 77-bit AP with matching messages ──────
     {
-        use ft8_core::message::pack77;
+        use mfsk_core::ft8::message::pack77;
         println!("\n--- QSO scenario: BPF edge, EQ+AP ({N_SEEDS} seeds) ---");
         println!("  {:>6}  {:>12}  {:>12}  {:>12}", "SNR", "CQ(61bit)", "REPORT(61b)", "RR73(77bit)");
 

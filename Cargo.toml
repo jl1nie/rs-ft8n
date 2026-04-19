@@ -1,19 +1,24 @@
 [workspace]
 members = [
-    "mfsk-core",
-    "mfsk-fec",
-    "mfsk-msg",
-    "ft8-core",
-    "ft4-core",
-    "fst4-core",
-    "wspr-core",
-    "jt9-core",
-    "jt65-core",
     "ft8-bench",
     "ft8-web",
-    "wsjt-ffi",
 ]
 exclude = [
     "ft8-desktop/src-tauri",
 ]
 resolver = "2"
+
+# Library layer lives in https://github.com/jl1nie/mfsk-core and will be
+# available on crates.io as `mfsk-core` once 0.1.0 is published there.
+# Until then, the consumer crates (ft8-web, ft8-bench) depend on it via
+# a git reference, pinned by rev for reproducibility.
+[workspace.dependencies]
+mfsk-core = { git = "https://github.com/jl1nie/mfsk-core", branch = "main", default-features = false }
+
+# Local-development override: if you have mfsk-core cloned as a sibling
+# directory (../mfsk-core), uncomment this block to use the working tree
+# instead of the git-fetched copy. Keep commented in the checked-in file
+# so CI / fresh clones default to the upstream git version.
+#
+# [patch.'https://github.com/jl1nie/mfsk-core']
+# mfsk-core = { path = "../mfsk-core/mfsk-core" }

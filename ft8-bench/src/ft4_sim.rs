@@ -7,7 +7,7 @@
 
 use std::f32::consts::PI;
 
-use ft4_core::encode::{message_to_tones, tones_to_f32};
+use mfsk_core::ft4::encode::{message_to_tones, tones_to_f32};
 
 const FS: f32 = 12_000.0;
 const REF_BW: f32 = 2_500.0;

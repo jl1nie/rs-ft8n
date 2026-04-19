@@ -14,9 +14,9 @@
 use std::f32::consts::PI;
 use std::path::Path;
 
-use ft8_core::message::pack77_type1;
-use ft8_core::params::MSG_BITS;
-use ft8_core::wave_gen::{message_to_tones, tones_to_f32};
+use mfsk_core::ft8::message::pack77_type1;
+use mfsk_core::ft8::params::MSG_BITS;
+use mfsk_core::ft8::wave_gen::{message_to_tones, tones_to_f32};
 
 // ────────────────────────────────────────────────────────────────────────────
 // Public types
@@ -354,7 +354,7 @@ mod tests {
     /// Each SNR level uses 10 seeds; prints success rate per level.
     #[test]
     fn snr_sweep() {
-        use ft8_core::decode::{decode_sniper, DecodeDepth};
+        use mfsk_core::ft8::decode::{decode_sniper, DecodeDepth};
         let msg = [1u8; MSG_BITS]; // non-trivial message
         let n_seeds = 10u64;
         for snr_db in [-5, -8, -10, -12, -14, -16, -18, -20, -22] {
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn weak_signal_roundtrip() {
-        use ft8_core::decode::{decode_frame, DecodeDepth};
+        use mfsk_core::ft8::decode::{decode_frame, DecodeDepth};
 
         // Generate a signal at SNR = +10 dB; should decode easily.
         let msg = [0u8; MSG_BITS];
