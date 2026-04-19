@@ -180,6 +180,91 @@ pub trait Protocol: ModulationParams + FrameLayout + 'static {
 }
 ```
 
+### Worked examples — how the traits compose
+
+Two concrete cases, taken from the corresponding crates, show how the
+three traits combine on a real ZST.
+
+**FT4** — a standard block-Costas protocol that shares its FEC and
+message codec with FT8:
+
+```rust
+// ft4-core/src/lib.rs (abridged)
+pub struct Ft4;
+
+impl ModulationParams for Ft4 {
+    const NTONES: u32 = 4;
+    const BITS_PER_SYMBOL: u32 = 2;
+    const NSPS: u32 = 576;          // 48 ms @ 12 kHz
+    const TONE_SPACING_HZ: f32 = 20.833;
+    const GRAY_MAP: &'static [u8] = &[0, 1, 3, 2];
+    // … (GFSK_BT, NFFT_PER_SYMBOL_FACTOR, NDOWN, …)
+}
+
+impl FrameLayout for Ft4 {
+    const N_DATA: u32 = 87;
+    const N_SYNC: u32 = 16;
+    const N_SYMBOLS: u32 = 103;
+    const SYNC_MODE: SyncMode = SyncMode::Block(&FT4_SYNC_BLOCKS);
+    const T_SLOT_S: f32 = 7.5;
+    const TX_START_OFFSET_S: f32 = 0.5;
+}
+
+impl Protocol for Ft4 {
+    type Fec = Ldpc174_91;          // shared with FT8
+    type Msg = Wsjt77Message;       // shared with FT8
+    const ID: ProtocolId = ProtocolId::Ft4;
+}
+
+const FT4_SYNC_BLOCKS: [SyncBlock; 4] = [
+    SyncBlock { start_symbol:  0, pattern: &[0, 1, 3, 2] },
+    SyncBlock { start_symbol: 33, pattern: &[1, 0, 2, 3] },
+    SyncBlock { start_symbol: 66, pattern: &[2, 3, 1, 0] },
+    SyncBlock { start_symbol: 99, pattern: &[3, 2, 0, 1] },
+];
+```
+
+**WSPR** — structurally different on all three axes. The `Fec` and
+`Msg` associated types switch to a new pair, and the sync is
+expressed via `SyncMode::Interleaved`:
+
+```rust
+// wspr-core/src/lib.rs (abridged)
+pub struct Wspr;
+
+impl ModulationParams for Wspr {
+    const NTONES: u32 = 4;
+    const BITS_PER_SYMBOL: u32 = 2;
+    const NSPS: u32 = 8192;                  // ~683 ms @ 12 kHz
+    const TONE_SPACING_HZ: f32 = 12_000.0 / 8192.0;  // ≈ 1.4648
+    const GRAY_MAP: &'static [u8] = &[0, 1, 2, 3];
+    // …
+}
+
+impl FrameLayout for Wspr {
+    const N_DATA: u32 = 162;
+    const N_SYNC: u32 = 0;                   // sync is embedded in data symbols
+    const N_SYMBOLS: u32 = 162;
+    const SYNC_MODE: SyncMode = SyncMode::Interleaved {
+        sync_bit_pos: 0,                     // LSB of the tone index
+        vector: &WSPR_SYNC_VECTOR,           // 162-bit npr3
+    };
+    const T_SLOT_S: f32 = 120.0;
+    const TX_START_OFFSET_S: f32 = 1.0;
+}
+
+impl Protocol for Wspr {
+    type Fec = ConvFano;                     // convolutional + Fano
+    type Msg = Wspr50Message;                // 50-bit message
+    const ID: ProtocolId = ProtocolId::Wspr;
+}
+```
+
+Calling code just passes the ZST as a type argument —
+`decode_frame::<Ft4>(...)` or `decode_frame::<Wspr>(...)` — and the
+trait composition pulls in the appropriate FEC, message codec, and
+sync mode automatically.
+
 ### Monomorphisation & zero cost
 
 All hot-path functions (`sync::coarse_sync<P>`, `llr::compute_llr<P>`,

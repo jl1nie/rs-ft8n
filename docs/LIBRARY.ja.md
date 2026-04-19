@@ -175,6 +175,89 @@ pub trait Protocol: ModulationParams + FrameLayout + 'static {
 }
 ```
 
+### トレイト合成の実例
+
+上記 3 つのトレイトがどう組み合わさるかを、既存プロトコルの
+ZST 定義で示す。
+
+**FT4** — 標準的なブロック Costas 系。`Fec` と `Msg` は FT8 と共有する:
+
+```rust
+// ft4-core/src/lib.rs (抜粋)
+pub struct Ft4;
+
+impl ModulationParams for Ft4 {
+    const NTONES: u32 = 4;
+    const BITS_PER_SYMBOL: u32 = 2;
+    const NSPS: u32 = 576;          // 48 ms @ 12 kHz
+    const TONE_SPACING_HZ: f32 = 20.833;
+    const GRAY_MAP: &'static [u8] = &[0, 1, 3, 2];
+    // … (GFSK_BT、NFFT_PER_SYMBOL_FACTOR、NDOWN などの定数)
+}
+
+impl FrameLayout for Ft4 {
+    const N_DATA: u32 = 87;
+    const N_SYNC: u32 = 16;
+    const N_SYMBOLS: u32 = 103;
+    const SYNC_MODE: SyncMode = SyncMode::Block(&FT4_SYNC_BLOCKS);
+    const T_SLOT_S: f32 = 7.5;
+    const TX_START_OFFSET_S: f32 = 0.5;
+}
+
+impl Protocol for Ft4 {
+    type Fec = Ldpc174_91;          // FT8 と共有
+    type Msg = Wsjt77Message;       // FT8 と共有
+    const ID: ProtocolId = ProtocolId::Ft4;
+}
+
+const FT4_SYNC_BLOCKS: [SyncBlock; 4] = [
+    SyncBlock { start_symbol:  0, pattern: &[0, 1, 3, 2] },
+    SyncBlock { start_symbol: 33, pattern: &[1, 0, 2, 3] },
+    SyncBlock { start_symbol: 66, pattern: &[2, 3, 1, 0] },
+    SyncBlock { start_symbol: 99, pattern: &[3, 2, 0, 1] },
+];
+```
+
+**WSPR** — 3 軸すべてが FT 系と異なる例。`Fec` / `Msg` を新規型に
+差し替え、同期は `Interleaved` バリアントで表現する:
+
+```rust
+// wspr-core/src/lib.rs (抜粋)
+pub struct Wspr;
+
+impl ModulationParams for Wspr {
+    const NTONES: u32 = 4;
+    const BITS_PER_SYMBOL: u32 = 2;
+    const NSPS: u32 = 8192;                  // 約 683 ms @ 12 kHz
+    const TONE_SPACING_HZ: f32 = 12_000.0 / 8192.0;  // ≈ 1.4648
+    const GRAY_MAP: &'static [u8] = &[0, 1, 2, 3];
+    // …
+}
+
+impl FrameLayout for Wspr {
+    const N_DATA: u32 = 162;
+    const N_SYNC: u32 = 0;                   // sync はデータシンボルに埋込
+    const N_SYMBOLS: u32 = 162;
+    const SYNC_MODE: SyncMode = SyncMode::Interleaved {
+        sync_bit_pos: 0,                     // トーン index の LSB に埋込
+        vector: &WSPR_SYNC_VECTOR,           // 162 bit 既知列 (npr3)
+    };
+    const T_SLOT_S: f32 = 120.0;
+    const TX_START_OFFSET_S: f32 = 1.0;
+}
+
+impl Protocol for Wspr {
+    type Fec = ConvFano;                     // 畳み込み符号 + Fano
+    type Msg = Wspr50Message;                // 50 bit メッセージ
+    const ID: ProtocolId = ProtocolId::Wspr;
+}
+```
+
+呼び出し側のパイプラインは `decode_frame::<Ft4>(...)` または
+`decode_frame::<Wspr>(...)` のように型引数でプロトコルを指定するだけで
+済み、合成の結果として選ばれた FEC・メッセージコーデック・
+同期方式が自動的に使われる。
+
 ### Monomorphization とゼロコスト抽象
 
 ホットパス (`sync::coarse_sync<P>`、`llr::compute_llr<P>`、
