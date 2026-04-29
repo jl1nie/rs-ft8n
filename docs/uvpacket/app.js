@@ -487,15 +487,19 @@ let decodeInFlight = false;
 let decodePassCount = 0;
 // Layout subset for FM single-station decode. mode_code: 0=Robust,
 // 1=Standard, 2=Fast, 3=Express. Order = priority (first success
-// wins). Standard with `n_blocks ≈ 19` is the typical signed-QSL
-// frame; widen to 16-26 to cover variations.
+// wins). Covers all 4 modes × n_blocks 14-28 — uvpacket-web's
+// signed-QSL frames are typically Standard mode with `n_blocks ≈ 19`,
+// but the user's TX submode selector lets them pick any of the four,
+// and payload byte counts can drive n_blocks up to ~27 for the
+// largest signed cards (300-byte JSON+sig). This is a wide net so a
+// real signal whose layout we'd otherwise miss doesn't fall through.
 const QSL_LAYOUTS = (() => {
   const layouts = [];
-  for (const nb of [19, 22, 16, 24, 18, 20, 26, 21, 17, 23, 25, 15]) {
-    layouts.push([1, nb]); // Standard
-  }
-  for (const nb of [19, 22, 16, 24, 18, 20, 26]) {
-    layouts.push([0, nb]); // Robust fallback
+  const nbs = [19, 22, 16, 24, 18, 20, 26, 21, 17, 23, 25, 15, 27, 14, 28];
+  for (const mode of [1, 0, 2, 3]) { // Standard, Robust, Fast, Express
+    for (const nb of nbs) {
+      layouts.push([mode, nb]);
+    }
   }
   return layouts;
 })();
