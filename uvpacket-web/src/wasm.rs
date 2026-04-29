@@ -39,6 +39,25 @@ pub fn diag_sync_stats(samples: &[f32], audio_centre_hz: f32) -> Vec<f32> {
     vec![s.global_max, s.median, s.ratio, s.n_scores as f32]
 }
 
+/// Pre-AFC vs post-AFC sync stats + estimated delta_f, packed as
+/// `[pre_max, pre_median, pre_ratio, delta_f,
+///   post_max, post_median, post_ratio]`.
+///
+/// Empty vector if the buffer is too short for a sync evaluation.
+#[wasm_bindgen]
+pub fn diag_sync_with_afc(samples: &[f32], audio_centre_hz: f32) -> Vec<f32> {
+    let (pre, df, post) = rx::diag_sync_with_afc(samples, audio_centre_hz);
+    vec![
+        pre.global_max,
+        pre.median,
+        pre.ratio,
+        df,
+        post.global_max,
+        post.median,
+        post.ratio,
+    ]
+}
+
 use crate::address::{Addresses, derive_all};
 use crate::card::{
     AdvCard, DecodedCard, QslCard, build_adv_json, build_qsl_json, parse_card,

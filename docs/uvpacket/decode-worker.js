@@ -16,6 +16,7 @@ import init, {
   measure_slots,
   version_info,
   diag_sync_stats,
+  diag_sync_with_afc,
 } from './uvpacket_web.js';
 
 let ready = false;
@@ -67,7 +68,11 @@ self.onmessage = async (e) => {
   }
   try {
     if (msg.type === 'diag-sync') {
-      const arr = diag_sync_stats(msg.samples, msg.audio_centre_hz);
+      // Use the AFC-aware variant — gives us pre/post coherence and
+      // the estimated delta_f for the strongest peak. Same compute as
+      // the basic diag-sync plus one matched-filter pass for AFC and
+      // one for post-AFC stats — still ≪ a full LDPC sweep.
+      const arr = diag_sync_with_afc(msg.samples, msg.audio_centre_hz);
       self.postMessage({ type: 'sync-stats', stats: Array.from(arr), req_id: id });
       return;
     }

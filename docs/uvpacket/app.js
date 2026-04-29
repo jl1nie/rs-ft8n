@@ -562,10 +562,21 @@ async function runDecode(label = '') {
       3000,
     );
     if (diag.type === 'sync-stats') {
-      const [mx, med, ratio, n] = diag.stats;
+      // [pre_max, pre_median, pre_ratio, delta_f, post_max, post_median, post_ratio]
+      const [mx, med, ratio, df, postMx, postMed, postRatio] = diag.stats;
       console.log(
-        `[uvpacket-web] sync centre=${centreHz} max=${mx.toExponential(2)} median=${med.toExponential(2)} ratio=${ratio.toFixed(1)} (gate=20) n=${n}`,
+        `[uvpacket-web] sync centre=${centreHz} pre: max=${mx.toExponential(2)} median=${med.toExponential(2)} ratio=${ratio.toFixed(1)}` +
+          `   →   AFC Δf=${df.toFixed(2)} Hz   →   post: max=${postMx.toExponential(2)} ratio=${postRatio.toFixed(1)} (gate=20)`,
       );
+      // Pre-flight gate check: if neither the un-corrected nor the
+      // AFC-corrected coherence ratio clears the gate, the inner
+      // `decode_uvpacket` call would also reject. Skip the redundant
+      // worker round-trip — saves the 29-50 ms per pass that the
+      // user was seeing pile up on quiet snapshots.
+      if (!label.includes('force') && ratio < 20 && postRatio < 20) {
+        decodeInFlight = false;
+        return;
+      }
     }
   }
 

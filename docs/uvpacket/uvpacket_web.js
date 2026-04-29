@@ -494,6 +494,25 @@ export function diag_sync_stats(samples, audio_centre_hz) {
 }
 
 /**
+ * Pre-AFC vs post-AFC sync stats + estimated delta_f, packed as
+ * `[pre_max, pre_median, pre_ratio, delta_f,
+ *   post_max, post_median, post_ratio]`.
+ *
+ * Empty vector if the buffer is too short for a sync evaluation.
+ * @param {Float32Array} samples
+ * @param {number} audio_centre_hz
+ * @returns {Float32Array}
+ */
+export function diag_sync_with_afc(samples, audio_centre_hz) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.diag_sync_with_afc(ptr0, len0, audio_centre_hz);
+    var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  * @param {AdvInput} card
  * @param {string} secret_hex
  * @param {number} audio_centre_hz
