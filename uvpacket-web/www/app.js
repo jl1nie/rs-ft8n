@@ -291,7 +291,8 @@ $('tx-btn').onclick = async () => {
   $('tx-btn').disabled = true;
   $('tx-btn').textContent = 'Transmitting…';
   try {
-    await audioOut.play(r.samples);
+    const outDev = localStorage.getItem('uvpacket-audio-out') || '';
+    await audioOut.play(r.samples, outDev);
     // Trigger decode passes on the post-TX snapshot. Two staggered passes
     // because (1) speaker→mic round-trip is 100–300 ms so the burst tail
     // may still be flushing into the ring buffer when play() resolves;
@@ -371,11 +372,18 @@ $('listen-btn').onclick = async () => {
     decodeTimer = null;
     return;
   }
+  const inDev = localStorage.getItem('uvpacket-audio-in') || '';
+  if (!inDev) {
+    setStatus('Pick an audio input device in ⚙ first.');
+    dlg.showModal();
+    return;
+  }
   try {
-    await cap.start();
+    await cap.start(inDev);
     state.listening = true;
     $('listen-btn').textContent = '■ Stop';
     $('listen-btn').classList.add('on');
+    setStatus(`Listening on input ${inDev.slice(0, 8)}…`);
     decodeTimer = setInterval(runDecode, 1500);
   } catch (e) {
     alert('Mic access failed: ' + e);
@@ -727,6 +735,71 @@ function redrawSlotMarkers() {
 }
 $('f-centre').addEventListener('input', redrawSlotMarkers);
 
+// ───────────────────────────── Audio device pickers ───────────────────
+
+async function populateAudioDevices() {
+  // Calling getUserMedia with default constraints triggers the permission
+  // prompt and lets enumerateDevices() return the device labels.
+  // Caller should already have prompted via `set-mic-grant`; if not, the
+  // device list shows blank labels and we still populate the IDs.
+  let devices = [];
+  try {
+    devices = await navigator.mediaDevices.enumerateDevices();
+  } catch (e) {
+    console.warn('[uvpacket-web] enumerateDevices:', e);
+    return;
+  }
+  const inSel = $('set-audio-in');
+  const outSel = $('set-audio-out');
+  inSel.innerHTML = '<option value="">— select input —</option>';
+  outSel.innerHTML = '<option value="">— default —</option>';
+  for (const d of devices) {
+    if (d.kind === 'audioinput') {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Input ${d.deviceId.slice(0, 8)}`;
+      inSel.appendChild(opt);
+    } else if (d.kind === 'audiooutput') {
+      const opt = document.createElement('option');
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Output ${d.deviceId.slice(0, 8)}`;
+      outSel.appendChild(opt);
+    }
+  }
+  const savedIn = localStorage.getItem('uvpacket-audio-in') || '';
+  const savedOut = localStorage.getItem('uvpacket-audio-out') || '';
+  if (savedIn) inSel.value = savedIn;
+  if (savedOut) outSel.value = savedOut;
+}
+
+$('set-mic-grant').onclick = async () => {
+  try {
+    const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+    tmp.getTracks().forEach((t) => t.stop());
+  } catch (e) {
+    alert('Mic permission failed: ' + e);
+    return;
+  }
+  await populateAudioDevices();
+};
+
+$('set-audio-in').onchange = (e) => {
+  localStorage.setItem('uvpacket-audio-in', e.target.value || '');
+};
+$('set-audio-out').onchange = (e) => {
+  localStorage.setItem('uvpacket-audio-out', e.target.value || '');
+};
+
+const txGainSlider = $('set-tx-gain');
+const txGainVal = $('set-tx-gain-val');
+function applyTxGain() {
+  const v = parseInt(txGainSlider.value, 10);
+  txGainVal.textContent = v + '%';
+  audioOut.setGain(v / 100);
+  localStorage.setItem('uvpacket-tx-gain', String(v));
+}
+txGainSlider.oninput = applyTxGain;
+
 // ───────────────────────────── Boot ────────────────────────────────────
 
 (async () => {
@@ -754,5 +827,15 @@ $('f-centre').addEventListener('input', redrawSlotMarkers);
   const hm = now.toISOString().slice(11, 16);
   $('f-date').value = ymd;
   $('f-time').value = hm;
+
+  // Audio devices + TX gain. Browsers won't expose device labels until
+  // a getUserMedia({audio: true}) has succeeded at least once, so we
+  // try a non-prompting enumerate first; the user can re-trigger via
+  // ⚙ → Grant for permission + labels.
+  await populateAudioDevices();
+  const savedGain = parseInt(localStorage.getItem('uvpacket-tx-gain') || '80', 10);
+  txGainSlider.value = String(savedGain);
+  applyTxGain();
+
   console.log('uvpacket-web', APP_VERSION, 'ready');
 })();

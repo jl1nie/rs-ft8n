@@ -292,11 +292,17 @@ $('tx-btn').onclick = async () => {
   $('tx-btn').textContent = 'Transmitting…';
   try {
     await audioOut.play(r.samples);
-    // Trigger an immediate decode on whatever the mic captured during TX,
-    // skipping the next setInterval window so we don't miss the burst.
+    // Trigger decode passes on the post-TX snapshot. Two staggered passes
+    // because (1) speaker→mic round-trip is 100–300 ms so the burst tail
+    // may still be flushing into the ring buffer when play() resolves;
+    // (2) browsers often apply AEC to the first ~500 ms of mic input
+    // after a speaker burst, so a delayed snapshot picks up cleaner
+    // captured audio. If the first pass already lit up, the second is
+    // skipped via decodeInFlight.
     if (state.listening) {
       setStatus('TX done — running post-TX decode.');
-      runDecode();
+      setTimeout(() => runDecode('post-tx-1'), 200);
+      setTimeout(() => runDecode('post-tx-2'), 1200);
     } else {
       setStatus('TX done.');
     }
@@ -378,16 +384,26 @@ $('listen-btn').onclick = async () => {
 
 let decodeInFlight = false;
 let decodePassCount = 0;
-async function runDecode() {
+async function runDecode(label = '') {
   if (decodeInFlight) return;
   decodeInFlight = true;
-  const samples = await cap.snapshot(6);
+  const samples = await cap.snapshot(7);
   if (samples.length < 12000) {
     decodeInFlight = false;
     return;
   }
+  // Snapshot peak — useful for diagnosing acoustic loopback level. If
+  // the post-TX peak is < 0.01 the mic basically didn't hear the
+  // speaker; if it's saturated near 1.0 the AGC may have compressed the
+  // burst.
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = samples[i] < 0 ? -samples[i] : samples[i];
+    if (a > peak) peak = a;
+  }
   const pass = ++decodePassCount;
   const t0 = performance.now();
+  const tag = label ? ` [${label}]` : '';
   const replyHandler = (e) => {
     if (e.data.type === 'decoded') {
       decoder.removeEventListener('message', replyHandler);
@@ -395,12 +411,12 @@ async function runDecode() {
       const n = e.data.frames.length;
       const ms = Math.round(performance.now() - t0);
       if (n > 0) {
-        setStatus(`RX pass ${pass}: ${n} frame(s) in ${ms} ms`);
+        setStatus(`RX${tag} pass ${pass}: ${n} frame(s) in ${ms} ms (peak ${peak.toFixed(3)})`);
         for (const f of e.data.frames) appendDecoded(f);
       } else {
-        // Only update the status line on detected energy, otherwise the
-        // "no frame" message would clobber TX status; just log instead.
-        console.log(`[uvpacket-web] RX pass ${pass}: 0 frames (${ms} ms, ${samples.length} samples)`);
+        console.log(
+          `[uvpacket-web] RX${tag} pass ${pass}: 0 frames (${ms} ms, peak ${peak.toFixed(3)}, ${samples.length} samples)`,
+        );
       }
     } else if (e.data.type === 'error') {
       decoder.removeEventListener('message', replyHandler);
