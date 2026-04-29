@@ -47,8 +47,16 @@ let decoderReady = new Promise((resolve) => {
 
 async function bootWasm() {
   await init();
+  decoder.addEventListener('error', (e) => {
+    console.error('[uvpacket-web] worker error event:', e);
+    setStatus('Worker error — see console.');
+  });
+  decoder.addEventListener('messageerror', (e) => {
+    console.error('[uvpacket-web] worker messageerror:', e);
+  });
   decoder.postMessage({ type: 'init' });
   await decoderReady;
+  setStatus('Decoder ready.');
 }
 
 // ───────────────────────────── Mode toggle ─────────────────────────────
@@ -251,33 +259,88 @@ function buildAdvJsonString() {
   );
 }
 
-$('tx-btn').onclick = async () => {
-  if (!state.key) { alert('No key loaded — generate or import in ⚙'); return; }
-  if (!state.mycall) { alert('Set callsign in ⚙'); return; }
-
+function buildEncoded() {
+  if (!state.key) throw new Error('No key loaded — generate or import in ⚙');
+  if (!state.mycall) throw new Error('Set callsign in ⚙');
   const submode = parseInt($('f-submode').value, 10);
   const centre = parseFloat($('f-centre').value) || 1500;
   const seq = Math.floor(Math.random() * 32);
-
   let samples;
+  if (state.cardType === 'qsl') {
+    samples = encode_qsl_v1(buildQslInput(), state.key.secret_hex, centre, submode, seq);
+  } else {
+    samples = encode_adv_v1(buildAdvInput(), state.key.secret_hex, centre, submode, seq);
+  }
+  return { samples, centre, submode, seq };
+}
+
+function setStatus(msg) {
+  $('status-line').textContent = msg;
+  console.log('[uvpacket-web]', msg);
+}
+
+$('tx-btn').onclick = async () => {
+  let r;
   try {
-    if (state.cardType === 'qsl') {
-      samples = encode_qsl_v1(buildQslInput(), state.key.secret_hex, centre, submode, seq);
-    } else {
-      samples = encode_adv_v1(buildAdvInput(), state.key.secret_hex, centre, submode, seq);
-    }
+    r = buildEncoded();
   } catch (e) {
-    alert('Encode failed: ' + e);
+    alert(e.message || String(e));
     return;
   }
-
+  setStatus(`TX: ${r.samples.length} samples (${(r.samples.length / 12000).toFixed(2)} s) at ${r.centre} Hz`);
   $('tx-btn').disabled = true;
   $('tx-btn').textContent = 'Transmitting…';
   try {
-    await audioOut.play(samples);
+    await audioOut.play(r.samples);
+    // Trigger an immediate decode on whatever the mic captured during TX,
+    // skipping the next setInterval window so we don't miss the burst.
+    if (state.listening) {
+      setStatus('TX done — running post-TX decode.');
+      runDecode();
+    } else {
+      setStatus('TX done.');
+    }
   } finally {
     $('tx-btn').disabled = false;
     $('tx-btn').textContent = 'Sign & Transmit';
+  }
+};
+
+// Loopback test: encode → feed straight to the decoder worker, no audio
+// I/O. Validates the WASM TX/RX chain end-to-end without depending on
+// the speaker→mic acoustic path or radio.
+$('loopback-btn').onclick = async () => {
+  let r;
+  try {
+    r = buildEncoded();
+  } catch (e) {
+    alert(e.message || String(e));
+    return;
+  }
+  setStatus(`Loopback: ${r.samples.length} samples to decoder…`);
+  const samplesCopy = new Float32Array(r.samples);
+  const replyHandler = (e) => {
+    if (e.data.type === 'decoded') {
+      decoder.removeEventListener('message', replyHandler);
+      const n = e.data.frames.length;
+      setStatus(`Loopback: ${n} frame(s) decoded.`);
+      for (const f of e.data.frames) appendDecoded(f);
+    } else if (e.data.type === 'error') {
+      decoder.removeEventListener('message', replyHandler);
+      setStatus('Loopback decoder error: ' + e.data.error);
+    }
+  };
+  decoder.addEventListener('message', replyHandler);
+  if (state.mode === 'fm') {
+    decoder.postMessage(
+      { type: 'decode-fm', samples: samplesCopy, audio_centre_hz: r.centre },
+      [samplesCopy.buffer],
+    );
+  } else {
+    decoder.postMessage(
+      { type: 'decode-ssb', samples: samplesCopy, band_lo: 300, band_hi: 2700, step: 25 },
+      [samplesCopy.buffer],
+    );
   }
 };
 
@@ -314,6 +377,7 @@ $('listen-btn').onclick = async () => {
 };
 
 let decodeInFlight = false;
+let decodePassCount = 0;
 async function runDecode() {
   if (decodeInFlight) return;
   decodeInFlight = true;
@@ -322,15 +386,27 @@ async function runDecode() {
     decodeInFlight = false;
     return;
   }
+  const pass = ++decodePassCount;
+  const t0 = performance.now();
   const replyHandler = (e) => {
     if (e.data.type === 'decoded') {
       decoder.removeEventListener('message', replyHandler);
       decodeInFlight = false;
-      for (const f of e.data.frames) appendDecoded(f);
+      const n = e.data.frames.length;
+      const ms = Math.round(performance.now() - t0);
+      if (n > 0) {
+        setStatus(`RX pass ${pass}: ${n} frame(s) in ${ms} ms`);
+        for (const f of e.data.frames) appendDecoded(f);
+      } else {
+        // Only update the status line on detected energy, otherwise the
+        // "no frame" message would clobber TX status; just log instead.
+        console.log(`[uvpacket-web] RX pass ${pass}: 0 frames (${ms} ms, ${samples.length} samples)`);
+      }
     } else if (e.data.type === 'error') {
       decoder.removeEventListener('message', replyHandler);
       decodeInFlight = false;
-      console.error('decoder error:', e.data.error);
+      setStatus('Decoder error: ' + e.data.error);
+      console.error('[uvpacket-web] decoder error:', e.data.error);
     }
   };
   decoder.addEventListener('message', replyHandler);

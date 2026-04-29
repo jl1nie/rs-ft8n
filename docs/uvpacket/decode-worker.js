@@ -34,14 +34,22 @@ function frameToObj(f) {
   };
 }
 
+self.onerror = (e) => {
+  self.postMessage({ type: 'error', error: 'worker top-level: ' + (e.message || String(e)) });
+};
+
 self.onmessage = async (e) => {
   const msg = e.data;
   if (msg.type === 'init') {
-    if (!ready) {
-      await init();
-      ready = true;
+    try {
+      if (!ready) {
+        await init();
+        ready = true;
+      }
+      self.postMessage({ type: 'ready' });
+    } catch (err) {
+      self.postMessage({ type: 'error', error: 'init: ' + String(err) });
     }
-    self.postMessage({ type: 'ready' });
     return;
   }
   if (!ready) {
