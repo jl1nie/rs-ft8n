@@ -81,8 +81,13 @@ async function bootWasm() {
   decoder.addEventListener('messageerror', (e) => {
     console.error('[uvpacket-web] worker messageerror:', e);
   });
-  await decoderReady;
-  setStatus('Decoder ready.');
+  const ready = await decoderReady;
+  if (ready?.version) {
+    console.log('[uvpacket-web] worker reports', ready.version);
+    setStatus('Decoder ready: ' + ready.version);
+  } else {
+    setStatus('Decoder ready.');
+  }
 }
 
 // ───────────────────────────── Mode toggle ─────────────────────────────
@@ -508,6 +513,27 @@ async function runDecode(label = '') {
   const pass = ++decodePassCount;
   const t0 = performance.now();
   const tag = label ? ` [${label}]` : '';
+
+  // Pre-decode sync diagnostic for FM — cheap (~100 µs) and tells us
+  // why the mfsk-core gate is or isn't firing on real-world audio.
+  // ratio < 20 → gate rejects (decode should return ~0 ms);
+  // ratio ≥ 20 → LDPC sweep runs (potentially seconds on noise).
+  if (state.mode === 'fm') {
+    const centreHz = parseFloat($('f-centre').value) || 1500;
+    const diagSamples = new Float32Array(samples);
+    const diag = await decoderRequest(
+      { type: 'diag-sync', samples: diagSamples, audio_centre_hz: centreHz },
+      [diagSamples.buffer],
+      3000,
+    );
+    if (diag.type === 'sync-stats') {
+      const [mx, med, ratio, n] = diag.stats;
+      console.log(
+        `[uvpacket-web] sync centre=${centreHz} max=${mx.toExponential(2)} median=${med.toExponential(2)} ratio=${ratio.toFixed(1)} (gate=20) n=${n}`,
+      );
+    }
+  }
+
   const payload = state.mode === 'fm'
     ? {
         type: 'decode-fm',

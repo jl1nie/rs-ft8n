@@ -15,6 +15,30 @@ use mfsk_core::uvpacket::puncture::Mode;
 use mfsk_core::uvpacket::rx::{MultiChannelOpts, SlotEnergy};
 use mfsk_core::uvpacket::{rx, tx};
 
+/// Returns "uvpacket-web <ver> / mfsk-core <ver>" so the JS side can
+/// confirm which mfsk-core actually got linked into the deployed wasm
+/// (avoids the [patch.crates-io] cache-miss class of bug).
+#[wasm_bindgen]
+pub fn version_info() -> String {
+    format!(
+        "uvpacket-web {} / mfsk-core {}",
+        env!("CARGO_PKG_VERSION"),
+        mfsk_core::VERSION,
+    )
+}
+
+/// Diagnostic: returns `[global_max, median, ratio, n_scores]` for the
+/// preamble-correlation distribution that mfsk-core's auto-detect
+/// decoder computes internally. `ratio = global_max / median` is the
+/// quantity the sync gate compares to its 20× threshold. Values around
+/// 16 indicate pure-noise input; ≥ 20 trips the gate and the LDPC
+/// sweep runs; ≥ 56 is a real signal at +1 dB Robust threshold.
+#[wasm_bindgen]
+pub fn diag_sync_stats(samples: &[f32], audio_centre_hz: f32) -> Vec<f32> {
+    let s = rx::diag_sync_stats(samples, audio_centre_hz);
+    vec![s.global_max, s.median, s.ratio, s.n_scores as f32]
+}
+
 use crate::address::{Addresses, derive_all};
 use crate::card::{
     AdvCard, DecodedCard, QslCard, build_adv_json, build_qsl_json, parse_card,

@@ -13,6 +13,8 @@ import init, {
   decode_uvpacket,
   decode_uvpacket_multichannel,
   measure_slots,
+  version_info,
+  diag_sync_stats,
 } from './uvpacket_web.js';
 
 let ready = false;
@@ -52,7 +54,7 @@ self.onmessage = async (e) => {
         await init();
         ready = true;
       }
-      self.postMessage({ type: 'ready', req_id: id });
+      self.postMessage({ type: 'ready', version: version_info(), req_id: id });
     } catch (err) {
       self.postMessage({ type: 'error', error: 'init: ' + String(err), req_id: id });
     }
@@ -63,6 +65,11 @@ self.onmessage = async (e) => {
     return;
   }
   try {
+    if (msg.type === 'diag-sync') {
+      const arr = diag_sync_stats(msg.samples, msg.audio_centre_hz);
+      self.postMessage({ type: 'sync-stats', stats: Array.from(arr), req_id: id });
+      return;
+    }
     if (msg.type === 'decode-fm') {
       const frames = decode_uvpacket(msg.samples, msg.audio_centre_hz);
       self.postMessage({ type: 'decoded', frames: frames.map(frameToObj), req_id: id });

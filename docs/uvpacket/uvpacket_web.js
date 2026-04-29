@@ -433,6 +433,26 @@ export function decode_uvpacket_multichannel(samples, band_lo_hz, band_hi_hz, co
 }
 
 /**
+ * Diagnostic: returns `[global_max, median, ratio, n_scores]` for the
+ * preamble-correlation distribution that mfsk-core's auto-detect
+ * decoder computes internally. `ratio = global_max / median` is the
+ * quantity the sync gate compares to its 20× threshold. Values around
+ * 16 indicate pure-noise input; ≥ 20 trips the gate and the LDPC
+ * sweep runs; ≥ 56 is a real signal at +1 dB Robust threshold.
+ * @param {Float32Array} samples
+ * @param {number} audio_centre_hz
+ * @returns {Float32Array}
+ */
+export function diag_sync_stats(samples, audio_centre_hz) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.diag_sync_stats(ptr0, len0, audio_centre_hz);
+    var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  * @param {AdvInput} card
  * @param {string} secret_hex
  * @param {number} audio_centre_hz
@@ -545,6 +565,25 @@ export function measure_slots(samples, band_lo_hz, band_hi_hz, slot_spacing_hz) 
     var v2 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
     return v2;
+}
+
+/**
+ * Returns "uvpacket-web <ver> / mfsk-core <ver>" so the JS side can
+ * confirm which mfsk-core actually got linked into the deployed wasm
+ * (avoids the [patch.crates-io] cache-miss class of bug).
+ * @returns {string}
+ */
+export function version_info() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.version_info();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
 }
 
 function __wbg_get_imports() {
