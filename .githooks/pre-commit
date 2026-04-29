@@ -7,6 +7,13 @@ cd "$(git rev-parse --show-toplevel)"
 bash deploy.sh
 
 # Stage updated docs/ root (WebFT8) and docs/uvpacket/ (signed-QSL PWA).
-# `-f` covers files that might be ignored by future docs-level gitignore rules.
-git add -f docs/*.js docs/*.html docs/*.json docs/*.md 2>/dev/null || true
-git add -f docs/uvpacket/*.js docs/uvpacket/*.html docs/uvpacket/*.json docs/uvpacket/*.wasm 2>/dev/null || true
+# Each glob is its own command so a single non-matching pattern (e.g.
+# `docs/uvpacket/*.json` when no JSON has been added there yet) doesn't
+# fail the whole batch and leave the rest of the docs/ tree unstaged —
+# which is what happened with 7ce9192 / 71ad9e5 and burned a deploy
+# cycle each time. `2>/dev/null || true` keeps the non-match silent.
+for pat in docs/*.js docs/*.html docs/*.json docs/*.md \
+           docs/uvpacket/*.js docs/uvpacket/*.html \
+           docs/uvpacket/*.json docs/uvpacket/*.wasm; do
+  git add -f $pat 2>/dev/null || true
+done

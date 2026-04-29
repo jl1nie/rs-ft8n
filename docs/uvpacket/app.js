@@ -355,12 +355,52 @@ $('loopback-btn').onclick = async () => {
 
 // ───────────────────────────── RX path ─────────────────────────────────
 
+// Captured audio sample rate. We *request* 12 kHz from AudioContext but
+// some browsers/devices ignore the request and fall back to the device's
+// native rate (typically 48 kHz). The worklet posts its actual rate up
+// at construction; we use it to (a) drive the waterfall Hz axis and
+// (b) resample snapshot samples to 12 kHz before handing them to the
+// WASM uvpacket decoder, which is hardwired to 12 kHz.
+let captureRate = 12000;
+
 const cap = new UvAudioCapture({
   onWaterfall: (chunk) => pushWaterfall(chunk),
   onPeak: (p) => {
     $('vu-bar').style.width = Math.min(100, p * 100) + '%';
   },
+  // Waterfall path's actual sample rate (worklet decimates 12 k → 6 k
+  // by default; this is the rate the FFT in the Waterfall class sees).
+  onSampleRate: (rate) => {
+    setupWaterfall(rate);
+  },
+  // Snapshot path's actual rate. mfsk-core's uvpacket decoder is
+  // hardcoded to 12 kHz; if the AudioContext didn't honour our
+  // requested rate, we resample before sending to the decoder.
+  onSnapshotRate: (rate) => {
+    captureRate = rate;
+    if (rate !== 12000) {
+      setStatus(`Note: capture is ${rate} Hz, not 12000 — auto-resampling for decoder.`);
+    }
+  },
 });
+
+// Linear-interpolation resampler. Cheap; fine for destination 12 kHz
+// since the source is already bandlimited by the device's analog/ADC
+// chain to well below 6 kHz of interest.
+function resampleTo12k(input, srcRate) {
+  if (srcRate === 12000) return input;
+  const ratio = srcRate / 12000;
+  const outLen = Math.floor(input.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const s = i * ratio;
+    const i0 = Math.floor(s);
+    const i1 = Math.min(i0 + 1, input.length - 1);
+    const f = s - i0;
+    out[i] = input[i0] * (1 - f) + input[i1] * f;
+  }
+  return out;
+}
 
 let decodeTimer = null;
 
@@ -407,11 +447,14 @@ const ENERGY_GATE = 0.005;
 async function runDecode(label = '') {
   if (decodeInFlight) return;
   decodeInFlight = true;
-  const samples = await cap.snapshot(7);
+  let samples = await cap.snapshot(7);
   if (samples.length < 12000) {
     decodeInFlight = false;
     return;
   }
+  // Force the decoder input to 12 kHz regardless of what the
+  // AudioContext actually negotiated.
+  if (captureRate !== 12000) samples = resampleTo12k(samples, captureRate);
   // Snapshot peak — used both as a CPU gate and as a diagnostic on
   // success / miss. If the post-TX peak is < 0.01 the mic basically
   // didn't hear the speaker; if it's saturated near 1.0 the AGC may
@@ -600,166 +643,58 @@ function renderSlots(slots) {
   wrap.style.display = 'flex';
 }
 
-// ───────────────────────────── Waterfall ───────────────────────────────
+// ───────────────────────────── Waterfall (ft8-web class) ──────────────
+
+import { Waterfall } from './waterfall.js';
 
 const wfCanvas = $('wf');
-const wfOverlay = $('wf-overlay');
-const FFT_SIZE = 512;
-let wfCtx = null;
-let overlayCtx = null;
-let wfRows = null;
-let wfImg = null;
-let inputBuf = new Float32Array(0);
+let waterfall = null; // initialised once we know the worklet's
+                     // waterfall sample rate (defaults 6 kHz).
 
-function setupWaterfall() {
+function setupWaterfall(sampleRate) {
+  // Match canvas backing-store size to its CSS size × DPR.
   const dpr = window.devicePixelRatio || 1;
   const rect = wfCanvas.getBoundingClientRect();
-  for (const c of [wfCanvas, wfOverlay]) {
-    c.width = Math.floor(rect.width * dpr);
-    c.height = Math.floor(rect.height * dpr);
+  wfCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+  wfCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+  if (!waterfall) {
+    waterfall = new Waterfall(wfCanvas, {
+      sampleRate: sampleRate || 6000,
+      fftSize: 1024,
+      freqMin: 100,
+      freqMax: 3000,
+    });
+  } else {
+    waterfall.setSampleRate(sampleRate || 6000);
   }
-  wfCtx = wfCanvas.getContext('2d');
-  overlayCtx = wfOverlay.getContext('2d');
-  wfImg = wfCtx.createImageData(wfCanvas.width, 1);
-  wfRows = wfCanvas.height;
-  redrawSlotMarkers();
+  redrawCentreMarker();
 }
-window.addEventListener('resize', setupWaterfall);
+window.addEventListener('resize', () => setupWaterfall());
 
-// Waterfall FFT throttle. Worklet posts ~47 chunks/sec (256 samples
-// each at 12 kHz). Drawing every chunk wastes main-thread CPU on
-// near-identical rows; every 4th chunk gives ~12 rows/sec which is
-// plenty for a smooth scroll without frying the phone.
-let wfChunkCount = 0;
-const WF_DECIMATE = 4;
 function pushWaterfall(chunk) {
-  if (!wfCtx) setupWaterfall();
-  if (inputBuf.length < FFT_SIZE) {
-    const merged = new Float32Array(inputBuf.length + chunk.length);
-    merged.set(inputBuf);
-    merged.set(chunk, inputBuf.length);
-    inputBuf = merged;
-  } else {
-    const tail = new Float32Array(FFT_SIZE - chunk.length);
-    tail.set(inputBuf.slice(inputBuf.length - tail.length));
-    const merged = new Float32Array(FFT_SIZE);
-    merged.set(tail);
-    merged.set(chunk, tail.length);
-    inputBuf = merged;
-  }
-  if (inputBuf.length < FFT_SIZE) return;
-  if (++wfChunkCount % WF_DECIMATE !== 0) return;
-  drawWaterfallRow(inputBuf.slice(inputBuf.length - FFT_SIZE));
-  inputBuf = new Float32Array(0);
+  if (!waterfall) setupWaterfall();
+  waterfall.pushSamples(chunk);
+  redrawCentreMarker();
 }
 
-// Real-input radix-2 FFT (small, simple, runs on every row).
-function fftMag(input) {
-  const n = input.length;
-  const re = new Float32Array(n);
-  const im = new Float32Array(n);
-  for (let i = 0; i < n; i++) re[i] = input[i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
-  // Bit-reverse
-  let j = 0;
-  for (let i = 0; i < n - 1; i++) {
-    if (i < j) {
-      [re[i], re[j]] = [re[j], re[i]];
-      [im[i], im[j]] = [im[j], im[i]];
-    }
-    let m = n >> 1;
-    while (m >= 1 && j >= m) {
-      j -= m;
-      m >>= 1;
-    }
-    j += m;
-  }
-  for (let s = 1; (1 << s) <= n; s++) {
-    const m = 1 << s;
-    const m2 = m >> 1;
-    const wstep = (-2 * Math.PI) / m;
-    for (let k = 0; k < n; k += m) {
-      for (let l = 0; l < m2; l++) {
-        const t = wstep * l;
-        const wr = Math.cos(t), wi = Math.sin(t);
-        const tr = wr * re[k + l + m2] - wi * im[k + l + m2];
-        const ti = wr * im[k + l + m2] + wi * re[k + l + m2];
-        re[k + l + m2] = re[k + l] - tr;
-        im[k + l + m2] = im[k + l] - ti;
-        re[k + l] += tr;
-        im[k + l] += ti;
-      }
-    }
-  }
-  const half = n / 2;
-  const mag = new Float32Array(half);
-  for (let i = 0; i < half; i++) mag[i] = Math.sqrt(re[i] * re[i] + im[i] * im[i]);
-  return mag;
-}
-
-function drawWaterfallRow(samples) {
-  const mag = fftMag(samples);
-  // Map FFT bins (0..N/2 → 0..6 kHz at 12 kHz sample rate) onto the
-  // canvas width 0..3 kHz visible range. We display 0..3000 Hz.
-  const w = wfCanvas.width;
-  const halfBin = mag.length;
-  const maxBinHz = 6000;
-  const visibleHz = 3000;
-  const visibleBins = Math.floor((visibleHz / maxBinHz) * halfBin);
-  const data = wfImg.data;
-  for (let x = 0; x < w; x++) {
-    const bin = Math.floor((x / w) * visibleBins);
-    const v = mag[bin] || 0;
-    const db = 20 * Math.log10(v + 1e-9);
-    const norm = Math.max(0, Math.min(1, (db + 40) / 60));
-    const c = palette(norm);
-    data[x * 4 + 0] = c[0];
-    data[x * 4 + 1] = c[1];
-    data[x * 4 + 2] = c[2];
-    data[x * 4 + 3] = 255;
-  }
-  // Scroll the canvas up by 1 row, draw new row at bottom.
-  wfCtx.drawImage(wfCanvas, 0, -1);
-  wfCtx.putImageData(wfImg, 0, wfCanvas.height - 1);
-  redrawSlotMarkers();
-}
-
-function palette(t) {
-  // Simple black → green → yellow gradient.
-  const r = Math.floor(255 * Math.max(0, Math.min(1, 2 * t - 1)));
-  const g = Math.floor(255 * Math.max(0, Math.min(1, 2 * t)));
-  return [r, g, 0];
-}
-
-function hzToCanvasX(hz) {
-  return Math.floor((hz / 3000) * wfCanvas.width);
-}
-function redrawSlotMarkers() {
-  if (!overlayCtx) return;
-  overlayCtx.clearRect(0, 0, wfOverlay.width, wfOverlay.height);
+// We want a TX/RX centre marker (FM) or 1200 Hz slot markers (SSB) on
+// top of the waterfall. ft8-web's Waterfall class draws its own
+// non-scrolling overlay canvas via `targetLine` / `dfLine`; we reuse
+// `targetLine` for the FM centre and emulate slot markers by drawing
+// directly into our own `wf-overlay` canvas (which sits above ft8-web's
+// overlay because of DOM order).
+function redrawCentreMarker() {
+  if (!waterfall) return;
   if (state.mode === 'ssb') {
-    // Show 1200 Hz slot grid markers.
-    overlayCtx.strokeStyle = 'rgba(118,255,3,0.5)';
-    overlayCtx.lineWidth = 1;
-    for (const f of [800, 2000]) {
-      const x = hzToCanvasX(f);
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(x, 0);
-      overlayCtx.lineTo(x, wfOverlay.height);
-      overlayCtx.stroke();
-    }
+    waterfall.targetLine = null; // hide FM marker
   } else {
-    // FM: single-station marker at the configured centre.
     const centre = parseFloat($('f-centre').value) || 1500;
-    overlayCtx.strokeStyle = 'rgba(118,255,3,0.7)';
-    overlayCtx.lineWidth = 2;
-    const x = hzToCanvasX(centre);
-    overlayCtx.beginPath();
-    overlayCtx.moveTo(x, 0);
-    overlayCtx.lineTo(x, wfOverlay.height);
-    overlayCtx.stroke();
+    waterfall.targetLine = centre;
   }
+  // Force an axis/overlay refresh.
+  waterfall.drawFreqAxis?.();
 }
-$('f-centre').addEventListener('input', redrawSlotMarkers);
+$('f-centre').addEventListener('input', redrawCentreMarker);
 
 // ───────────────────────────── Audio device pickers ───────────────────
 
