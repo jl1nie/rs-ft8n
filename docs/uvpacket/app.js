@@ -302,8 +302,10 @@ $('tx-btn').onclick = async () => {
     // skipped via decodeInFlight.
     if (state.listening) {
       setStatus('TX done — running post-TX decode.');
-      setTimeout(() => runDecode('post-tx-1'), 200);
-      setTimeout(() => runDecode('post-tx-2'), 1200);
+      // `force` bypasses the silent-skip energy gate so the post-TX
+      // path always runs even if AEC suppressed the captured echo.
+      setTimeout(() => runDecode('post-tx-1-force'), 200);
+      setTimeout(() => runDecode('post-tx-2-force'), 1200);
     } else {
       setStatus('TX done.');
     }
@@ -384,7 +386,10 @@ $('listen-btn').onclick = async () => {
     $('listen-btn').textContent = '■ Stop';
     $('listen-btn').classList.add('on');
     setStatus(`Listening on input ${inDev.slice(0, 8)}…`);
-    decodeTimer = setInterval(runDecode, 1500);
+    // 2.5 s — combined with the audio energy gate, idle CPU stays near
+    // zero. Active decode passes still complete inside one interval
+    // (~500 ms even for SSB sweep).
+    decodeTimer = setInterval(runDecode, 2500);
   } catch (e) {
     alert('Mic access failed: ' + e);
   }
@@ -392,6 +397,13 @@ $('listen-btn').onclick = async () => {
 
 let decodeInFlight = false;
 let decodePassCount = 0;
+// Anything quieter than this in the snapshot peak is treated as silence
+// and skipped — the multichannel SSB matched-filter sweep is the
+// dominant CPU user, ~500 ms per call, so silent skipping makes the
+// background load near zero. `loopback` and forced post-TX paths
+// override this gate (label === 'force').
+const ENERGY_GATE = 0.005;
+
 async function runDecode(label = '') {
   if (decodeInFlight) return;
   decodeInFlight = true;
@@ -400,14 +412,18 @@ async function runDecode(label = '') {
     decodeInFlight = false;
     return;
   }
-  // Snapshot peak — useful for diagnosing acoustic loopback level. If
-  // the post-TX peak is < 0.01 the mic basically didn't hear the
-  // speaker; if it's saturated near 1.0 the AGC may have compressed the
-  // burst.
+  // Snapshot peak — used both as a CPU gate and as a diagnostic on
+  // success / miss. If the post-TX peak is < 0.01 the mic basically
+  // didn't hear the speaker; if it's saturated near 1.0 the AGC may
+  // have compressed the burst.
   let peak = 0;
   for (let i = 0; i < samples.length; i++) {
     const a = samples[i] < 0 ? -samples[i] : samples[i];
     if (a > peak) peak = a;
+  }
+  if (peak < ENERGY_GATE && !label.includes('force')) {
+    decodeInFlight = false;
+    return;
   }
   const pass = ++decodePassCount;
   const t0 = performance.now();
@@ -441,8 +457,12 @@ async function runDecode(label = '') {
       [samples.buffer],
     );
   } else {
+    // 50 Hz coarse step (default mfsk-core is 25 Hz). The LMS phase fit
+    // inside the per-peak decoder absorbs the residual ≤ 25 Hz, so the
+    // throughput cost of doubling the step is approximately zero while
+    // the CPU drops 2x.
     decoder.postMessage(
-      { type: 'decode-ssb', samples, band_lo: 300, band_hi: 2700, step: 25 },
+      { type: 'decode-ssb', samples, band_lo: 300, band_hi: 2700, step: 50 },
       [samples.buffer],
     );
   }
@@ -606,9 +626,14 @@ function setupWaterfall() {
 }
 window.addEventListener('resize', setupWaterfall);
 
+// Waterfall FFT throttle. Worklet posts ~47 chunks/sec (256 samples
+// each at 12 kHz). Drawing every chunk wastes main-thread CPU on
+// near-identical rows; every 4th chunk gives ~12 rows/sec which is
+// plenty for a smooth scroll without frying the phone.
+let wfChunkCount = 0;
+const WF_DECIMATE = 4;
 function pushWaterfall(chunk) {
   if (!wfCtx) setupWaterfall();
-  // Accumulate up to FFT_SIZE samples then run FFT.
   if (inputBuf.length < FFT_SIZE) {
     const merged = new Float32Array(inputBuf.length + chunk.length);
     merged.set(inputBuf);
@@ -623,6 +648,7 @@ function pushWaterfall(chunk) {
     inputBuf = merged;
   }
   if (inputBuf.length < FFT_SIZE) return;
+  if (++wfChunkCount % WF_DECIMATE !== 0) return;
   drawWaterfallRow(inputBuf.slice(inputBuf.length - FFT_SIZE));
   inputBuf = new Float32Array(0);
 }
