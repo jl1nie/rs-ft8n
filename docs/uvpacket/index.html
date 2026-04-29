@@ -242,7 +242,7 @@
 </div>
 
 <dialog id="settings">
-  <h3>Settings</h3>
+  <h3>Identity</h3>
   <div class="row">
     <label>My call</label>
     <input id="set-mycall" type="text" placeholder="JL1NIE">
@@ -255,6 +255,32 @@
       <option value="p">P&hellip;  (P2SH-P2WPKH)</option>
     </select>
   </div>
+
+  <h3 style="margin-top: var(--sp-md)">Audio</h3>
+  <div class="row">
+    <label>Input</label>
+    <select id="set-audio-in" style="flex:1; min-width: 12em">
+      <option value="">— grant mic permission below —</option>
+    </select>
+    <button class="secondary" id="set-mic-grant">Grant</button>
+  </div>
+  <div class="row">
+    <label>Output</label>
+    <select id="set-audio-out" style="flex:1; min-width: 12em">
+      <option value="">— default —</option>
+    </select>
+  </div>
+  <div class="row">
+    <label>TX gain</label>
+    <input id="set-tx-gain" type="range" min="0" max="100" value="80" step="5" style="flex:1">
+    <span id="set-tx-gain-val" class="hint">80%</span>
+  </div>
+  <p class="hint">
+    Pick the same audio interface that's wired to your rig (or, for
+    same-device acoustic loopback, the built-in mic + speaker).
+    Both input AND output must be selected before ▶ Listen will work.
+  </p>
+
   <h3 style="margin-top: var(--sp-md)">Key</h3>
   <div class="row">
     <button class="secondary" id="key-gen">Generate new</button>
