@@ -368,7 +368,15 @@ $('loopback-btn').onclick = async () => {
   console.log('[uvpacket-web] loopback start, mode=', state.mode, 'centre=', r.centre);
   const samplesCopy = new Float32Array(r.samples);
   const payload = state.mode === 'fm'
-    ? { type: 'decode-fm', samples: samplesCopy, audio_centre_hz: r.centre }
+    ? {
+        type: 'decode-fm',
+        samples: samplesCopy,
+        audio_centre_hz: r.centre,
+        // QSL_LAYOUTS bounds the sweep at ~20 attempts, well under
+        // the timeout. The exact (mode, n_blocks) the loopback just
+        // encoded is in there.
+        layouts: QSL_LAYOUTS,
+      }
     : { type: 'decode-ssb', samples: samplesCopy, band_lo: 300, band_hi: 2700, step: 50, peak_rel: 0.7 };
   try {
     const reply = await decoderRequest(payload, [samplesCopy.buffer]);
@@ -469,6 +477,21 @@ $('listen-btn').onclick = async () => {
 
 let decodeInFlight = false;
 let decodePassCount = 0;
+// Layout subset for FM single-station decode. mode_code: 0=Robust,
+// 1=Standard, 2=Fast, 3=Express. Order = priority (first success
+// wins). Standard with `n_blocks ≈ 19` is the typical signed-QSL
+// frame; widen to 16-26 to cover variations.
+const QSL_LAYOUTS = (() => {
+  const layouts = [];
+  for (const nb of [19, 22, 16, 24, 18, 20, 26, 21, 17, 23, 25, 15]) {
+    layouts.push([1, nb]); // Standard
+  }
+  for (const nb of [19, 22, 16, 24, 18, 20, 26]) {
+    layouts.push([0, nb]); // Robust fallback
+  }
+  return layouts;
+})();
+
 // Permissive amplitude floor — anything quieter than this is almost
 // certainly DC-only / fully muted input, no point invoking the worker.
 // The real CPU defence is in mfsk-core 0.3.4's `rx::decode` sync
@@ -539,6 +562,15 @@ async function runDecode(label = '') {
         type: 'decode-fm',
         samples,
         audio_centre_hz: parseFloat($('f-centre').value) || 1500,
+        // Constrain to layouts uvpacket-web's signed-QSL use case
+        // actually produces. Mode codes: 0=Robust, 1=Standard, 2=Fast,
+        // 3=Express. QSL JSON+sig payload is ~210-300 bytes, so
+        // n_blocks ≈ 18-26 covers everything plausible. Caps worst-
+        // case decode work at ~22 LDPC attempts per peak in WASM
+        // (≈ 1 s) instead of the full 128-attempt sweep that timed
+        // out the worker on partially-coherent acoustic-loopback
+        // signals.
+        layouts: QSL_LAYOUTS,
       }
     // 50 Hz coarse step (default mfsk-core is 25 Hz) and stricter
     // peak threshold 0.7 (default 0.5) — both halve the per-pass

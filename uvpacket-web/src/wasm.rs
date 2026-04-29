@@ -461,6 +461,49 @@ pub fn decode_uvpacket(samples: &[f32], audio_centre_hz: f32) -> Vec<DecodedSign
         .collect()
 }
 
+/// Single-station decode constrained to a caller-supplied list of
+/// (mode_code, n_blocks) layouts. Bounds worst-case LDPC sweep to
+/// `len(layouts)` per peak, regardless of how many peaks pass the
+/// sync gate.
+///
+/// `mode_codes`/`n_blocks` are paired by index (must be the same
+/// length). `mode_code` is `Mode::header_code()` — `0=Robust,
+/// 1=Standard, 2=Fast, 3=Express`. n_blocks must be `1..=32`.
+///
+/// For the QSL signed-card use case, pass the layouts that the
+/// application's TX path actually emits (typically Standard with
+/// `n_blocks ≈ ceil((payload_bytes + 4) / 12)`). This caps worst-case
+/// decode work at a known bound — important for browsers because
+/// the unconstrained 128-layout sweep can take 15 s in WASM and time
+/// out the worker.
+#[wasm_bindgen]
+pub fn decode_uvpacket_with_layouts(
+    samples: &[f32],
+    audio_centre_hz: f32,
+    mode_codes: Vec<u8>,
+    n_blocks: Vec<u8>,
+) -> Vec<DecodedSignedFrame> {
+    let n = mode_codes.len().min(n_blocks.len());
+    let mut layouts: Vec<(Mode, u8)> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mode = match mode_codes[i] {
+            0 => Mode::Robust,
+            1 => Mode::Standard,
+            2 => Mode::Fast,
+            3 => Mode::Express,
+            _ => continue,
+        };
+        let nb = n_blocks[i];
+        if (1..=32).contains(&nb) {
+            layouts.push((mode, nb));
+        }
+    }
+    rx::decode_with_layouts(samples, audio_centre_hz, &layouts)
+        .into_iter()
+        .map(|f| frame_to_signed(f, audio_centre_hz))
+        .collect()
+}
+
 /// Multi-station decode by sweeping the SSB audio passband. Suitable
 /// for **SSB** receive on a private group sharing one RF channel
 /// (e.g., 430.090 MHz USB) where every TX picks an audio slot inside

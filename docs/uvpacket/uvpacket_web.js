@@ -433,6 +433,41 @@ export function decode_uvpacket_multichannel(samples, band_lo_hz, band_hi_hz, co
 }
 
 /**
+ * Single-station decode constrained to a caller-supplied list of
+ * (mode_code, n_blocks) layouts. Bounds worst-case LDPC sweep to
+ * `len(layouts)` per peak, regardless of how many peaks pass the
+ * sync gate.
+ *
+ * `mode_codes`/`n_blocks` are paired by index (must be the same
+ * length). `mode_code` is `Mode::header_code()` — `0=Robust,
+ * 1=Standard, 2=Fast, 3=Express`. n_blocks must be `1..=32`.
+ *
+ * For the QSL signed-card use case, pass the layouts that the
+ * application's TX path actually emits (typically Standard with
+ * `n_blocks ≈ ceil((payload_bytes + 4) / 12)`). This caps worst-case
+ * decode work at a known bound — important for browsers because
+ * the unconstrained 128-layout sweep can take 15 s in WASM and time
+ * out the worker.
+ * @param {Float32Array} samples
+ * @param {number} audio_centre_hz
+ * @param {Uint8Array} mode_codes
+ * @param {Uint8Array} n_blocks
+ * @returns {DecodedSignedFrame[]}
+ */
+export function decode_uvpacket_with_layouts(samples, audio_centre_hz, mode_codes, n_blocks) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(mode_codes, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(n_blocks, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_uvpacket_with_layouts(ptr0, len0, audio_centre_hz, ptr1, len1, ptr2, len2);
+    var v4 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v4;
+}
+
+/**
  * Diagnostic: returns `[global_max, median, ratio, n_scores]` for the
  * preamble-correlation distribution that mfsk-core's auto-detect
  * decoder computes internally. `ratio = global_max / median` is the
@@ -790,6 +825,13 @@ function handleError(f, args) {
 
 function isLikeNone(x) {
     return x === undefined || x === null;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
 }
 
 function passArrayF32ToWasm0(arg, malloc) {

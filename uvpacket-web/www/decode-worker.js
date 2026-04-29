@@ -11,6 +11,7 @@
 
 import init, {
   decode_uvpacket,
+  decode_uvpacket_with_layouts,
   decode_uvpacket_multichannel,
   measure_slots,
   version_info,
@@ -71,7 +72,14 @@ self.onmessage = async (e) => {
       return;
     }
     if (msg.type === 'decode-fm') {
-      const frames = decode_uvpacket(msg.samples, msg.audio_centre_hz);
+      const frames = msg.layouts && msg.layouts.length
+        ? decode_uvpacket_with_layouts(
+            msg.samples,
+            msg.audio_centre_hz,
+            new Uint8Array(msg.layouts.map((l) => l[0])),
+            new Uint8Array(msg.layouts.map((l) => l[1])),
+          )
+        : decode_uvpacket(msg.samples, msg.audio_centre_hz);
       self.postMessage({ type: 'decoded', frames: frames.map(frameToObj), req_id: id });
     } else if (msg.type === 'decode-ssb') {
       const frames = decode_uvpacket_multichannel(
