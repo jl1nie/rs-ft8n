@@ -20,9 +20,18 @@ mfsk-core = { version = "0.3", default-features = false }
 [patch.crates-io]
 mfsk-core = { path = "../mfsk-core/mfsk-core" }
 
-# Workspace-wide release profile for the WASM cdylibs. The same `z`/LTO
-# settings used to live in `ft8-web/Cargo.toml` and `uvpacket-web/Cargo.toml`
-# but Cargo ignores per-package profiles in a workspace.
+# Workspace-wide release profile for the WASM cdylibs.
+#
+# `opt-level = 3` (was `"z"`): LDPC BP+OSD-2 is tight FP/integer-bit
+# math and benefits substantially from full inlining + loop-vectorise
+# style optimisation. Field measurement on uvpacket-web showed
+# `~117 ms/attempt` at `"z"`; with `"3"` that should drop ~30-40 %.
+# The wasm-pack output size goes up ~30 % but the network cost is
+# dominated by LDPC tables and rustfft, not the codegen, so the user-
+# facing diff is small.
+#
+# `lto = true` keeps the cross-crate inlining pass that lets mfsk-core
+# routines vanish across the wasm-bindgen boundary.
 [profile.release]
-opt-level = "z"
+opt-level = 3
 lto = true
