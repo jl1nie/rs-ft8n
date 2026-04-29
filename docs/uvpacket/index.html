@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta name="theme-color" content="#76ff03">
+<title>uvpacket-web · signed QSL exchange</title>
+<style>
+  :root {
+    --bg: #0a0a0a; --surface: #111; --surface2: #1a1a2e;
+    --border: #333; --text: #e0e0e0; --text2: #888;
+    --accent: #76ff03; --accent-bg: #1b3300;
+    --warn: #ffeb3b; --danger: #f44336;
+    --fs-base: 0.9rem; --fs-sm: 0.78rem; --fs-xs: 0.7rem;
+    --sp-xs: 0.25rem; --sp-sm: 0.5rem; --sp-md: 1rem;
+    --radius: 4px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, monospace;
+    background: var(--bg); color: var(--text);
+    max-width: 960px; margin: 0 auto;
+    display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+    font-size: var(--fs-base);
+  }
+  header {
+    display: flex; align-items: center; gap: var(--sp-sm);
+    padding: var(--sp-xs) var(--sp-sm);
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 1rem; color: var(--accent); flex: 1; }
+  header h1 small { color: var(--text2); font-weight: normal; font-size: var(--fs-xs); }
+  .mode-tabs { display: flex; }
+  .mode-tabs button {
+    font-size: var(--fs-sm); padding: var(--sp-xs) 0.6rem;
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text2); cursor: pointer;
+  }
+  .mode-tabs button:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+  .mode-tabs button:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+  .mode-tabs button.active {
+    background: var(--accent-bg); color: var(--accent);
+    border-color: var(--accent);
+  }
+  .gear, .listen {
+    font-size: var(--fs-sm); padding: var(--sp-xs) var(--sp-sm);
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text2); cursor: pointer; border-radius: var(--radius);
+  }
+  .listen.on { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); }
+
+  /* Waterfall */
+  #wf-wrap {
+    position: relative; flex-shrink: 0; height: 140px;
+    background: #000; border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  #wf { position: absolute; bottom: 0; left: 0; width: 100%; height: 100%; }
+  #wf-overlay {
+    position: absolute; inset: 0; pointer-events: none;
+  }
+
+  /* Tx form */
+  .panel {
+    padding: var(--sp-sm); border-bottom: 1px solid var(--border);
+    flex-shrink: 0; background: var(--surface);
+  }
+  .panel h2 {
+    font-size: var(--fs-sm); color: var(--text2); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: var(--sp-xs);
+  }
+  .row { display: flex; flex-wrap: wrap; gap: var(--sp-sm); align-items: center; margin-bottom: var(--sp-xs); }
+  .row label { color: var(--text2); font-size: var(--fs-xs); min-width: 4em; }
+  input[type=text], input[type=date], input[type=time], select {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: var(--sp-xs) var(--sp-sm); font-size: var(--fs-sm);
+    font-family: inherit;
+  }
+  input[type=text] { min-width: 7em; }
+  .row input.short { width: 5em; }
+  .row input.wide { flex: 1; min-width: 8em; }
+  button.primary {
+    background: var(--accent-bg); color: var(--accent);
+    border: 1px solid var(--accent); border-radius: var(--radius);
+    padding: var(--sp-xs) var(--sp-md); font-size: var(--fs-sm);
+    cursor: pointer; font-weight: bold;
+  }
+  button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.secondary {
+    background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: var(--sp-xs) var(--sp-sm); font-size: var(--fs-sm);
+    cursor: pointer;
+  }
+
+  /* Slot survey */
+  #slot-survey { display: none; gap: 0.4em; flex-wrap: wrap; }
+  .slot-bar {
+    display: flex; flex-direction: column; align-items: center;
+    padding: var(--sp-xs) var(--sp-sm);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--surface2); cursor: pointer;
+    font-size: var(--fs-xs);
+  }
+  .slot-bar.free { border-color: var(--accent); color: var(--accent); }
+  .slot-bar.busy { border-color: var(--warn); color: var(--warn); }
+
+  /* Decoded log */
+  #log { flex: 1; overflow-y: auto; padding: var(--sp-sm); }
+  .card {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: var(--sp-sm); margin-bottom: var(--sp-sm);
+    background: var(--surface);
+  }
+  .card.verified { border-left: 3px solid var(--accent); }
+  .card.invalid  { border-left: 3px solid var(--danger); }
+  .card .head {
+    display: flex; gap: var(--sp-sm); align-items: center;
+    margin-bottom: var(--sp-xs); font-size: var(--fs-sm);
+  }
+  .card .head .badge {
+    padding: 0 0.4em; border-radius: 2px;
+    background: var(--accent-bg); color: var(--accent);
+    font-size: var(--fs-xs);
+  }
+  .card.invalid .head .badge { background: #441111; color: var(--danger); }
+  .card .head time { color: var(--text2); font-size: var(--fs-xs); margin-left: auto; }
+  .card .row2 { font-size: var(--fs-sm); color: var(--text); }
+  .card .row3 { font-size: var(--fs-xs); color: var(--text2); margin-top: var(--sp-xs);
+                font-family: monospace; word-break: break-all; }
+
+  /* Settings dialog */
+  dialog {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--accent); border-radius: 6px;
+    padding: var(--sp-md); max-width: 90%; width: 480px;
+  }
+  dialog::backdrop { background: rgba(0,0,0,0.7); }
+  dialog h3 { color: var(--accent); margin-bottom: var(--sp-sm); }
+  dialog .stash { font-family: monospace; font-size: var(--fs-xs);
+                  color: var(--text2); word-break: break-all;
+                  background: var(--bg); padding: var(--sp-xs); border-radius: var(--radius); }
+
+  .vu {
+    display: inline-block; width: 50px; height: 6px;
+    background: var(--surface2); border-radius: 3px; overflow: hidden;
+  }
+  .vu > div { height: 100%; background: var(--accent); transition: width 0.1s; }
+
+  .hint { font-size: var(--fs-xs); color: var(--text2); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>uvpacket·QSL <small id="my-id">— set callsign in ⚙</small></h1>
+  <div class="mode-tabs">
+    <button id="mode-fm" class="active">FM</button>
+    <button id="mode-ssb">SSB</button>
+  </div>
+  <button class="listen" id="listen-btn">▶ Listen</button>
+  <span class="vu" title="Input level"><div id="vu-bar" style="width:0"></div></span>
+  <button class="gear" id="gear-btn">⚙</button>
+</header>
+
+<div id="wf-wrap">
+  <canvas id="wf"></canvas>
+  <canvas id="wf-overlay"></canvas>
+</div>
+
+<section class="panel">
+  <h2>Compose &mdash; <span id="card-kind">QSL</span></h2>
+  <div class="row">
+    <label>Type</label>
+    <select id="card-type">
+      <option value="qsl">QSL Card</option>
+      <option value="adv">ADV (self-introduction)</option>
+    </select>
+  </div>
+  <div id="qsl-fields">
+    <div class="row">
+      <label>To</label>
+      <input id="f-to" type="text" placeholder="JA1UMW">
+      <label>RS</label>
+      <input id="f-rs" type="text" class="short" placeholder="59">
+      <label>Mode</label>
+      <input id="f-mode" type="text" class="short" placeholder="USB">
+    </div>
+    <div class="row">
+      <label>Date</label>
+      <input id="f-date" type="text" class="short" placeholder="2026-04-29">
+      <label>Time</label>
+      <input id="f-time" type="text" class="short" placeholder="12:34">
+      <label>Freq</label>
+      <input id="f-freq" type="text" class="short" placeholder="430.090">
+      <label>QTH</label>
+      <input id="f-qth" type="text" class="wide" placeholder="Tokyo">
+    </div>
+  </div>
+  <div id="adv-fields" style="display:none">
+    <div class="row">
+      <label>Name</label>
+      <input id="f-name" type="text" class="wide" placeholder="Minoru">
+    </div>
+    <div class="row">
+      <label>Bio</label>
+      <input id="f-bio" type="text" class="wide" placeholder="uvpacket dev / 430 MHz Tokyo">
+    </div>
+  </div>
+  <div class="row">
+    <label>Sub-mode</label>
+    <select id="f-submode">
+      <option value="0">Robust  (rate 0.42, 1008 bps)</option>
+      <option value="1" selected>Standard (rate 1/2, 1200 bps)</option>
+      <option value="2">Fast    (rate 2/3, 1600 bps)</option>
+      <option value="3">Express (rate 3/4, 1800 bps)</option>
+    </select>
+    <label>Centre</label>
+    <input id="f-centre" type="text" class="short" value="1500">
+    <span class="hint">Hz (FM: 1500; SSB: pick from slots)</span>
+  </div>
+  <div class="row" id="slot-survey-row" style="display:none">
+    <label>Slots</label>
+    <div id="slot-survey"></div>
+    <button class="secondary" id="scan-slots-btn">Scan</button>
+  </div>
+  <div class="row">
+    <button class="primary" id="tx-btn">Sign &amp; Transmit</button>
+    <button class="secondary" id="preview-btn">Preview JSON</button>
+    <span id="preview-out" class="hint"></span>
+  </div>
+</section>
+
+<div id="log">
+  <p class="hint">Decoded cards appear here. Click a card to expand the raw JSON + signature.</p>
+</div>
+
+<dialog id="settings">
+  <h3>Settings</h3>
+  <div class="row">
+    <label>My call</label>
+    <input id="set-mycall" type="text" placeholder="JL1NIE">
+  </div>
+  <div class="row">
+    <label>Active addr</label>
+    <select id="set-addr-type">
+      <option value="m">M&hellip;  (P2PKH legacy)</option>
+      <option value="mona1">mona1&hellip; (bech32 P2WPKH)</option>
+      <option value="p">P&hellip;  (P2SH-P2WPKH)</option>
+    </select>
+  </div>
+  <h3 style="margin-top: var(--sp-md)">Key</h3>
+  <div class="row">
+    <button class="secondary" id="key-gen">Generate new</button>
+    <button class="secondary" id="key-import">Import secret hex</button>
+    <button class="secondary" id="key-export">Reveal secret</button>
+  </div>
+  <p class="hint" id="key-status">No key loaded.</p>
+  <p class="stash" id="key-pubkey-line"></p>
+  <p class="stash" id="key-addr-line"></p>
+  <div class="row" style="margin-top: var(--sp-md); justify-content: flex-end;">
+    <button class="secondary" id="set-close">Close</button>
+  </div>
+</dialog>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

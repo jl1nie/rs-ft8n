@@ -127,13 +127,13 @@ fn run_ft4_snr_sweep() {
             let audio = ft4_sim::generate_slot(&cfg);
             if decode_frame(&audio, 800.0, 1200.0, 1.2, 50)
                 .iter()
-                .any(|r| r.message77 == msg77)
+                .any(|r| r.message77() == msg77)
             {
                 ok_basic += 1;
             }
             if decode_sniper_ap(&audio, 1000.0, 30, EqMode::Adaptive, Some(&ap))
                 .iter()
-                .any(|r| r.message77 == msg77)
+                .any(|r| r.message77() == msg77)
             {
                 ok_ap += 1;
             }

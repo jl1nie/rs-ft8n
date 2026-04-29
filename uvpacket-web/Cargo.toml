@@ -1,0 +1,27 @@
+[package]
+name = "uvpacket-web"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "uvpacket WASM bindings + signed-QSL exchange (Monacoin-compatible secp256k1) for browser deployment"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+mfsk-core = { workspace = true, default-features = false, features = ["uvpacket"] }
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+
+# Crypto for signed-QSL exchange (Monacoin/Bitcoin signed-message format).
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "alloc"] }
+sha2 = { version = "0.10", default-features = false }
+ripemd = { version = "0.1", default-features = false }
+bs58 = { version = "0.5", default-features = false, features = ["alloc", "check"] }
+bech32 = { version = "0.11", default-features = false, features = ["alloc"] }
+base64 = { version = "0.22", default-features = false, features = ["alloc"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+hex = "0.4"
+k256 = { version = "0.13", default-features = false, features = ["ecdsa", "alloc"] }

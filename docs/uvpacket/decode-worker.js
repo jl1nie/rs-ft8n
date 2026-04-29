@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Web Worker hosting the WASM uvpacket decoder. Keeps the decode passes
+// (matched-filter sweep + LDPC BP/OSD) off the main thread so the UI
+// stays responsive even on slow phones.
+//
+// Protocol (postMessage):
+//   { type: 'init' }                                            → { type: 'ready' }
+//   { type: 'decode-fm',  samples, audio_centre_hz }            → { type: 'decoded', frames }
+//   { type: 'decode-ssb', samples, band_lo, band_hi, step }     → { type: 'decoded', frames }
+//   { type: 'measure-slots', samples, band_lo, band_hi, slot }  → { type: 'slots', pairs }
+
+import init, {
+  decode_uvpacket,
+  decode_uvpacket_multichannel,
+  measure_slots,
+} from './uvpacket_web.js';
+
+let ready = false;
+
+function frameToObj(f) {
+  return {
+    app_type: f.app_type,
+    sequence: f.sequence,
+    mode_code: f.mode_code,
+    block_count: f.block_count,
+    audio_centre_hz: f.audio_centre_hz,
+    json: f.json,
+    sig_b64: f.sig_b64,
+    verified: f.verified,
+    addr_mona1: f.addr_mona1,
+    addr_m: f.addr_m,
+    addr_p: f.addr_p,
+    card_kind: f.card_kind,
+  };
+}
+
+self.onmessage = async (e) => {
+  const msg = e.data;
+  if (msg.type === 'init') {
+    if (!ready) {
+      await init();
+      ready = true;
+    }
+    self.postMessage({ type: 'ready' });
+    return;
+  }
+  if (!ready) {
+    self.postMessage({ type: 'error', error: 'decoder not initialised' });
+    return;
+  }
+  try {
+    if (msg.type === 'decode-fm') {
+      const frames = decode_uvpacket(msg.samples, msg.audio_centre_hz);
+      self.postMessage({
+        type: 'decoded',
+        frames: frames.map(frameToObj),
+      });
+    } else if (msg.type === 'decode-ssb') {
+      const frames = decode_uvpacket_multichannel(
+        msg.samples,
+        msg.band_lo,
+        msg.band_hi,
+        msg.step || 0,
+      );
+      self.postMessage({
+        type: 'decoded',
+        frames: frames.map(frameToObj),
+      });
+    } else if (msg.type === 'measure-slots') {
+      const pairs = measure_slots(msg.samples, msg.band_lo, msg.band_hi, msg.slot);
+      const out = [];
+      for (let i = 0; i + 1 < pairs.length; i += 2) {
+        out.push({ centre_hz: pairs[i], magnitude: pairs[i + 1] });
+      }
+      self.postMessage({ type: 'slots', slots: out });
+    }
+  } catch (err) {
+    self.postMessage({ type: 'error', error: String(err) });
+  }
+};

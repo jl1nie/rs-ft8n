@@ -2,21 +2,27 @@
 members = [
     "ft8-bench",
     "ft8-web",
+    "uvpacket-web",
 ]
 exclude = [
     "ft8-desktop/src-tauri",
 ]
 resolver = "2"
 
-# Library layer lives in https://github.com/jl1nie/mfsk-core and is
-# published to crates.io as `mfsk-core` (0.1.0 and onwards).
+# Library layer lives in https://github.com/jl1nie/mfsk-core. The 0.3
+# line is not yet on crates.io, so the workspace temporarily resolves
+# `mfsk-core` against the sibling working tree via the `[patch.crates-io]`
+# block below. Bump the requested version once 0.3 is published and
+# remove the patch block.
 [workspace.dependencies]
-mfsk-core = { version = "0.1", default-features = false }
+mfsk-core = { version = "0.3", default-features = false }
 
-# Local-development override: if you have mfsk-core cloned as a sibling
-# directory (../mfsk-core), uncomment this block to use the working tree
-# instead of the crates.io-fetched copy. Keep commented in the checked-in
-# file so CI / fresh clones default to the published version.
-#
-# [patch.crates-io]
-# mfsk-core = { path = "../mfsk-core/mfsk-core" }
+[patch.crates-io]
+mfsk-core = { path = "../mfsk-core/mfsk-core" }
+
+# Workspace-wide release profile for the WASM cdylibs. The same `z`/LTO
+# settings used to live in `ft8-web/Cargo.toml` and `uvpacket-web/Cargo.toml`
+# but Cargo ignores per-package profiles in a workspace.
+[profile.release]
+opt-level = "z"
+lto = true

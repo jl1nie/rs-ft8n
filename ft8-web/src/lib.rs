@@ -333,7 +333,8 @@ pub fn decode_phase2_f32(strictness: u8) -> Vec<DecodedMessage> {
 fn ft4_to_decoded(r: mfsk_core::ft4::decode::DecodeResult) -> Option<DecodedMessage> {
     HASH_TABLE.with(|ht| {
         let ht = ht.borrow();
-        let text = mfsk_core::msg::wsjt77::unpack77_with_hash(&r.message77, &ht)?;
+        let msg77: [u8; 77] = r.message77().try_into().expect("77-bit message slice");
+        let text = mfsk_core::msg::wsjt77::unpack77_with_hash(&msg77, &ht)?;
         if text.is_empty() || !mfsk_core::msg::wsjt77::is_plausible_message(&text) {
             return None;
         }

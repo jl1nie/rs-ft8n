@@ -1,9 +1,12 @@
 #!/bin/bash
-# Auto-deploy ft8-web/www/ → docs/ before each commit.
+# Auto-deploy ft8-web/www/ → docs/ and uvpacket-web/www/ → docs/uvpacket/
+# before each commit, then stage the regenerated artefacts.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 bash deploy.sh
 
-# Stage updated docs/ files (use -f to include new files ignored by docs/.gitignore)
+# Stage updated docs/ root (WebFT8) and docs/uvpacket/ (signed-QSL PWA).
+# `-f` covers files that might be ignored by future docs-level gitignore rules.
 git add -f docs/*.js docs/*.html docs/*.json docs/*.md 2>/dev/null || true
+git add -f docs/uvpacket/*.js docs/uvpacket/*.html docs/uvpacket/*.json docs/uvpacket/*.wasm 2>/dev/null || true

@@ -22,7 +22,7 @@ fn try_all(llr_a: &[f32; 174], llr_b: &[f32; 174], llr_c: &[f32; 174], llr_d: &[
     -> &'static str
 {
     for llr in [llr_a, llr_b, llr_c, llr_d] {
-        if bp_decode(llr, None, BP_MAX_ITER).is_some() {
+        if bp_decode(llr, None, BP_MAX_ITER, None).is_some() {
             return "BP";
         }
     }
