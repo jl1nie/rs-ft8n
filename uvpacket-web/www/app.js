@@ -464,13 +464,13 @@ $('listen-btn').onclick = async () => {
 
 let decodeInFlight = false;
 let decodePassCount = 0;
-// Anything quieter than this in the snapshot peak is treated as silence
-// and skipped. Tuned above the typical idle-mic noise floor (~0.005-
-// 0.02 on common Mac/PC built-in mics) so the SSB multichannel sweep
-// doesn't fire on noise — false peaks in noise yield hundreds of LDPC
-// BP+OSD-2 attempts and peg the CPU. Loopback and forced post-TX
-// paths override this gate (label includes 'force').
-const ENERGY_GATE = 0.03;
+// Permissive amplitude floor — anything quieter than this is almost
+// certainly DC-only / fully muted input, no point invoking the worker.
+// The real CPU defence is in mfsk-core 0.3.4's `rx::decode` sync
+// outlier check (rejects pure-noise buffers in ~330 µs); this is just
+// a "do nothing on a flat-zero buffer" early exit so the worker doesn't
+// spin up a structuredClone of 84 000 zeros on idle.
+const ENERGY_GATE = 0.0005;
 
 async function runDecode(label = '') {
   if (decodeInFlight) return;
