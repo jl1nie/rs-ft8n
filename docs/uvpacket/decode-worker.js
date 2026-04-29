@@ -40,29 +40,32 @@ self.onerror = (e) => {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+  // Every request from main thread carries a `req_id`; we echo it back
+  // on every reply so the main thread can route to the matching handler
+  // even when multiple decodes are in flight (e.g. periodic acoustic-RX
+  // pass overlapping with a Loopback button click).
+  const id = msg.req_id;
+
   if (msg.type === 'init') {
     try {
       if (!ready) {
         await init();
         ready = true;
       }
-      self.postMessage({ type: 'ready' });
+      self.postMessage({ type: 'ready', req_id: id });
     } catch (err) {
-      self.postMessage({ type: 'error', error: 'init: ' + String(err) });
+      self.postMessage({ type: 'error', error: 'init: ' + String(err), req_id: id });
     }
     return;
   }
   if (!ready) {
-    self.postMessage({ type: 'error', error: 'decoder not initialised' });
+    self.postMessage({ type: 'error', error: 'decoder not initialised', req_id: id });
     return;
   }
   try {
     if (msg.type === 'decode-fm') {
       const frames = decode_uvpacket(msg.samples, msg.audio_centre_hz);
-      self.postMessage({
-        type: 'decoded',
-        frames: frames.map(frameToObj),
-      });
+      self.postMessage({ type: 'decoded', frames: frames.map(frameToObj), req_id: id });
     } else if (msg.type === 'decode-ssb') {
       const frames = decode_uvpacket_multichannel(
         msg.samples,
@@ -70,19 +73,16 @@ self.onmessage = async (e) => {
         msg.band_hi,
         msg.step || 0,
       );
-      self.postMessage({
-        type: 'decoded',
-        frames: frames.map(frameToObj),
-      });
+      self.postMessage({ type: 'decoded', frames: frames.map(frameToObj), req_id: id });
     } else if (msg.type === 'measure-slots') {
       const pairs = measure_slots(msg.samples, msg.band_lo, msg.band_hi, msg.slot);
       const out = [];
       for (let i = 0; i + 1 < pairs.length; i += 2) {
         out.push({ centre_hz: pairs[i], magnitude: pairs[i + 1] });
       }
-      self.postMessage({ type: 'slots', slots: out });
+      self.postMessage({ type: 'slots', slots: out, req_id: id });
     }
   } catch (err) {
-    self.postMessage({ type: 'error', error: String(err) });
+    self.postMessage({ type: 'error', error: String(err), req_id: id });
   }
 };

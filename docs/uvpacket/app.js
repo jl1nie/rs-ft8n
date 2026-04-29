@@ -36,14 +36,32 @@ const state = {
 // ───────────────────────────── WASM init ──────────────────────────────
 
 const decoder = new Worker('decode-worker.js', { type: 'module' });
-let decoderReady = new Promise((resolve) => {
-  decoder.addEventListener('message', function once(e) {
-    if (e.data.type === 'ready') {
-      decoder.removeEventListener('message', once);
-      resolve();
-    }
-  });
+
+// ID-routed reply dispatch. Each call to `decoderRequest(payload)` gets
+// its own unique req_id; the worker echoes it back on every reply so we
+// can match. Without this, overlapping decode passes (periodic RX +
+// loopback button + slot survey) collide on `addEventListener('message')`
+// and one handler steals another's reply.
+let _nextReqId = 1;
+const _pending = new Map();
+decoder.addEventListener('message', (e) => {
+  const id = e.data?.req_id;
+  if (id == null) return;
+  const entry = _pending.get(id);
+  if (!entry) return;
+  _pending.delete(id);
+  entry.resolve(e.data);
 });
+
+function decoderRequest(payload, transfer) {
+  const req_id = _nextReqId++;
+  return new Promise((resolve, reject) => {
+    _pending.set(req_id, { resolve, reject });
+    decoder.postMessage({ ...payload, req_id }, transfer || []);
+  });
+}
+
+let decoderReady = decoderRequest({ type: 'init' });
 
 async function bootWasm() {
   await init();
@@ -54,7 +72,6 @@ async function bootWasm() {
   decoder.addEventListener('messageerror', (e) => {
     console.error('[uvpacket-web] worker messageerror:', e);
   });
-  decoder.postMessage({ type: 'init' });
   await decoderReady;
   setStatus('Decoder ready.');
 }
@@ -328,28 +345,15 @@ $('loopback-btn').onclick = async () => {
   }
   setStatus(`Loopback: ${r.samples.length} samples to decoder…`);
   const samplesCopy = new Float32Array(r.samples);
-  const replyHandler = (e) => {
-    if (e.data.type === 'decoded') {
-      decoder.removeEventListener('message', replyHandler);
-      const n = e.data.frames.length;
-      setStatus(`Loopback: ${n} frame(s) decoded.`);
-      for (const f of e.data.frames) appendDecoded(f, { force: true });
-    } else if (e.data.type === 'error') {
-      decoder.removeEventListener('message', replyHandler);
-      setStatus('Loopback decoder error: ' + e.data.error);
-    }
-  };
-  decoder.addEventListener('message', replyHandler);
-  if (state.mode === 'fm') {
-    decoder.postMessage(
-      { type: 'decode-fm', samples: samplesCopy, audio_centre_hz: r.centre },
-      [samplesCopy.buffer],
-    );
-  } else {
-    decoder.postMessage(
-      { type: 'decode-ssb', samples: samplesCopy, band_lo: 300, band_hi: 2700, step: 25 },
-      [samplesCopy.buffer],
-    );
+  const payload = state.mode === 'fm'
+    ? { type: 'decode-fm', samples: samplesCopy, audio_centre_hz: r.centre }
+    : { type: 'decode-ssb', samples: samplesCopy, band_lo: 300, band_hi: 2700, step: 50 };
+  const reply = await decoderRequest(payload, [samplesCopy.buffer]);
+  if (reply.type === 'decoded') {
+    setStatus(`Loopback: ${reply.frames.length} frame(s) decoded.`);
+    for (const f of reply.frames) appendDecoded(f, { force: true });
+  } else if (reply.type === 'error') {
+    setStatus('Loopback decoder error: ' + reply.error);
   }
 };
 
@@ -480,43 +484,33 @@ async function runDecode(label = '') {
   const pass = ++decodePassCount;
   const t0 = performance.now();
   const tag = label ? ` [${label}]` : '';
-  const replyHandler = (e) => {
-    if (e.data.type === 'decoded') {
-      decoder.removeEventListener('message', replyHandler);
-      decodeInFlight = false;
-      const n = e.data.frames.length;
-      const ms = Math.round(performance.now() - t0);
-      if (n > 0) {
-        setStatus(`RX${tag} pass ${pass}: ${n} frame(s) in ${ms} ms (peak ${peak.toFixed(3)})`);
-        for (const f of e.data.frames) appendDecoded(f);
-      } else {
-        console.log(
-          `[uvpacket-web] RX${tag} pass ${pass}: 0 frames (${ms} ms, peak ${peak.toFixed(3)}, ${samples.length} samples)`,
-        );
+  const payload = state.mode === 'fm'
+    ? {
+        type: 'decode-fm',
+        samples,
+        audio_centre_hz: parseFloat($('f-centre').value) || 1500,
       }
-    } else if (e.data.type === 'error') {
-      decoder.removeEventListener('message', replyHandler);
-      decodeInFlight = false;
-      setStatus('Decoder error: ' + e.data.error);
-      console.error('[uvpacket-web] decoder error:', e.data.error);
-    }
-  };
-  decoder.addEventListener('message', replyHandler);
-  if (state.mode === 'fm') {
-    const centre = parseFloat($('f-centre').value) || 1500;
-    decoder.postMessage(
-      { type: 'decode-fm', samples, audio_centre_hz: centre },
-      [samples.buffer],
-    );
-  } else {
     // 50 Hz coarse step (default mfsk-core is 25 Hz). The LMS phase fit
     // inside the per-peak decoder absorbs the residual ≤ 25 Hz, so the
     // throughput cost of doubling the step is approximately zero while
-    // the CPU drops 2x.
-    decoder.postMessage(
-      { type: 'decode-ssb', samples, band_lo: 300, band_hi: 2700, step: 50 },
-      [samples.buffer],
-    );
+    // the CPU drops 2×.
+    : { type: 'decode-ssb', samples, band_lo: 300, band_hi: 2700, step: 50 };
+  const reply = await decoderRequest(payload, [samples.buffer]);
+  decodeInFlight = false;
+  const ms = Math.round(performance.now() - t0);
+  if (reply.type === 'decoded') {
+    const n = reply.frames.length;
+    if (n > 0) {
+      setStatus(`RX${tag} pass ${pass}: ${n} frame(s) in ${ms} ms (peak ${peak.toFixed(3)})`);
+      for (const f of reply.frames) appendDecoded(f);
+    } else {
+      console.log(
+        `[uvpacket-web] RX${tag} pass ${pass}: 0 frames (${ms} ms, peak ${peak.toFixed(3)})`,
+      );
+    }
+  } else if (reply.type === 'error') {
+    setStatus('Decoder error: ' + reply.error);
+    console.error('[uvpacket-web] decoder error:', reply.error);
   }
 }
 
@@ -624,19 +618,14 @@ $('scan-slots-btn').onclick = async () => {
     alert('Start ▶ Listen first to capture audio for the slot survey.');
     return;
   }
-  const samples = await cap.snapshot(2);
+  let samples = await cap.snapshot(2);
   if (samples.length < 12000) return;
-  const replyHandler = (e) => {
-    if (e.data.type === 'slots') {
-      decoder.removeEventListener('message', replyHandler);
-      renderSlots(e.data.slots);
-    }
-  };
-  decoder.addEventListener('message', replyHandler);
-  decoder.postMessage(
+  if (captureRate !== 12000) samples = resampleTo12k(samples, captureRate);
+  const reply = await decoderRequest(
     { type: 'measure-slots', samples, band_lo: 300, band_hi: 2700, slot: 1200 },
     [samples.buffer],
   );
+  if (reply.type === 'slots') renderSlots(reply.slots);
 };
 
 function renderSlots(slots) {
