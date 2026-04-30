@@ -20,7 +20,7 @@ import { UvAudioCapture } from './audio-capture.js';
 import { UvAudioOutput } from './audio-output.js';
 import { loadActive, saveActive } from './keystore.js';
 
-const APP_VERSION = '0.2.5';
+const APP_VERSION = '0.2.6';
 
 const $ = (id) => document.getElementById(id);
 
@@ -484,6 +484,13 @@ $('listen-btn').onclick = async () => {
 
 let decodeInFlight = false;
 let decodePassCount = 0;
+// SSB pass takes ~1.5 s on phone CPU (8 centres × dual-NSPS MF). At
+// 2.5 s polling that's 60 % steady CPU on idle SSB, far worse than
+// FM's ~7 %. Halve the SSB rate by skipping every other tick — with
+// snapshot=10 s, an effective 5 s SSB poll still covers every burst
+// twice.
+let lastSsbDecodeAt = 0;
+const SSB_MIN_POLL_MS = 4500;
 // Layout subset for FM single-station decode. mode_code: 0=Robust,
 // 1=Standard, 2=Fast, 3=Express. Order = priority (first success
 // wins). Covers all 4 modes × n_blocks 14-28 — uvpacket-web's
@@ -527,6 +534,11 @@ const SSB_COARSE_STEP_HZ = 300;
 
 async function runDecode(label = '') {
   if (decodeInFlight) return;
+  // SSB rate-limit (idle path only — explicit labels like 'post-tx'
+  // bypass it so loopback / post-TX sniffs always run).
+  if (state.mode === 'ssb' && !label) {
+    if (Date.now() - lastSsbDecodeAt < SSB_MIN_POLL_MS) return;
+  }
   decodeInFlight = true;
   // Snapshot window must be ≥ longest_frame + polling_interval to
   // guarantee full burst coverage regardless of TX/RX phase.
@@ -623,6 +635,7 @@ async function runDecode(label = '') {
       };
   const reply = await decoderRequest(payload, [samples.buffer]);
   decodeInFlight = false;
+  if (state.mode === 'ssb') lastSsbDecodeAt = Date.now();
   const ms = Math.round(performance.now() - t0);
   if (reply.type === 'decoded') {
     const n = reply.frames.length;
