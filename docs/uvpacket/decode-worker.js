@@ -29,6 +29,7 @@ function frameToObj(f) {
     mode_code: f.mode_code,
     block_count: f.block_count,
     audio_centre_hz: f.audio_centre_hz,
+    snr_db: f.snr_db,
     json: f.json,
     sig_b64: f.sig_b64,
     verified: f.verified,

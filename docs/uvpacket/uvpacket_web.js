@@ -199,6 +199,15 @@ export class DecodedSignedFrame {
         }
     }
     /**
+     * WSJT-X-compatible SNR estimate (dB, 2.5 kHz reference).
+     * Floored at −30 dB.
+     * @returns {number}
+     */
+    get snr_db() {
+        const ret = wasm.decodedsignedframe_snr_db(this.__wbg_ptr);
+        return ret;
+    }
+    /**
      * @returns {boolean}
      */
     get verified() {

@@ -377,6 +377,7 @@ pub struct DecodedSignedFrame {
     mode_code: u8,
     block_count: u8,
     audio_centre_hz: f32,
+    snr_db: f32,
     json: String,
     sig_b64: String,
     verified: bool,
@@ -411,6 +412,12 @@ impl DecodedSignedFrame {
     pub fn audio_centre_hz(&self) -> f32 {
         self.audio_centre_hz
     }
+    /// WSJT-X-compatible SNR estimate (dB, 2.5 kHz reference).
+    /// Floored at −30 dB.
+    #[wasm_bindgen(getter)]
+    pub fn snr_db(&self) -> f32 {
+        self.snr_db
+    }
     #[wasm_bindgen(getter)]
     pub fn json(&self) -> String {
         self.json.clone()
@@ -442,6 +449,7 @@ impl DecodedSignedFrame {
 }
 
 fn frame_to_signed(f: rx::DecodedFrame, audio_centre_hz: f32) -> DecodedSignedFrame {
+    let snr_db = f.snr_db;
     let payload = f.payload;
     let mut out = DecodedSignedFrame {
         app_type: f.app_type,
@@ -449,6 +457,7 @@ fn frame_to_signed(f: rx::DecodedFrame, audio_centre_hz: f32) -> DecodedSignedFr
         mode_code: f.mode.header_code(),
         block_count: f.block_count,
         audio_centre_hz,
+        snr_db,
         json: String::new(),
         sig_b64: String::new(),
         verified: false,

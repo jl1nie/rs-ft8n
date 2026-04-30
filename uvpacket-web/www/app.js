@@ -690,10 +690,14 @@ function appendDecoded(f, opts = {}) {
   if (f.verified) {
     const row3 = document.createElement('div');
     row3.className = 'row3';
+    const snrTxt = (typeof f.snr_db === 'number' && Number.isFinite(f.snr_db))
+      ? `${f.snr_db >= 0 ? '+' : ''}${f.snr_db.toFixed(1)} dB`
+      : '—';
     row3.innerHTML =
       `<span style="color:var(--accent)">M:</span> ${f.addr_m}<br>` +
       `<span style="color:var(--accent)">mona1:</span> ${f.addr_mona1}<br>` +
-      `<span style="color:var(--accent)">centre:</span> ${f.audio_centre_hz.toFixed(1)} Hz`;
+      `<span style="color:var(--accent)">centre:</span> ${f.audio_centre_hz.toFixed(1)} Hz` +
+      ` &nbsp; <span style="color:var(--accent)">SNR:</span> ${snrTxt}`;
     card.appendChild(row3);
   }
 
