@@ -1,6 +1,6 @@
 [package]
 name = "uvpacket-web"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 license = "GPL-3.0-or-later"
 description = "uvpacket WASM bindings + signed-QSL exchange (Monacoin-compatible secp256k1) for browser deployment"

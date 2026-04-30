@@ -493,10 +493,16 @@ let decodePassCount = 0;
 // and payload byte counts can drive n_blocks up to ~27 for the
 // largest signed cards (300-byte JSON+sig). This is a wide net so a
 // real signal whose layout we'd otherwise miss doesn't fall through.
+//
+// 0.4.x (mfsk-core): mode_code mapping changed —
+//   0 = UltraRobust, 1 = Robust, 2 = Standard, 3 = Express.
+// Layouts are also a no-op constraint with the new pipeline (the
+// inner decoder reads n_blocks from the header block) but the JS
+// API still accepts them for backward-compatible interop.
 const QSL_LAYOUTS = (() => {
   const layouts = [];
   const nbs = [19, 22, 16, 24, 18, 20, 26, 21, 17, 23, 25, 15, 27, 14, 28];
-  for (const mode of [1, 0, 2, 3]) { // Standard, Robust, Fast, Express
+  for (const mode of [2, 1, 3, 0]) { // Standard, Robust, Express, UltraRobust
     for (const nb of nbs) {
       layouts.push([mode, nb]);
     }
@@ -515,7 +521,19 @@ const ENERGY_GATE = 0.0005;
 async function runDecode(label = '') {
   if (decodeInFlight) return;
   decodeInFlight = true;
-  let samples = await cap.snapshot(7);
+  // Snapshot window must be ≥ longest_frame + polling_interval to
+  // guarantee full burst coverage regardless of TX/RX phase.
+  // Longest possible uvpacket frame: UltraRobust 32 payload blocks
+  // + header block + preamble = 211 ms preamble + 33 × 200 ms blocks
+  // ≈ 6.8 s. With 2.5 s polling, snapshot must be ≥ 9.3 s. Pick 10 s
+  // for headroom; the worklet ring buffer is also 10 s.
+  //
+  // Limitation: this is a static upper bound for the current Mode
+  // lineup. Adding a slower mode in future requires re-bumping
+  // snapshot + ring. The proper architectural fix is a continuous
+  // streaming decoder with persistent sync state across snapshot
+  // boundaries — deferred.
+  let samples = await cap.snapshot(10);
   if (samples.length < 12000) {
     decodeInFlight = false;
     return;
@@ -549,51 +567,23 @@ async function runDecode(label = '') {
   const t0 = performance.now();
   const tag = label ? ` [${label}]` : '';
 
-  // Pre-decode sync diagnostic for FM — cheap (~100 µs) and tells us
-  // why the mfsk-core gate is or isn't firing on real-world audio.
-  // Post-0.4.0: the differential preamble score across 4 mode
-  // variants has different noise statistics than the old coherent
-  // 31-chip score; pure-noise ratio sits at 17-22, real signals at
-  // 50+. Gate threshold is **30** (mfsk-core SYNC_GATE_RATIO) and
-  // we ALSO reject when AFC saturates at the search-range boundary
-  // (|Δf| ≥ 195 Hz with default 200 Hz search) — that's a clean
-  // signature of "no real peak, AFC fell off the edge", and the
-  // post-AFC ratio is biased upward in that case (it just measures
-  // a different noise patch).
-  const SYNC_GATE = 30;
-  const AFC_SATURATION_LIMIT = 195;
-  if (state.mode === 'fm') {
-    const centreHz = parseFloat($('f-centre').value) || 1500;
-    const diagSamples = new Float32Array(samples);
-    const diag = await decoderRequest(
-      { type: 'diag-sync', samples: diagSamples, audio_centre_hz: centreHz },
-      [diagSamples.buffer],
-      3000,
-    );
-    if (diag.type === 'sync-stats' && diag.stats.length >= 7) {
-      // [pre_max, pre_median, pre_ratio, delta_f, post_max, post_median, post_ratio]
-      const [mx, med, ratio, df, postMx, postMed, postRatio] = diag.stats;
-      const dfSaturated = Math.abs(df) >= AFC_SATURATION_LIMIT;
-      // When AFC saturates, only `pre_ratio` is trustworthy (post
-      // measures a different noise patch at the AFC boundary). When
-      // AFC succeeded, accept the higher of the two ratios — either
-      // un-corrected sync or the AFC-corrected one is enough.
-      const gateRatio = dfSaturated ? ratio : Math.max(ratio, postRatio);
-      console.log(
-        `[uvpacket-web] sync centre=${centreHz} pre ratio=${ratio.toFixed(1)} ` +
-          `Δf=${df.toFixed(1)}${dfSaturated ? ' (AFC saturated)' : ''} ` +
-          `post ratio=${postRatio.toFixed(1)} → gateRatio=${gateRatio.toFixed(1)} (gate=${SYNC_GATE})`,
-      );
-      if (!label.includes('force') && gateRatio < SYNC_GATE) {
-        decodeInFlight = false;
-        return;
-      }
-    } else if (diag.type === 'sync-stats') {
-      // Empty stats array — buffer too short for diag, skip decode.
-      decodeInFlight = false;
-      return;
-    }
-  }
+  // (0.4.x): the JS-side pre-flight `diag-sync` gate that this
+  // function used to do has been removed. Two reasons:
+  //
+  // 1. The mfsk-core 0.4 inner sync gate (`SYNC_GATE_RATIO=30`) is
+  //    deterministic and reliable — empty audio returns empty
+  //    frames in ~100 ms with no LDPC work. The pre-flight gate's
+  //    job (avoid the 1+ sec brute-force LDPC sweep) is moot now.
+  //
+  // 2. The 0.4 dual-NSPS sync (one MF per nsps for UltraRobust
+  //    coexistence) means diag-sync now does ~3× the MF work of the
+  //    old single-NSPS path. Combined with the inner decode also
+  //    doing its own MF, the pre-flight made every snapshot cost
+  //    ~2× MF + ~1× MF = 3× total vs just decoding directly (1× MF).
+  //
+  // Net effect: idle-mic snapshots now cost one MF each (the inner
+  // decode's), no JS round-trip to diag-sync; the worker still
+  // logs once per pass via the decode reply path below.
 
   const payload = state.mode === 'fm'
     ? {

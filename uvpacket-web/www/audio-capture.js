@@ -76,7 +76,9 @@ export class UvAudioCapture {
     await this.audioCtx.audioWorklet.addModule(processorUrl);
 
     this.workletNode = new AudioWorkletNode(this.audioCtx, 'uv-audio-processor', {
-      processorOptions: { bufferSeconds: 8, waterfallTargetRate: 6000 },
+      // 10 s ring covers the longest possible uvpacket frame
+      // (UltraRobust 32 blocks ≈ 6.8 s) + 2.5 s polling interval.
+      processorOptions: { bufferSeconds: 10, waterfallTargetRate: 6000 },
     });
 
     this.workletNode.port.onmessage = (e) => {

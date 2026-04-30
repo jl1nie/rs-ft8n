@@ -88,13 +88,12 @@ pub const APP_TYPE_QSL_V1: u8 = 0x1;
 pub const APP_TYPE_ADV_V1: u8 = 0x2;
 
 fn mode_from_u8(m: u8) -> Result<Mode, JsValue> {
-    Ok(match m {
-        0 => Mode::Robust,
-        1 => Mode::Standard,
-        2 => Mode::Fast,
-        3 => Mode::Express,
-        _ => return Err(JsValue::from_str("mode must be 0..3")),
-    })
+    // 0.4.x mode codes match `Mode::header_code()`:
+    //   0 = UltraRobust, 1 = Robust, 2 = Standard, 3 = Express.
+    // This replaces the 0.3.x mapping (0=Robust, 1=Standard,
+    // 2=Fast, 3=Express); JS callers passing the old mapping need
+    // to be updated.
+    Mode::from_header_code(m).ok_or_else(|| JsValue::from_str("mode must be 0..3"))
 }
 
 fn pick_block_count(payload_len: usize) -> Result<u8, JsValue> {

@@ -28,7 +28,10 @@ class UvAudioProcessor extends AudioWorkletProcessor {
 
     const opts = options?.processorOptions || {};
     const waterfallTargetRate = opts.waterfallTargetRate || 6000;
-    this.bufferSeconds = opts.bufferSeconds || 8;
+    // Default ring depth covers the longest possible uvpacket frame
+    // (UltraRobust 32 blocks ≈ 6.8 s) plus the auto-RX polling
+    // interval (2.5 s). Bump if a slower mode is ever added.
+    this.bufferSeconds = opts.bufferSeconds || 10;
 
     // Snapshot buffer: ring at outputRate. `totalSamples` tracks how
     // many samples have been written since the last reset — without it,
