@@ -551,8 +551,17 @@ async function runDecode(label = '') {
 
   // Pre-decode sync diagnostic for FM — cheap (~100 µs) and tells us
   // why the mfsk-core gate is or isn't firing on real-world audio.
-  // ratio < 20 → gate rejects (decode should return ~0 ms);
-  // ratio ≥ 20 → LDPC sweep runs (potentially seconds on noise).
+  // Post-0.4.0: the differential preamble score across 4 mode
+  // variants has different noise statistics than the old coherent
+  // 31-chip score; pure-noise ratio sits at 17-22, real signals at
+  // 50+. Gate threshold is **30** (mfsk-core SYNC_GATE_RATIO) and
+  // we ALSO reject when AFC saturates at the search-range boundary
+  // (|Δf| ≥ 195 Hz with default 200 Hz search) — that's a clean
+  // signature of "no real peak, AFC fell off the edge", and the
+  // post-AFC ratio is biased upward in that case (it just measures
+  // a different noise patch).
+  const SYNC_GATE = 30;
+  const AFC_SATURATION_LIMIT = 195;
   if (state.mode === 'fm') {
     const centreHz = parseFloat($('f-centre').value) || 1500;
     const diagSamples = new Float32Array(samples);
@@ -561,22 +570,28 @@ async function runDecode(label = '') {
       [diagSamples.buffer],
       3000,
     );
-    if (diag.type === 'sync-stats') {
+    if (diag.type === 'sync-stats' && diag.stats.length >= 7) {
       // [pre_max, pre_median, pre_ratio, delta_f, post_max, post_median, post_ratio]
       const [mx, med, ratio, df, postMx, postMed, postRatio] = diag.stats;
+      const dfSaturated = Math.abs(df) >= AFC_SATURATION_LIMIT;
+      // When AFC saturates, only `pre_ratio` is trustworthy (post
+      // measures a different noise patch at the AFC boundary). When
+      // AFC succeeded, accept the higher of the two ratios — either
+      // un-corrected sync or the AFC-corrected one is enough.
+      const gateRatio = dfSaturated ? ratio : Math.max(ratio, postRatio);
       console.log(
-        `[uvpacket-web] sync centre=${centreHz} pre: max=${mx.toExponential(2)} median=${med.toExponential(2)} ratio=${ratio.toFixed(1)}` +
-          `   →   AFC Δf=${df.toFixed(2)} Hz   →   post: max=${postMx.toExponential(2)} ratio=${postRatio.toFixed(1)} (gate=20)`,
+        `[uvpacket-web] sync centre=${centreHz} pre ratio=${ratio.toFixed(1)} ` +
+          `Δf=${df.toFixed(1)}${dfSaturated ? ' (AFC saturated)' : ''} ` +
+          `post ratio=${postRatio.toFixed(1)} → gateRatio=${gateRatio.toFixed(1)} (gate=${SYNC_GATE})`,
       );
-      // Pre-flight gate check: if neither the un-corrected nor the
-      // AFC-corrected coherence ratio clears the gate, the inner
-      // `decode_uvpacket` call would also reject. Skip the redundant
-      // worker round-trip — saves the 29-50 ms per pass that the
-      // user was seeing pile up on quiet snapshots.
-      if (!label.includes('force') && ratio < 20 && postRatio < 20) {
+      if (!label.includes('force') && gateRatio < SYNC_GATE) {
         decodeInFlight = false;
         return;
       }
+    } else if (diag.type === 'sync-stats') {
+      // Empty stats array — buffer too short for diag, skip decode.
+      decodeInFlight = false;
+      return;
     }
   }
 
