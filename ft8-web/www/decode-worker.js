@@ -26,6 +26,9 @@ import init, {
   decode_ft4_sniper, decode_ft4_sniper_f32,
   // WSPR
   decode_wspr_wav, decode_wspr_wav_f32,
+  // Q65 — basic BP scan + fast-fading metric. (sub-mode passed as u8)
+  decode_q65_wav, decode_q65_wav_f32,
+  decode_q65_wav_fading, decode_q65_wav_fading_f32,
 } from '../pkg/ft8_web.js';
 
 const FN_MAP = {
@@ -37,6 +40,8 @@ const FN_MAP = {
   decode_ft4_wav_subtract, decode_ft4_wav_subtract_f32,
   decode_ft4_sniper, decode_ft4_sniper_f32,
   decode_wspr_wav, decode_wspr_wav_f32,
+  decode_q65_wav, decode_q65_wav_f32,
+  decode_q65_wav_fading, decode_q65_wav_fading_f32,
 };
 
 const initPromise = init().then(() => {

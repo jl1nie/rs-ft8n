@@ -535,3 +535,177 @@ pub fn encode_wspr(
     mfsk_core::wspr::synthesize_type1(callsign, grid, power_dbm, 12_000, freq_hz, 0.3)
         .ok_or_else(|| JsValue::from_str("Invalid WSPR message (bad callsign/grid/power)"))
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// Q65 — six wired sub-modes (Q65-30A + Q65-60A‥E)
+//
+// Sub-mode encoding (matches `MfskQ65SubMode` in mfsk-ffi):
+//   0 = Q65-30A  (30 s slot, ×1 spacing, terrestrial / ionoscatter)
+//   1 = Q65-60A  (60 s slot, ×1 spacing, 6 m EME)
+//   2 = Q65-60B  (60 s slot, ×2 spacing, 70 cm / 23 cm EME)
+//   3 = Q65-60C  (60 s slot, ×4 spacing, ~3 GHz microwave EME)
+//   4 = Q65-60D  (60 s slot, ×8 spacing, 5.7 / 10 GHz EME)
+//   5 = Q65-60E  (60 s slot, ×16 spacing, 24 GHz+ / extreme spread)
+//
+// `decode_q65_*` returns `DecodedMessage` with `dt_sec = start_sample /
+// 12_000` and `hard_errors = QRA BP iterations consumed`. SNR is left
+// at 0.0 (Q65 doesn't report a comparable SNR through this surface).
+// ───────────────────────────────────────────────────────────────────────
+
+fn q65_decodes_to_messages(decodes: Vec<mfsk_core::q65::Q65Decode>) -> Vec<DecodedMessage> {
+    decodes
+        .into_iter()
+        .map(|d| DecodedMessage {
+            freq_hz: d.freq_hz,
+            dt_sec: d.start_sample as f32 / 12_000.0,
+            snr_db: 0.0,
+            hard_errors: d.iterations,
+            pass: 0,
+            message: d.message,
+        })
+        .collect()
+}
+
+macro_rules! dispatch_q65_submode {
+    ($submode:expr, $body:ident) => {
+        match $submode {
+            0 => $body!(mfsk_core::q65::Q65a30),
+            1 => $body!(mfsk_core::q65::Q65a60),
+            2 => $body!(mfsk_core::q65::Q65b60),
+            3 => $body!(mfsk_core::q65::Q65c60),
+            4 => $body!(mfsk_core::q65::Q65d60),
+            5 => $body!(mfsk_core::q65::Q65e60),
+            _ => Vec::new(),
+        }
+    };
+}
+
+/// Plain Q65 BP decode (basic AWGN strategy). f32 audio.
+#[wasm_bindgen]
+pub fn decode_q65_wav_f32(samples: &[f32], submode: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    use mfsk_core::core::dsp::resample::resample_f32_to_12k_f32;
+    use mfsk_core::q65::search::SearchParams;
+    let audio = resample_f32_to_12k_f32(samples, sample_rate);
+    let params = SearchParams::default();
+    macro_rules! scan_body {
+        ($p:ty) => {
+            mfsk_core::q65::decode_scan_for::<$p>(&audio, 12_000, 0, &params)
+        };
+    }
+    let decodes = dispatch_q65_submode!(submode, scan_body);
+    q65_decodes_to_messages(decodes)
+}
+
+/// Plain Q65 BP decode. i16 audio variant.
+#[wasm_bindgen]
+pub fn decode_q65_wav(samples: &[i16], submode: u8, sample_rate: u32) -> Vec<DecodedMessage> {
+    use mfsk_core::core::dsp::resample::resample_i16_to_12k_f32;
+    use mfsk_core::q65::search::SearchParams;
+    let audio = resample_i16_to_12k_f32(samples, sample_rate);
+    let params = SearchParams::default();
+    macro_rules! scan_body {
+        ($p:ty) => {
+            mfsk_core::q65::decode_scan_for::<$p>(&audio, 12_000, 0, &params)
+        };
+    }
+    let decodes = dispatch_q65_submode!(submode, scan_body);
+    q65_decodes_to_messages(decodes)
+}
+
+/// Q65 fast-fading metric decode (high-Doppler EME).
+///
+/// `b90_ts` is the spread-bandwidth × symbol-period dimensionless
+/// product. Calibrated test values: 3 (light spread), 8 (moderate),
+/// 15 (heavy / 10+ GHz EME). `model`: 0 = Gaussian, 1 = Lorentzian.
+#[wasm_bindgen]
+pub fn decode_q65_wav_fading_f32(
+    samples: &[f32],
+    submode: u8,
+    b90_ts: f32,
+    model: u8,
+    sample_rate: u32,
+) -> Vec<DecodedMessage> {
+    use mfsk_core::core::dsp::resample::resample_f32_to_12k_f32;
+    use mfsk_core::fec::qra::FadingModel;
+    use mfsk_core::q65::search::SearchParams;
+    let audio = resample_f32_to_12k_f32(samples, sample_rate);
+    let params = SearchParams::default();
+    let fading = match model {
+        1 => FadingModel::Lorentzian,
+        _ => FadingModel::Gaussian,
+    };
+    macro_rules! scan_body {
+        ($p:ty) => {
+            mfsk_core::q65::decode_scan_fading_for::<$p>(
+                &audio, 12_000, 0, &params, b90_ts, fading, None,
+            )
+        };
+    }
+    let decodes = dispatch_q65_submode!(submode, scan_body);
+    q65_decodes_to_messages(decodes)
+}
+
+/// f32 → i16 wrapper for the fast-fading variant. `b90_ts` and
+/// `model` semantics identical to [`decode_q65_wav_fading_f32`].
+#[wasm_bindgen]
+pub fn decode_q65_wav_fading(
+    samples: &[i16],
+    submode: u8,
+    b90_ts: f32,
+    model: u8,
+    sample_rate: u32,
+) -> Vec<DecodedMessage> {
+    use mfsk_core::core::dsp::resample::resample_i16_to_12k_f32;
+    use mfsk_core::fec::qra::FadingModel;
+    use mfsk_core::q65::search::SearchParams;
+    let audio = resample_i16_to_12k_f32(samples, sample_rate);
+    let params = SearchParams::default();
+    let fading = match model {
+        1 => FadingModel::Lorentzian,
+        _ => FadingModel::Gaussian,
+    };
+    macro_rules! scan_body {
+        ($p:ty) => {
+            mfsk_core::q65::decode_scan_fading_for::<$p>(
+                &audio, 12_000, 0, &params, b90_ts, fading, None,
+            )
+        };
+    }
+    let decodes = dispatch_q65_submode!(submode, scan_body);
+    q65_decodes_to_messages(decodes)
+}
+
+/// Encode a standard Q65 message (`<call1> <call2> <grid_or_report>`)
+/// at the requested sub-mode + audio centre frequency. Returns 12 kHz
+/// f32 PCM at amplitude 0.3.
+#[wasm_bindgen]
+pub fn encode_q65(
+    call1: &str,
+    call2: &str,
+    grid_or_report: &str,
+    freq_hz: f32,
+    submode: u8,
+) -> Result<Vec<f32>, JsValue> {
+    let result = match submode {
+        0 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65a30>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        1 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65a60>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        2 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65b60>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        3 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65c60>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        4 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65d60>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        5 => mfsk_core::q65::synthesize_standard_for::<mfsk_core::q65::Q65e60>(
+            call1, call2, grid_or_report, 12_000, freq_hz, 0.3,
+        ),
+        _ => return Err(JsValue::from_str("Invalid Q65 sub-mode (expected 0..=5)")),
+    };
+    result.ok_or_else(|| JsValue::from_str("Q65 message pack failed (bad callsign / grid / report)"))
+}

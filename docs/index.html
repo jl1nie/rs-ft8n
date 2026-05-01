@@ -532,6 +532,30 @@
         <option value="ft8" selected>FT8 (15 s)</option>
         <option value="ft4">FT4 (7.5 s)</option>
         <option value="wspr">WSPR (120 s)</option>
+        <option value="q65">Q65 (30/60 s)</option>
+      </select>
+    </div>
+    <div class="field q65-only" id="q65-submode-field" style="display:none">
+      <label>Q65 sub-mode</label>
+      <select id="q65-submode">
+        <option value="0" selected>Q65-30A (30 s, terrestrial / ionoscatter)</option>
+        <option value="1">Q65-60A (60 s, 6 m EME)</option>
+        <option value="2">Q65-60B (60 s, 70 cm / 23 cm EME)</option>
+        <option value="3">Q65-60C (60 s, ~3 GHz EME)</option>
+        <option value="4">Q65-60D (60 s, 5.7 / 10 GHz EME)</option>
+        <option value="5">Q65-60E (60 s, 24 GHz+ EME)</option>
+      </select>
+    </div>
+    <label class="q65-only" id="q65-fading-toggle" style="display:none"><input type="checkbox" id="q65-fading"> Fast-fading metric (high-Doppler EME)</label>
+    <div class="field q65-only q65-fading-only" id="q65-b90-field" style="display:none">
+      <label>Spread (b90·Ts) <span id="q65-b90-label">8</span></label>
+      <input type="range" id="q65-b90" min="3" max="15" step="1" value="8">
+    </div>
+    <div class="field q65-only q65-fading-only" id="q65-fading-model-field" style="display:none">
+      <label>Fading model</label>
+      <select id="q65-fading-model">
+        <option value="0" selected>Gaussian (libration / AWGN)</option>
+        <option value="1">Lorentzian (heavy-tail spread)</option>
       </select>
     </div>
     <div class="field">

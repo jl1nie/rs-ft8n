@@ -59,13 +59,32 @@ import { QsoLog } from './qso-log.js';
 // scheduler and decode dispatch without restarts.
 function currentProtocol() {
   const v = localStorage.getItem('webft8-protocol');
-  if (v === 'ft4' || v === 'wspr') return v;
+  if (v === 'ft4' || v === 'wspr' || v === 'q65') return v;
   return 'ft8';
 }
+
+// Q65 sub-mode: 0 = Q65-30A (30 s slot), 1‥5 = Q65-60A‥E (60 s slot).
+function currentQ65Submode() {
+  const v = parseInt(localStorage.getItem('webft8-q65-submode') || '0', 10);
+  return (v >= 0 && v <= 5) ? v : 0;
+}
+function currentQ65Fading() {
+  return localStorage.getItem('webft8-q65-fading') === '1';
+}
+function currentQ65B90() {
+  const v = parseFloat(localStorage.getItem('webft8-q65-b90') || '8');
+  return (v >= 3 && v <= 15) ? v : 8;
+}
+function currentQ65FadingModel() {
+  // 0 = Gaussian, 1 = Lorentzian
+  return localStorage.getItem('webft8-q65-fading-model') === '1' ? 1 : 0;
+}
+
 function getSlotMs() {
   const p = currentProtocol();
   if (p === 'ft4') return 7500;
   if (p === 'wspr') return 120000;
+  if (p === 'q65') return currentQ65Submode() === 0 ? 30000 : 60000;
   return 15000;
 }
 
@@ -117,17 +136,67 @@ const scoutDots = [
 const myCallInput = document.getElementById('my-call');
 const myGridInput = document.getElementById('my-grid');
 const protocolSelect = document.getElementById('protocol-select');
+const q65SubmodeSelect = document.getElementById('q65-submode');
+const q65SubmodeField = document.getElementById('q65-submode-field');
+const q65FadingToggle = document.getElementById('q65-fading-toggle');
+const q65FadingCheck = document.getElementById('q65-fading');
+const q65B90Field = document.getElementById('q65-b90-field');
+const q65B90Slider = document.getElementById('q65-b90');
+const q65B90Label = document.getElementById('q65-b90-label');
+const q65FadingModelField = document.getElementById('q65-fading-model-field');
+const q65FadingModelSelect = document.getElementById('q65-fading-model');
+
+function syncQ65Visibility() {
+  const isQ65 = currentProtocol() === 'q65';
+  const fading = isQ65 && currentQ65Fading();
+  if (q65SubmodeField)      q65SubmodeField.style.display      = isQ65 ? '' : 'none';
+  if (q65FadingToggle)      q65FadingToggle.style.display      = isQ65 ? '' : 'none';
+  if (q65B90Field)          q65B90Field.style.display          = fading ? '' : 'none';
+  if (q65FadingModelField)  q65FadingModelField.style.display  = fading ? '' : 'none';
+}
+
 if (protocolSelect) {
   protocolSelect.value = currentProtocol();
   protocolSelect.addEventListener('change', () => {
     const v = protocolSelect.value;
-    const normalized = (v === 'ft4' || v === 'wspr') ? v : 'ft8';
+    const normalized = (v === 'ft4' || v === 'wspr' || v === 'q65') ? v : 'ft8';
     localStorage.setItem('webft8-protocol', normalized);
     // Push the new slot length into the running scheduler (restarts it
     // safely) so the UI switches over without a page reload.
     periodMgr.setSlotMs(getSlotMs());
+    syncQ65Visibility();
   });
 }
+if (q65SubmodeSelect) {
+  q65SubmodeSelect.value = String(currentQ65Submode());
+  q65SubmodeSelect.addEventListener('change', () => {
+    localStorage.setItem('webft8-q65-submode', q65SubmodeSelect.value);
+    // Q65-30A is 30s, Q65-60A‥E are 60s — push the new slot length.
+    periodMgr.setSlotMs(getSlotMs());
+  });
+}
+if (q65FadingCheck) {
+  q65FadingCheck.checked = currentQ65Fading();
+  q65FadingCheck.addEventListener('change', () => {
+    localStorage.setItem('webft8-q65-fading', q65FadingCheck.checked ? '1' : '0');
+    syncQ65Visibility();
+  });
+}
+if (q65B90Slider) {
+  q65B90Slider.value = String(currentQ65B90());
+  if (q65B90Label) q65B90Label.textContent = q65B90Slider.value;
+  q65B90Slider.addEventListener('input', () => {
+    localStorage.setItem('webft8-q65-b90', q65B90Slider.value);
+    if (q65B90Label) q65B90Label.textContent = q65B90Slider.value;
+  });
+}
+if (q65FadingModelSelect) {
+  q65FadingModelSelect.value = String(currentQ65FadingModel());
+  q65FadingModelSelect.addEventListener('change', () => {
+    localStorage.setItem('webft8-q65-fading-model', q65FadingModelSelect.value);
+  });
+}
+syncQ65Visibility();
 const deviceSelect = document.getElementById('audio-device');
 const outputDeviceSelect = document.getElementById('audio-output-device');
 const bandSelect = document.getElementById('band-header');
@@ -859,13 +928,29 @@ async function runDecode(samples, sampleRate, onPartial) {
   // Dispatch to f32 or i16 entry points based on the input array type.
   // Live capture passes Float32Array directly (worklet output) — skips
   // the JS i16 conversion loop. WAV file drops still arrive as Int16Array.
-  // Protocol routing: FT4 → `decode_ft4_*`, WSPR → `decode_wspr_*`.
+  // Protocol routing: FT4 → `decode_ft4_*`, WSPR → `decode_wspr_*`,
+  //                   Q65 → `decode_q65_*` (basic BP or fast-fading).
   const isF32 = samples instanceof Float32Array;
   const proto = currentProtocol();
   const ft4   = proto === 'ft4';
   const wspr  = proto === 'wspr';
+  const q65   = proto === 'q65';
   let fnDecodeName, fnSniperName, fnSubtractName, fnPhase1Name, fnPhase2Name;
-  if (wspr) {
+  if (q65) {
+    // Pick fast-fading variant only when the user enabled it (EME
+    // recordings with measurable Doppler spread). Plain Q65 BP scan
+    // covers the terrestrial / ionoscatter common case.
+    const fading = currentQ65Fading();
+    if (fading) {
+      fnDecodeName = isF32 ? 'decode_q65_wav_fading_f32' : 'decode_q65_wav_fading';
+    } else {
+      fnDecodeName = isF32 ? 'decode_q65_wav_f32'        : 'decode_q65_wav';
+    }
+    fnSniperName   = null; // no sniper / Phase1+2 / subtract for Q65 — WAV-drop path only
+    fnSubtractName = null;
+    fnPhase1Name   = null;
+    fnPhase2Name   = null;
+  } else if (wspr) {
     fnDecodeName   = isF32 ? 'decode_wspr_wav_f32' : 'decode_wspr_wav';
     fnSniperName   = null; // no sniper mode for WSPR yet (coarse-only path)
     fnSubtractName = null;
@@ -891,7 +976,20 @@ async function runDecode(samples, sampleRate, onPartial) {
   const sr = sampleRate || capture.getSampleRate();
 
   let results;
-  if (wspr) {
+  if (q65) {
+    // Q65: one-shot scan. Sub-mode (0..5) is a required parameter
+    // both for the basic BP path and the fast-fading variant.
+    const submode = currentQ65Submode();
+    if (currentQ65Fading()) {
+      // (samples, submode, b90_ts, model, sample_rate)
+      results = await workerDecode(fnDecodeName, [
+        samples, submode, currentQ65B90(), currentQ65FadingModel(), sr,
+      ]);
+    } else {
+      // (samples, submode, sample_rate)
+      results = await workerDecode(fnDecodeName, [samples, submode, sr]);
+    }
+  } else if (wspr) {
     // WSPR: one-shot scan. No subtract, no phase split, no AP yet.
     // sampleRate argument uses the same signature convention but the
     // decoder takes only (samples, sample_rate).
@@ -923,9 +1021,10 @@ async function runDecode(samples, sampleRate, onPartial) {
 
   // AP supplement: enabled by checkbox, auto-disabled by budget.
   // Skip AP when calling CQ (no target yet — AP would only produce false positives)
-  // or in WSPR mode (no sniper entry point).
+  // or in WSPR / Q65 mode (no sniper entry point exposed; Q65 has its
+  // own AP / AP-list strategies but they're not wired in this UI yet).
   const isCqWaiting = qso.state === QSO_STATE.CALLING && !qso.dxCall;
-  const useAp = apCheck.checked && !apDisabledAuto && !isCqWaiting && !wspr;
+  const useAp = apCheck.checked && !apDisabledAuto && !isCqWaiting && !wspr && !q65;
   const apTarget = useAp
     ? (apCall || (currentMode === 'scout' && qso.dxCall ? qso.dxCall : ''))
     : '';
