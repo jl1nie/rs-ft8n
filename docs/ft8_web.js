@@ -275,6 +275,79 @@ export function decode_phase2_f32(strictness) {
 }
 
 /**
+ * Plain Q65 BP decode. i16 audio variant.
+ * @param {Int16Array} samples
+ * @param {number} submode
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_q65_wav(samples, submode, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_q65_wav(ptr0, len0, submode, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Plain Q65 BP decode (basic AWGN strategy). f32 audio.
+ * @param {Float32Array} samples
+ * @param {number} submode
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_q65_wav_f32(samples, submode, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_q65_wav_f32(ptr0, len0, submode, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * f32 → i16 wrapper for the fast-fading variant. `b90_ts` and
+ * `model` semantics identical to [`decode_q65_wav_fading_f32`].
+ * @param {Int16Array} samples
+ * @param {number} submode
+ * @param {number} b90_ts
+ * @param {number} model
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_q65_wav_fading(samples, submode, b90_ts, model, sample_rate) {
+    const ptr0 = passArray16ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_q65_wav_fading(ptr0, len0, submode, b90_ts, model, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
+ * Q65 fast-fading metric decode (high-Doppler EME).
+ *
+ * `b90_ts` is the spread-bandwidth × symbol-period dimensionless
+ * product. Calibrated test values: 3 (light spread), 8 (moderate),
+ * 15 (heavy / 10+ GHz EME). `model`: 0 = Gaussian, 1 = Lorentzian.
+ * @param {Float32Array} samples
+ * @param {number} submode
+ * @param {number} b90_ts
+ * @param {number} model
+ * @param {number} sample_rate
+ * @returns {DecodedMessage[]}
+ */
+export function decode_q65_wav_fading_f32(samples, submode, b90_ts, model, sample_rate) {
+    const ptr0 = passArrayF32ToWasm0(samples, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.decode_q65_wav_fading_f32(ptr0, len0, submode, b90_ts, model, sample_rate);
+    var v2 = getArrayJsValueFromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v2;
+}
+
+/**
  *   mycall + dxcall + RRR/RR73/73 → 77-bit lock (passes 9-11)
  *   CQ + dxcall + grid → up to 76-bit lock (passes 7/8)
  *   mycall + dxcall → 61-bit lock (pass 8)
@@ -513,6 +586,33 @@ export function encode_ft8(call1, call2, report, freq_hz) {
     const ptr2 = passStringToWasm0(report, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
     const ret = wasm.encode_ft8(ptr0, len0, ptr1, len1, ptr2, len2, freq_hz);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v4 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v4;
+}
+
+/**
+ * Encode a standard Q65 message (`<call1> <call2> <grid_or_report>`)
+ * at the requested sub-mode + audio centre frequency. Returns 12 kHz
+ * f32 PCM at amplitude 0.3.
+ * @param {string} call1
+ * @param {string} call2
+ * @param {string} grid_or_report
+ * @param {number} freq_hz
+ * @param {number} submode
+ * @returns {Float32Array}
+ */
+export function encode_q65(call1, call2, grid_or_report, freq_hz, submode) {
+    const ptr0 = passStringToWasm0(call1, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(call2, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(grid_or_report, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.encode_q65(ptr0, len0, ptr1, len1, ptr2, len2, freq_hz, submode);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
